@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { CommunicationProvider } from '../communication.service';
 import { NotificationChannel } from '../../automation/automation.constants';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -18,9 +18,18 @@ type ProviderPayload = {
   [key: string]: any;
 };
 
-function assertExternalProviderAccess() {
+export function assertExternalProviderAccess() {
   if (process.env.DEPLOY_ENV === 'staging' || process.env.COMMUNICATION_EXTERNAL_DELIVERY_ENABLED === 'false') {
-    throw new Error('External communication providers are disabled for this environment');
+    const code = process.env.DEPLOY_ENV === 'staging'
+      ? 'EXTERNAL_PROVIDER_DISABLED_IN_STAGING'
+      : 'EXTERNAL_PROVIDER_DISABLED_IN_ENVIRONMENT';
+    throw new HttpException(
+      {
+        code,
+        message: 'External communication providers are disabled for this environment',
+      },
+      HttpStatus.SERVICE_UNAVAILABLE,
+    );
   }
 }
 

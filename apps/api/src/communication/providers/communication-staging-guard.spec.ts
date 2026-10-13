@@ -1,3 +1,4 @@
+import { HttpException } from '@nestjs/common';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import nodemailer from 'nodemailer';
 import { EmailProvider, TelegramProvider, ZaloProvider, SMSProvider, PushProvider, InAppProvider } from './communication.providers';
@@ -27,7 +28,16 @@ describe('external communication staging guard', () => {
       () => zalo.deleteWebhook(payload.tenantId),
       () => new SMSProvider().send(payload), () => new PushProvider().send(payload),
     ];
-    for (const call of paths) await expect(call()).rejects.toThrow('External communication providers are disabled');
+    for (const call of paths) {
+      const error = await call().catch((value) => value);
+      expect(error).toBeInstanceOf(HttpException);
+      expect(error.getStatus()).toBe(503);
+      expect(error.getResponse()).toMatchObject({
+        code: env.DEPLOY_ENV === 'staging'
+          ? 'EXTERNAL_PROVIDER_DISABLED_IN_STAGING'
+          : 'EXTERNAL_PROVIDER_DISABLED_IN_ENVIRONMENT',
+      });
+    }
     expect(prisma.appSetting.findUnique).not.toHaveBeenCalled();
     expect(network).not.toHaveBeenCalled();
     expect(smtp).not.toHaveBeenCalled();

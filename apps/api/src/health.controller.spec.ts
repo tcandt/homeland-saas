@@ -1,10 +1,31 @@
 import { ServiceUnavailableException } from '@nestjs/common';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HealthController } from './health.controller';
 import { GUARDS_METADATA } from '@nestjs/common/constants';
 import { InternalTokenGuard } from './shared/guards/internal-token.guard';
 
 describe('HealthController readiness', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('distinguishes staging deployment from production Node runtime without changing the legacy field', () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('DEPLOY_ENV', 'staging');
+    vi.stubEnv('APP_ENV', 'other');
+    const controller = new HealthController({} as any);
+    expect(controller.getBuildInfo()).toMatchObject({
+      environment: 'production',
+      deploymentEnvironment: 'staging',
+    });
+  });
+
+  it('falls back to the runtime environment when deployment labels are absent', () => {
+    vi.stubEnv('DEPLOY_ENV', '');
+    vi.stubEnv('APP_ENV', '');
+    vi.stubEnv('ENVIRONMENT', '');
+    vi.stubEnv('NODE_ENV', 'development');
+    expect(new HealthController({} as any).getBuildInfo().deploymentEnvironment).toBe('development');
+  });
+
   it('protects build metadata with the internal token guard', () => {
     expect(Reflect.getMetadata(GUARDS_METADATA, HealthController.prototype.getBuildInfo)).toContain(InternalTokenGuard);
   });

@@ -1,8 +1,78 @@
-import { BadRequestException } from '@nestjs/common';
-import { describe, expect, it, vi } from 'vitest';
+import { BadRequestException, ExecutionContext, ForbiddenException } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CommunicationController } from './communication.controller';
+import { PERMISSIONS_KEY } from '../shared/decorators/require-permissions.decorator';
+import { PermissionsGuard } from '../shared/guards/permissions.guard';
 
 describe('CommunicationController Zalo webhook', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('fails closed before staging provider actions read settings or persist cached chats', async () => {
+    vi.stubEnv('DEPLOY_ENV', 'staging');
+    const { controller, prisma } = createController();
+    const req = { user: { tenantId: 'tenant-1' } };
+    await expect(controller.testZaloAdminGroup(req, {})).rejects.toMatchObject({
+      status: 503,
+      response: expect.objectContaining({ code: 'EXTERNAL_PROVIDER_DISABLED_IN_STAGING' }),
+    });
+    await expect(controller.connectZaloWebhook(req)).rejects.toMatchObject({ status: 503 });
+    await expect(controller.autoDetectAdminGroup(req)).rejects.toMatchObject({ status: 503 });
+    await expect(controller.sendZaloTest(req, {})).rejects.toMatchObject({ status: 503 });
+    expect(prisma.appSetting.findUnique).not.toHaveBeenCalled();
+    expect(prisma.appSetting.update).not.toHaveBeenCalled();
+  });
+
+  it('protects integration status, provider tests, and Zalo management with setting permissions', () => {
+    const expected: Record<string, string[]> = {
+      getZaloStatus: ['setting.read'],
+      testZaloEndpoint: ['setting.read'],
+      testZaloBot: ['setting.update'],
+      generateZaloAdminGroupSetupCode: ['setting.update'],
+      testZaloAdminGroup: ['setting.update'],
+      clearZaloAdminGroup: ['setting.update'],
+      autoDetectAdminGroup: ['setting.update'],
+      connectZaloWebhook: ['setting.update'],
+      sendZaloTest: ['setting.update'],
+      sendEmailTest: ['setting.update'],
+      sendTelegramTest: ['setting.update'],
+    };
+
+    for (const [method, permissions] of Object.entries(expected)) {
+      expect(Reflect.getMetadata(PERMISSIONS_KEY, (CommunicationController.prototype as any)[method])).toEqual(permissions);
+    }
+  });
+
+  it('allows only matching settings permissions or ADMIN on integration management handlers', () => {
+    const guard = new PermissionsGuard(new Reflector());
+    const handlers: Array<[string, string]> = [
+      ['getZaloStatus', 'setting.read'],
+      ['testZaloEndpoint', 'setting.read'],
+      ['testZaloBot', 'setting.update'],
+      ['generateZaloAdminGroupSetupCode', 'setting.update'],
+      ['testZaloAdminGroup', 'setting.update'],
+      ['clearZaloAdminGroup', 'setting.update'],
+      ['autoDetectAdminGroup', 'setting.update'],
+      ['connectZaloWebhook', 'setting.update'],
+      ['sendZaloTest', 'setting.update'],
+      ['sendEmailTest', 'setting.update'],
+      ['sendTelegramTest', 'setting.update'],
+    ];
+    const contextFor = (handler: Function, user?: Record<string, unknown>) => ({
+      getHandler: () => handler,
+      getClass: () => CommunicationController,
+      switchToHttp: () => ({ getRequest: () => ({ user }) }),
+    }) as unknown as ExecutionContext;
+
+    for (const [method, permission] of handlers) {
+      const handler = (CommunicationController.prototype as any)[method];
+      expect(() => guard.canActivate(contextFor(handler))).toThrow(ForbiddenException);
+      expect(guard.canActivate(contextFor(handler, { roles: ['ADMIN'], permissions: [] }))).toBe(true);
+      expect(guard.canActivate(contextFor(handler, { roles: [], permissions: [permission] }))).toBe(true);
+      expect(() => guard.canActivate(contextFor(handler, { roles: [], permissions: ['setting.other'] }))).toThrow(ForbiddenException);
+    }
+  });
+
   function createController() {
     const prisma = {
       appSetting: {

@@ -6,7 +6,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import { EmailProvider, TelegramProvider, ZaloProvider, looksLikePhoneNumber } from './providers/communication.providers';
+import { EmailProvider, TelegramProvider, ZaloProvider, assertExternalProviderAccess, looksLikePhoneNumber } from './providers/communication.providers';
 import { Public } from '../shared/decorators/public.decorator';
 import { randomBytes, timingSafeEqual } from 'crypto';
 import { buildTenantWebhookUrl, extractZaloWebhookChat, isWrappedZaloWebhookPayload, mergeRecentZaloWebhookChat, normalizeZaloUpdate, unwrapZaloWebhookPayload } from './adapters/zalo-normalizer';
@@ -618,6 +618,7 @@ export class CommunicationController {
   }
 
   @Get('zalo/status')
+  @RequirePermissions('setting.read')
   @ApiOperation({ summary: 'Get current Zalo integration status for the tenant' })
   async getZaloStatus(@Req() req) {
     const tenantId = req.user.tenantId;
@@ -672,11 +673,13 @@ export class CommunicationController {
   }
 
   @Post('zalo/test-bot')
+  @RequirePermissions('setting.update')
   @ApiOperation({ summary: 'Validate Zalo Bot token via getMe and optionally send test message to target chat' })
   async testZaloBot(
     @Req() req,
     @Body() body?: { recipient?: string; message?: string },
   ) {
+    assertExternalProviderAccess();
     const tenantId = req.user.tenantId;
     const result = await this.zaloProvider.getMe(tenantId);
 
@@ -735,6 +738,7 @@ export class CommunicationController {
   }
 
   @Post('zalo/admin-group/setup-code')
+  @RequirePermissions('setting.update')
   @ApiOperation({ summary: 'Generate a one-time admin group setup code for /setadmin <CODE>' })
   async generateZaloAdminGroupSetupCode(@Req() req) {
     const tenantId = req.user.tenantId;
@@ -776,6 +780,7 @@ export class CommunicationController {
   }
 
   @Post('zalo/test-admin-group')
+  @RequirePermissions('setting.update')
   @ApiOperation({ summary: 'Send a test Zalo message to the configured admin group' })
   async testZaloAdminGroup(
     @Req() req,
@@ -791,6 +796,7 @@ export class CommunicationController {
       currentRps?: number;
     },
   ) {
+    assertExternalProviderAccess();
     const tenantId = req.user.tenantId;
     const setting = await this.prisma.appSetting.findUnique({
       where: {
@@ -847,6 +853,7 @@ export class CommunicationController {
   }
 
   @Delete('zalo/admin-group')
+  @RequirePermissions('setting.update')
   @ApiOperation({ summary: 'Clear the configured Zalo admin group binding' })
   async clearZaloAdminGroup(@Req() req) {
     const tenantId = req.user.tenantId;
@@ -883,8 +890,10 @@ export class CommunicationController {
   }
 
   @Post('zalo/auto-detect-admin-group')
+  @RequirePermissions('setting.update')
   @ApiOperation({ summary: 'Pick the latest webhook chat_id, preferring group chats, and save it as the admin group chat id' })
   async autoDetectAdminGroup(@Req() req) {
+    assertExternalProviderAccess();
     const tenantId = req.user.tenantId;
     const setting = await this.prisma.appSetting.findUnique({
       where: {
@@ -1080,8 +1089,10 @@ export class CommunicationController {
   }
 
   @Post('zalo/connect-webhook')
+  @RequirePermissions('setting.update')
   @ApiOperation({ summary: 'Call Zalo setWebhook with the current tenant webhook URL and secret token' })
   async connectZaloWebhook(@Req() req) {
+    assertExternalProviderAccess();
     const tenantId = req.user.tenantId;
     const setting = await this.prisma.appSetting.findUnique({
       where: {
@@ -1121,6 +1132,7 @@ export class CommunicationController {
   }
 
   @Post('zalo/test-endpoint')
+  @RequirePermissions('setting.read')
   @ApiOperation({ summary: 'Validate current Zalo webhook endpoint configuration without calling the provider' })
   async testZaloEndpoint(@Req() req) {
     const tenantId = req.user.tenantId;
@@ -1148,11 +1160,13 @@ export class CommunicationController {
 
   @Throttle({ short: { limit: 5, ttl: 60000 } })
   @Post('zalo/test')
+  @RequirePermissions('setting.update')
   @ApiOperation({ summary: 'Send a test Zalo message with the currently saved tenant settings' })
   async sendZaloTest(
     @Req() req,
     @Body() body: { recipient?: string; title?: string; message?: string },
   ) {
+    assertExternalProviderAccess();
     const tenantId = req.user.tenantId;
     const setting = await this.prisma.appSetting.findUnique({
       where: {
@@ -1189,6 +1203,7 @@ export class CommunicationController {
 
   @Throttle({ short: { limit: 5, ttl: 60000 } })
   @Post('email/test')
+  @RequirePermissions('setting.update')
   @ApiOperation({ summary: 'Send a test email with the currently saved tenant settings' })
   async sendEmailTest(
     @Req() req,
@@ -1218,6 +1233,7 @@ export class CommunicationController {
 
   @Throttle({ short: { limit: 5, ttl: 60000 } })
   @Post('telegram/test')
+  @RequirePermissions('setting.update')
   @ApiOperation({ summary: 'Send a test Telegram message with the currently saved tenant settings' })
   async sendTelegramTest(
     @Req() req,

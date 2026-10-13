@@ -139,6 +139,8 @@ export class HealthController {
       buildId: process.env.BUILD_ID || 'unknown',
       buildTime: process.env.BUILD_TIME || 'unknown',
       environment: process.env.NODE_ENV || 'development',
+      // NODE_ENV is the runtime optimization mode, not the deployment target.
+      deploymentEnvironment: process.env.DEPLOY_ENV || process.env.APP_ENV || process.env.ENVIRONMENT || process.env.NODE_ENV || 'development',
       runtimeRole: resolveAppRuntimeRole(),
       notificationWorkerHeartbeat,
     };

@@ -2825,6 +2825,7 @@ export class PaymentsService {
     }
     const ownerById = new Map(owners.map((owner) => [owner.id, owner.name]));
     const bankAccountById = new Map(bankAccounts.map((bankAccount) => [bankAccount.id, bankAccount]));
+    const sepayEnabled = status?.enabled !== false;
     return {
       status,
       routes: assignmentList
@@ -2855,7 +2856,10 @@ export class PaymentsService {
       })),
       rooms: await Promise.all(
         rooms.map(async (room) => {
-          const resolved = bankAccounts.length > 0
+          // The admin screen must remain readable while SePay is disabled. The
+          // resolver is intentionally kept on the real payment/QR paths, where
+          // its disabled guard prevents issuing payment instructions.
+          const resolved = sepayEnabled && bankAccounts.length > 0
             ? await this.resolveBankAccount(tenantId, {
                 ownerId: room.building?.ownerId || null,
                 roomId: room.id,
@@ -2878,7 +2882,7 @@ export class PaymentsService {
             mappedBankAccountLabel: mappedBankAccount ? this.formatBankAccountLabel(mappedBankAccount) : null,
             mappingSource: resolved
               ? (resolved.source === 'EXPLICIT' ? 'ROOM' : resolved.source)
-              : null,
+              : mappedBankAccount ? 'ROOM' : null,
             validFrom: assignment?.validFrom || null,
             validTo: assignment?.validTo || null,
           };

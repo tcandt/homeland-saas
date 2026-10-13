@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { getOperationsContractKpiSummary } from "../../lib/contracts/operations-contract-kpi";
 
 describe("operations contract KPI summary", () => {
+  it("does not present a fabricated monthly growth count from a paginated list", () => {
+    const source = readFileSync(join(__dirname, "../../components/contracts/OperationsContractKpi.tsx"), "utf8");
+    expect(source).not.toContain('trend="+2 tháng này"');
+  });
+
   it("keeps approved contracts out of active and in the pending-review count", () => {
     const summary = getOperationsContractKpiSummary(
       [

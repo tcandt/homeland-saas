@@ -36,8 +36,6 @@ export default function OperationsContractKpi() {
       <KpiCard
         title="TỔNG HỢP ĐỒNG"
         value={formatCompactNumber(totalContracts)}
-        trend="+2 tháng này"
-        trendPositive={true}
         icon={<FileText size={18} className="text-purple-600 dark:text-purple-400" />}
         iconBg="bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 border border-purple-200/60 dark:border-purple-800/40"
       />

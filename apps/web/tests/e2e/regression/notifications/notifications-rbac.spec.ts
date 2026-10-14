@@ -59,7 +59,7 @@ test.describe('Notifications RBAC Regression', () => {
     expect(data).toBeInstanceOf(Array);
     
     // We should see the notification we triggered for admin
-    const hasAdminNotification = data.some((n: any) => n.title === 'Thông báo hệ thống: Contract Expiring Soon' || n.type === 'SYSTEM_ALERT');
+    const hasAdminNotification = data.some((n: any) => n.type === 'CLIENT_CONTRACT_EXPIRING' && /hợp đồng sắp (hết hạn|đến hạn)/i.test(n.title));
     expect(hasAdminNotification).toBeTruthy();
   });
 
@@ -71,7 +71,7 @@ test.describe('Notifications RBAC Regression', () => {
     expect(data).toBeInstanceOf(Array);
     
     // Finance should NOT see Admin's notifications
-    const hasAdminNotification = data.some((n: any) => n.title === 'Thông báo hệ thống: Contract Expiring Soon');
+    const hasAdminNotification = data.some((n: any) => n.type === 'CLIENT_CONTRACT_EXPIRING' && /hợp đồng sắp (hết hạn|đến hạn)/i.test(n.title));
     expect(hasAdminNotification).toBeFalsy();
   });
 

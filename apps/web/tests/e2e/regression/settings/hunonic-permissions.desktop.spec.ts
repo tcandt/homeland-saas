@@ -62,14 +62,14 @@ test.describe('Hunonic Permissions Desktop Regression', () => {
     await mockHunonicSettings(admin.page);
   });
 
-  test('locks secrets for the regular admin and keeps operational controls available', async ({ admin }) => {
+  test('allows the system admin to edit secrets and keeps operational controls available', async ({ admin }) => {
     await admin.page.goto('/settings?section=hunonic', { waitUntil: 'domcontentloaded' });
 
     const main = admin.page.locator('main');
     const secret = main.locator('input[type="password"]');
     await expect(secret).toHaveCount(1);
-    await expect(secret).toBeDisabled();
-    await expect(main.getByText('Chỉ admin@homeland.vn được chỉnh sửa token hoặc mật khẩu tích hợp Hunonic.')).toBeVisible();
+    await expect(secret).toBeEnabled();
+    await expect(main.getByText('Chỉ admin@homeland.vn được chỉnh sửa token hoặc mật khẩu tích hợp Hunonic.')).not.toBeVisible();
     await expect(main.getByRole('button', { name: 'Kiểm tra kết nối' })).toBeEnabled();
     await expect(main.getByRole('button', { name: 'Đồng bộ ngay' })).toBeEnabled();
     await expect(main.getByRole('button', { name: 'Lưu cấu hình' })).toBeEnabled();

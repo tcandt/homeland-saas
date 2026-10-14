@@ -66,7 +66,7 @@ test.describe('Notifications Core Regression', () => {
     const root = adminPage.getByTestId('notifications-root');
     await expect(root).toBeVisible();
 
-    const notifItem = adminPage.getByTestId('notification-item').filter({ hasText: 'Contract Expiring Soon' }).first();
+    const notifItem = adminPage.getByTestId('notification-item').filter({ hasText: /Hợp đồng sắp (hết hạn|đến hạn)/i }).first();
     await expect(notifItem).toBeVisible();
 
     // 4. Verify unread count badge
@@ -79,7 +79,7 @@ test.describe('Notifications Core Regression', () => {
     await notifItem.click();
     const detail = adminPage.getByTestId('notification-detail');
     await expect(detail).toBeVisible();
-    await expect(detail).toContainText('Contract Expiring Soon');
+    await expect(detail).toContainText(/Hợp đồng sắp (hết hạn|đến hạn)/i);
 
     // 6. Verify mark as read and count decreases
     // Refresh page to ensure read state persists
@@ -95,7 +95,7 @@ test.describe('Notifications Core Regression', () => {
     expect(countAfter).toBeGreaterThanOrEqual(0);
 
     // The read badge should no longer be visible on this item
-    const readItem = adminPage.getByTestId('notification-item').filter({ hasText: 'Contract Expiring Soon' }).first();
+    const readItem = adminPage.getByTestId('notification-item').filter({ hasText: /Hợp đồng sắp (hết hạn|đến hạn)/i }).first();
     const readDot = readItem.getByTestId('notification-read-badge');
     await expect(readDot).not.toBeVisible();
 

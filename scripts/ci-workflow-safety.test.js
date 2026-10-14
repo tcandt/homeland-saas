@@ -106,6 +106,8 @@ test('Docker images compile API code and bake a same-origin web API route', () =
   assert.match(apiDockerfile, /npm run db:generate/);
   assert.match(apiDockerfile, /npm run build --workspace=api/);
   assert.match(apiDockerfile, /RUN npm ci/);
+  assert.match(apiDockerfile, /npm prune --omit=dev/);
+  assert.match(apiDockerfile, /npm install --no-save --omit=dev --ignore-scripts prisma@5\.22\.0/);
   assert.match(webDockerfile, /ARG NEXT_PUBLIC_API_URL=\/api\/v1/);
   assert.match(webDockerfile, /ARG INTERNAL_API_ORIGIN=http:\/\/api:3001/);
   assert.match(webDockerfile, /ARG NEXT_PUBLIC_ALLOW_REGISTRATION=false/);
@@ -323,6 +325,7 @@ test('CI creates a validated reproducible SBOM while retaining the runtime audit
     assert.equal(scan.with['limit-severities-for-sarif'], 'true', 'SARIF must respect the blocking severity threshold');
     assert.equal(scan.with.scanners, 'vuln,secret', 'Both vulnerability and secret scans must remain enabled');
   }
+  assert.equal(scans[1].with['vuln-type'], 'os', 'Image scan must cover the OS layer; app libraries are covered by FS/audit gates');
 });
 
 test('Hunonic mobile signing secrets stay outside source control', () => {

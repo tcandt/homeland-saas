@@ -95,9 +95,13 @@ test.describe("Integration Secret Permissions Desktop Regression", () => {
       await expect(secretFields.nth(index)).toHaveValue("");
     }
 
-    await main.getByRole("button", { name: "Thiết lập cấu hình" }).click();
-    await expect(admin.page.getByRole("button", { name: "Lưu cấu hình" })).toBeVisible();
-    await admin.page.getByRole("button", { name: "Lưu cấu hình" }).click();
+    const sePayConfigRow = main.getByText("Tích hợp Webhook & Cấu hình SePay", { exact: true }).locator("..");
+    await sePayConfigRow.getByRole("button", { name: "Thiết lập cấu hình", exact: true }).click();
+    const sePayDialog = admin.page
+      .getByText("Thiết lập cấu hình SePay Gateway", { exact: true })
+      .locator("xpath=ancestor::div[contains(@class, 'relative w-full')][1]");
+    await expect(sePayDialog.getByRole("button", { name: "Lưu cấu hình", exact: true })).toBeVisible();
+    await sePayDialog.getByRole("button", { name: "Lưu cấu hình", exact: true }).click();
     await expect.poll(() => sePayPatchBody).not.toBeNull();
 
     expect(sePayPatchBody).toMatchObject({

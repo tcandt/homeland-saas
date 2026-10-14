@@ -125,7 +125,10 @@ test.describe('Documents upload regression', () => {
       mimeType: 'image/jpeg',
       buffer: Buffer.from('camera-content'),
     });
-    expect(state.getUploadRequests()).toBe(3);
+    await expect.poll(() => state.getUploadRequests()).toBe(3);
+    await expect(admin.page.getByTestId('document-card')).toHaveCount(4);
+    await expect(admin.page.getByTestId('document-upload-camera')).toBeEnabled();
+    expect(state.getListRequests()).toBe(4);
   });
 
   test('rejects unsupported and oversized files before any upload request', async ({ admin }) => {

@@ -148,7 +148,7 @@ export default function InboxCenter() {
 
           <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
             <SummaryCard icon={<Bell size={17} />} label="Tổng thông báo" value={notificationItems.length} tone="primary" />
-            <SummaryCard icon={<span className="text-lg font-black">!</span>} label="Chưa đọc" value={unreadCount} tone="rose" />
+            <SummaryCard icon={<span className="text-lg font-black">!</span>} label="Chưa đọc" value={unreadCount} tone="rose" testId="notification-unread-count" />
             <SummaryCard icon={<WalletCards size={17} />} label="Thanh toán & công nợ" value={paymentCount} tone="emerald" />
             <SummaryCard icon={<AlertTriangle size={17} />} label="Cảnh báo" value={issueCount} tone="amber" />
           </div>
@@ -231,14 +231,14 @@ export default function InboxCenter() {
   );
 }
 
-function SummaryCard({ icon, label, value, tone }: { icon: React.ReactNode; label: string; value: number; tone: "primary" | "rose" | "emerald" | "amber" }) {
+function SummaryCard({ icon, label, value, tone, testId }: { icon: React.ReactNode; label: string; value: number; tone: "primary" | "rose" | "emerald" | "amber"; testId?: string }) {
   const tones = {
     primary: "bg-primary/10 text-primary border-primary/20",
     rose: "bg-rose-500/10 text-rose-600 border-rose-500/20",
     emerald: "bg-emerald-500/10 text-emerald-600 border-emerald-500/20",
     amber: "bg-amber-500/10 text-amber-600 border-amber-500/20",
   };
-  return <div className="flex items-center gap-3 rounded-2xl border border-border/70 bg-card p-3.5 shadow-sm"><span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${tones[tone]}`}>{icon}</span><span className="min-w-0"><span className="block truncate text-[10px] font-black uppercase tracking-wider text-muted">{label}</span><span className="mt-0.5 block text-xl font-black leading-none text-text">{value}</span></span></div>;
+  return <div className="flex items-center gap-3 rounded-2xl border border-border/70 bg-card p-3.5 shadow-sm"><span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${tones[tone]}`}>{icon}</span><span className="min-w-0"><span className="block truncate text-[10px] font-black uppercase tracking-wider text-muted">{label}</span><span data-testid={testId} className="mt-0.5 block text-xl font-black leading-none text-text">{value}</span></span></div>;
 }
 
 function NotificationDetail({ notification }: { notification: any }) {

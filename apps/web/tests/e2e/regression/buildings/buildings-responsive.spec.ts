@@ -44,25 +44,42 @@ const building = {
 };
 
 test.describe("Buildings responsive presentation isolation", () => {
+  test.setTimeout(90_000);
   test("keeps one presentation, one data request and no horizontal overflow at six sizes", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== "Desktop 1920", "The matrix runs once and controls all six viewports itself.");
 
     let buildingRequests = 0;
-    await page.addInitScript(() => {
-      localStorage.setItem("auth-storage", JSON.stringify({
-        state: {
-          user: { id: "visual-admin", email: "visual@homeland.local", fullName: "System Admin", permissions: ["building.read", "room.read"] },
-          accessToken: "visual-token",
-          refreshToken: "visual-refresh",
-          isAuthenticated: true,
+    const visualAuthState = {
+      state: {
+        user: {
+          id: "visual-admin",
+          tenantId: "visual-tenant",
+          email: "visual@homeland.local",
+          fullName: "System Admin",
+          roles: ["ADMIN"],
+          permissions: ["building.read", "room.read"],
         },
-        version: 0,
-      }));
+        accessToken: "visual-token",
+        refreshToken: "visual-refresh",
+        isAuthenticated: true,
+      },
+      version: 0,
+    };
+    await page.addInitScript((authState) => {
+      localStorage.setItem("auth-storage", JSON.stringify(authState));
       localStorage.setItem("theme", "light");
-    });
+    }, visualAuthState);
 
     await page.route("**/api/v1/**", async (route) => {
       const url = new URL(route.request().url());
+      if (url.pathname.endsWith("/auth/me")) {
+        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: visualAuthState.state.user }) });
+        return;
+      }
+      if (url.pathname.endsWith("/auth/security")) {
+        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { idleTimeoutMinutes: 1440, twoFactorEnabled: false, twoFactorMethod: "EMAIL" } }) });
+        return;
+      }
       if (/\/buildings\/?$/.test(url.pathname)) {
         buildingRequests += 1;
         await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { items: [building], total: 1 } }) });
@@ -75,7 +92,11 @@ test.describe("Buildings responsive presentation isolation", () => {
     for (const viewport of VIEWPORTS) {
       const beforeRequests = buildingRequests;
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
-      await page.goto(process.env.BUILDINGS_QA_BASE_URL || "/buildings/LK01-31", { waitUntil: "networkidle" });
+      await page.goto(process.env.BUILDINGS_QA_BASE_URL || "/buildings/LK01-31", { waitUntil: "domcontentloaded" });
+      // The public staging origin can leave a remote font promise pending
+      // (Cloudflare/third-party asset). Visual assertions use system fonts so
+      // screenshot capture cannot block the functional responsive checks.
+      await page.addStyleTag({ content: "*, *::before, *::after { font-family: system-ui, sans-serif !important; }" });
       await expect(page.locator(viewport.mobile ? ".mobile-buildings-stable" : ".building-cockpit-theme")).toBeVisible();
 
       const state = await page.evaluate(() => ({
@@ -124,7 +145,7 @@ test.describe("Buildings responsive presentation isolation", () => {
       }
 
       await testInfo.attach(`buildings-${viewport.name}.png`, {
-        body: await page.screenshot({ fullPage: false }),
+        body: await page.screenshot({ fullPage: false, timeout: 30_000 }),
         contentType: "image/png",
       });
     }
@@ -133,11 +154,12 @@ test.describe("Buildings responsive presentation isolation", () => {
     expect(buildingRequests - requestsBeforeMatrix).toBeLessThanOrEqual(VIEWPORTS.length);
 
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto(`${process.env.BUILDINGS_QA_BASE_URL || "/buildings/LK01-31"}?floor=2`, { waitUntil: "networkidle" });
+    await page.goto(`${process.env.BUILDINGS_QA_BASE_URL || "/buildings/LK01-31"}?floor=2`, { waitUntil: "domcontentloaded" });
     const keyboardHotspot = page.locator('[data-room-id="PN-31-04"] path[tabindex="0"]');
     await keyboardHotspot.focus();
     await keyboardHotspot.press("Enter");
-    await expect(page).toHaveURL(/floor=2.*room=PN-31-04/);
+    // The cockpit normalizes the room code in the URL (PN-31-04 fixture -> 31-04).
+    await expect(page).toHaveURL(/floor=2.*room=(?:PN-)?31-04/);
     await expect(keyboardHotspot).toHaveAttribute("aria-pressed", "true");
 
     await page.evaluate(() => document.documentElement.classList.add("dark"));

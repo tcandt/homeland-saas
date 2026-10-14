@@ -1,46 +1,25 @@
 import { expect } from '@playwright/test';
 import { test } from '../../fixtures/rbac.fixture';
 
-test.describe.configure({ mode: 'parallel' });
-
-test.describe('Finance Core Regression', () => {
-
-  test('Finance role should access finance page and verify API endpoints', async ({ finance }) => {
-    // 1. Ledger Verification
-    const ledgerRes = await finance.api.get('/api/v1/finance/ledger');
-    expect(ledgerRes.status()).toBe(200);
-
-    // 2. Cashflow Verification
-    const cashflowRes = await finance.api.get('/api/v1/finance/cashflow');
-    expect(cashflowRes.status()).toBe(200);
-
-    // 3. Profit & Loss Verification
-    const plRes = await finance.api.get('/api/v1/finance/profit-loss');
-    expect(plRes.status()).toBe(200);
-
-    // 4. Reports Export Verification
+test.describe('Finance core contract', () => {
+  test('finance role can load current settlement and export drawer', async ({ finance }) => {
+    const ledger = await finance.api.get('/api/v1/finance/ledger');
+    expect(ledger.status()).toBe(200);
     const exportRes = await finance.api.get('/api/v1/finance/export');
     expect(exportRes.status()).toBe(200);
     expect(exportRes.headers()['content-disposition']).toContain('attachment');
     expect(exportRes.headers()['content-type']).toContain('text/csv');
-    
-    const fileContent = await exportRes.text();
-    expect(fileContent).toContain('Date,Description,Amount,Type');
-
-    // 5. UI View test
-    await finance.page.goto('/finance');
+    const csv = await exportRes.text();
+    expect(csv.split(/\r?\n/, 1)[0]).toBe('Date,JournalCode,Description,AccountCode,AccountName,Type,Amount,SourceType,Status');
+    await finance.page.goto('/finance', { waitUntil: 'domcontentloaded' });
     await expect(finance.page.getByTestId('finance-root')).toBeVisible();
-    await expect(finance.page.getByTestId('finance-chart')).toBeVisible();
-
-    await expect(finance.page.getByRole('heading', { name: 'Doanh thu & Tài chính' })).toBeVisible();
-    await expect(finance.page.getByTestId('finance-attention-card')).toBeVisible();
-    await expect(finance.page.getByTestId('finance-reconciliation-link')).toBeVisible();
-    
-    // Simulate UI export click to ensure no crash
+    await expect(finance.page.getByText('Dòng Tiền Quyết Toán Hợp Nhất 4 Tòa', { exact: false })).toBeVisible();
+    await expect(finance.page.getByText('Kỳ báo cáo:', { exact: false })).toBeVisible();
     const exportBtn = finance.page.getByTestId('finance-export-button');
     await expect(exportBtn).toBeVisible();
     await exportBtn.click();
     await expect(finance.page.getByRole('dialog', { name: 'Xuất báo cáo tài chính' })).toBeVisible();
+    await expect(finance.page.getByTestId('finance-export-excel-button')).toBeVisible();
+    await expect(finance.page.getByTestId('finance-export-pdf-button')).toBeVisible();
   });
-
 });

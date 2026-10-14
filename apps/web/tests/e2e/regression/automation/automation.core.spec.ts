@@ -73,13 +73,13 @@ test.describe('Automation Core Regression Flow', () => {
 
     // Run manual
     await page.getByTestId('run-rule-contract.expiring.30_days').click();
-    await expect(page.getByTestId('automation-status-message')).toContainText('completed successfully', { timeout: 15000 });
+    await expect(page.getByTestId('automation-status-message')).toContainText(/completed successfully|Hoàn tất thành công|Hoàn tất/i, { timeout: 15000 });
 
     // Verify notification side-effect appears in the notifications UI
     await page.goto('/notifications');
     await page.waitForLoadState('networkidle');
 
-    const notifItem = page.getByTestId('notification-item').filter({ hasText: 'Contract Expiring Soon' }).first();
+    const notifItem = page.getByTestId('notification-item').filter({ hasText: /HỢP ĐỒNG SẮP HẾT HẠN/i }).first();
     await expect(notifItem).toBeVisible({ timeout: 15000 });
   });
 
@@ -123,7 +123,7 @@ test.describe('Automation Core Regression Flow', () => {
 
     // Run manual
     await page.getByTestId('run-workflow-deposit.collected.workflow').click();
-    await expect(page.getByTestId('automation-status-message')).toContainText('completed successfully', { timeout: 15000 });
+    await expect(page.getByTestId('automation-status-message')).toContainText(/completed successfully|Hoàn tất thành công|Hoàn tất/i, { timeout: 15000 });
 
     // Wait and verify WorkflowExecution status SUCCESS in history
     await page.getByTestId('tab-history').click();

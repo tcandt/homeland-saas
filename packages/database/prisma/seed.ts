@@ -1,4 +1,4 @@
-import { PrismaClient, RoleCode, RoomStatus, ContractStatus, InvoiceStatus, DepositStatus, PaymentStatus, TaskStatus, TaskPriority, LeadStatus, DepositType } from '@prisma/client';
+import { PrismaClient, RoleCode, RoomStatus, ContractStatus, InvoiceStatus, DepositStatus, PaymentStatus, TaskStatus, TaskPriority, DepositType } from '@prisma/client';
 import { ensureManagedBuildingStructure, MANAGED_BUILDINGS } from './building-structure';
 import bcrypt from 'bcryptjs';
 import { randomUUID } from 'crypto';
@@ -40,7 +40,6 @@ async function main() {
     'finance.read', 'finance.create', 'finance.update', 'finance.delete',
     'finance.approve', 'finance.pay', 'finance.settle', 'finance.export', 'finance.ownerProfit.read', 'finance.attachment.read',
     'task.read', 'task.create', 'task.update', 'task.delete',
-    'sales.read', 'sales.create', 'sales.update', 'sales.delete',
     'setting.read', 'setting.update',
     'system.update.run', 'system.data.wipe', 'system.backup.read', 'system.backup.create', 'system.backup.restore', 'system.backup.delete',
     'document.read', 'document.create', 'document.update', 'document.delete', 'document.generate', 'document.download', 'document.approve', 'document.sign', 'document.share', 'document.export'
@@ -90,8 +89,7 @@ async function main() {
     p.key === 'finance.create' ||
     p.key === 'finance.export' ||
     p.key === 'finance.attachment.read' ||
-    p.key.startsWith('task.') ||
-    p.key.startsWith('sales.')
+    p.key.startsWith('task.')
   );
   await prisma.rolePermission.createMany({
     data: managerPerms.map(p => ({ roleId: managerRole.id, permissionId: p.id })),
@@ -482,16 +480,7 @@ async function main() {
 
   // Remaining 8 rooms are AVAILABLE (already default)
 
-  // 6. Sales Leads
-  await prisma.salesLead.createMany({
-    data: [
-      { tenantId: org.id, name: 'Nguyễn Văn A', phone: '0981112222', status: LeadStatus.NEW },
-      { tenantId: org.id, name: 'Trần Thị B', phone: '0983334444', status: LeadStatus.CONTACTED },
-      { tenantId: org.id, name: 'Lê Văn C', phone: '0985556666', status: LeadStatus.QUALIFIED },
-    ]
-  });
-
-  // 7. Finance / Accounting Domain
+  // 6. Finance / Accounting Domain
   console.log('Seeding Finance & Accounting...');
   
   const chartOfAccounts = [

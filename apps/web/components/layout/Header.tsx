@@ -99,11 +99,6 @@ const routeMeta: Record<string, { title: string; subtitle: string; mobileSubtitl
     subtitle: "Theo dõi toàn bộ lịch sử thao tác và hệ thống",
     mobileSubtitle: "Nhật ký hoạt động và bảo mật",
   },
-  "/sales": {
-    title: "Sales CRM",
-    subtitle: "Theo dõi pipeline tư vấn và chốt phòng",
-    mobileSubtitle: "Pipeline khách hàng mới và lịch xem phòng",
-  },
   "/tasks": {
     title: "Công việc",
     subtitle: "Quản lý bảo trì, xử lý và vận hành hằng ngày",

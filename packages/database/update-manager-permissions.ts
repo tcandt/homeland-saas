@@ -18,7 +18,6 @@ async function main() {
     'finance.read', 'finance.create', 'finance.update', 'finance.delete',
     'finance.approve', 'finance.pay', 'finance.settle', 'finance.export', 'finance.ownerProfit.read', 'finance.attachment.read',
     'task.read', 'task.create', 'task.update', 'task.delete',
-    'sales.read', 'sales.create', 'sales.update', 'sales.delete',
     'setting.read', 'setting.update',
     'system.update.run', 'system.data.wipe', 'system.backup.read', 'system.backup.create', 'system.backup.restore', 'system.backup.delete',
     'document.read', 'document.create', 'document.update', 'document.delete', 'document.generate', 'document.download', 'document.approve', 'document.sign', 'document.share', 'document.export'
@@ -61,8 +60,7 @@ async function main() {
       p.key === 'finance.create' ||
       p.key === 'finance.export' ||
       p.key === 'finance.attachment.read' ||
-      p.key.startsWith('task.') ||
-      p.key.startsWith('sales.')
+      p.key.startsWith('task.')
     );
 
     // Remove any unauthorized permissions from Manager (like building.delete, finance.ownerProfit.read)

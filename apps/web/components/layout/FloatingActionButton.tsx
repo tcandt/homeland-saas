@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Plus, Receipt, CheckCircle2, Coins, Building2, Bed, FileText, Users, UserPlus, FileSignature, MessageSquare, ShieldAlert, Wrench, CalendarClock, Bell, User, Banknote, PenTool, Download, Trash2, Bookmark, RefreshCcw, Send, Wallet, Megaphone, Calendar, CreditCard, Save, Database, Clock } from "lucide-react";
+import { Plus, Receipt, CheckCircle2, Coins, Building2, Bed, FileText, Users, UserPlus, FileSignature, MessageSquare, ShieldAlert, Wrench, CalendarClock, Bell, User, Banknote, PenTool, Download, Trash2, Bookmark, RefreshCcw, Send, Wallet, Save, Database, Clock } from "lucide-react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 
@@ -17,12 +17,11 @@ export default function FloatingActionButton() {
   const isInvoices = pathname.startsWith("/invoices");
   const isFinance = pathname === "/finance";
   const isTasks = pathname.startsWith("/tasks");
-  const isSales = pathname.startsWith("/sales");
 
   const isSettings = pathname.startsWith("/settings");
 
   const isCoreOps = isBuildings || isRooms || isTenants || isContracts || isDeposits || isInvoices;
-  const hasMenu = isFinance || isCoreOps || isTasks || isSales || isSettings;
+  const hasMenu = isFinance || isCoreOps || isTasks || isSettings;
   const isDirectInvoiceCreationDisabled = true;
 
   const handleClick = () => {
@@ -219,35 +218,6 @@ export default function FloatingActionButton() {
               >
                 <span className="text-[13px] font-bold text-text">Tạo hóa đơn</span>
                 <div className="w-8 h-8 rounded-full bg-[#6366f1]/10 flex items-center justify-center"><Plus size={14} className="text-[#6366f1]" /></div>
-              </button>
-            </>
-          )}
-
-          {isSales && (
-            <>
-              <button className="flex items-center gap-3 px-4 py-2 bg-card border border-border rounded-[24px] shadow-lg active:scale-95 transition-transform hover:bg-black/5 dark:hover:bg-white/5">
-                <span className="text-[13px] font-bold text-text">Chiến dịch Marketing</span>
-                <div className="w-8 h-8 rounded-full bg-indigo-500/10 flex items-center justify-center"><Megaphone size={14} className="text-indigo-500" /></div>
-              </button>
-              <button className="flex items-center gap-3 px-4 py-2 bg-card border border-border rounded-[24px] shadow-lg active:scale-95 transition-transform hover:bg-black/5 dark:hover:bg-white/5">
-                <span className="text-[13px] font-bold text-text">Tạo Hợp đồng</span>
-                <div className="w-8 h-8 rounded-full bg-[#8b5cf6]/10 flex items-center justify-center"><FileSignature size={14} className="text-[#8b5cf6]" /></div>
-              </button>
-              <button className="flex items-center gap-3 px-4 py-2 bg-card border border-border rounded-[24px] shadow-lg active:scale-95 transition-transform hover:bg-black/5 dark:hover:bg-white/5">
-                <span className="text-[13px] font-bold text-text">Tạo Phiếu Cọc</span>
-                <div className="w-8 h-8 rounded-full bg-rose-500/10 flex items-center justify-center"><CreditCard size={14} className="text-rose-500" /></div>
-              </button>
-              <button className="flex items-center gap-3 px-4 py-2 bg-card border border-border rounded-[24px] shadow-lg active:scale-95 transition-transform hover:bg-black/5 dark:hover:bg-white/5">
-                <span className="text-[13px] font-bold text-text">Đặt lịch Xem phòng</span>
-                <div className="w-8 h-8 rounded-full bg-[#f97316]/10 flex items-center justify-center"><Calendar size={14} className="text-[#f97316]" /></div>
-              </button>
-              <button className="flex items-center gap-3 px-4 py-2 bg-card border border-border rounded-[24px] shadow-lg active:scale-95 transition-transform hover:bg-black/5 dark:hover:bg-white/5">
-                <span className="text-[13px] font-bold text-text">Import Lead</span>
-                <div className="w-8 h-8 rounded-full bg-blue-500/10 flex items-center justify-center"><Download size={14} className="text-blue-500" /></div>
-              </button>
-              <button className="flex items-center gap-3 px-4 py-2 bg-card border border-border rounded-[24px] shadow-lg active:scale-95 transition-transform hover:bg-black/5 dark:hover:bg-white/5">
-                <span className="text-[13px] font-bold text-text">Thêm Lead Mới</span>
-                <div className="w-8 h-8 rounded-full bg-[#0ea5e9]/10 flex items-center justify-center"><Plus size={14} className="text-[#0ea5e9]" /></div>
               </button>
             </>
           )}

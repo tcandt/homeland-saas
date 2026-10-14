@@ -21,7 +21,6 @@ const authenticatedRoutes = [
   '/notifications/queue',
   '/reports',
   '/rooms',
-  '/sales',
   '/settings',
   '/settings/profile',
   '/tasks',

@@ -23,7 +23,6 @@ import { InvoicesModule } from './invoices/invoices.module';
 import { DepositsModule } from './deposits/deposits.module';
 import { FinanceModule } from './finance/finance.module';
 import { DashboardModule } from './dashboard/dashboard.module';
-import { SalesModule } from './sales/sales.module';
 import { AiModule } from './ai/ai.module';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 
@@ -151,7 +150,6 @@ import { SchemaDiagnosticsService } from './schema-diagnostics.service';
     DepositsModule,
     FinanceModule,
     DashboardModule,
-    SalesModule,
     ReportsModule,
     AnalyticsModule,
     AutomationModule,

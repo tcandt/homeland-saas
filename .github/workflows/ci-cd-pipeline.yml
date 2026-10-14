@@ -301,6 +301,7 @@ jobs:
       DISABLE_SCHEDULED_JOBS: "true"
       APP_RUNTIME_ROLE: api
       COMMUNICATION_IMMEDIATE_DELIVERY: "false"
+      ENABLE_E2E_TEST_UTILS: "true"
       DEBUG: pw:webserver
       CI_DATABASE_BOOTSTRAP: true
       RUN_DESTRUCTIVE_E2E: true

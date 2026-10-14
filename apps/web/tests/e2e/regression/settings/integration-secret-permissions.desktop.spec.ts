@@ -95,7 +95,7 @@ test.describe("Integration Secret Permissions Desktop Regression", () => {
       await expect(secretFields.nth(index)).toHaveValue("");
     }
 
-    await main.getByRole("button", { name: "Lưu SePay" }).click();
+    await main.getByRole("button", { name: "Lưu cấu hình" }).click();
     await expect.poll(() => sePayPatchBody).not.toBeNull();
 
     expect(sePayPatchBody).toMatchObject({

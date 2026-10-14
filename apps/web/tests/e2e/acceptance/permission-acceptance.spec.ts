@@ -33,8 +33,8 @@ test.describe('Level 3 - Permission Acceptance', () => {
   });
 
   test('Manager sees operations but cannot access strict finance overrides', async ({ manager }) => {
-    // Manager shouldn't be able to read finance cashflow
-    const res = await manager.api.get('/api/v1/finance/cashflow'); 
+    // Manager can read general finance, but not the strict owner-profit view.
+    const res = await manager.api.get('/api/v1/finance/owners/profit-summary');
     if (res.status() !== 403) {
       console.error('Unexpected status:', res.status(), await res.text());
     }

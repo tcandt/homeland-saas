@@ -3,10 +3,11 @@ import { APIRequestContext } from '@playwright/test';
 export class DataFactory {
   constructor(private request: APIRequestContext, private token?: string) {}
 
-  private async post(endpoint: string, data: any) {
+  private async post(endpoint: string, data: any, idempotencyKey?: string) {
     if (!endpoint.startsWith('/')) throw new Error(`DataFactory requires a relative endpoint: ${endpoint}`);
     const headers: any = { 'Content-Type': 'application/json' };
     if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
+    if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
     
     const res = await this.request.post(endpoint, {
       data,
@@ -74,7 +75,7 @@ export class DataFactory {
       endDate: new Date(Date.now() + 31536000000).toISOString(), // +1 year
       rentAmount: 5000000,
       depositAmount: 5000000,
-      status: 'ACTIVE'
+      status: 'DRAFT'
     });
   }
 
@@ -85,7 +86,7 @@ export class DataFactory {
       customerId,
       amount: 5000000,
       type: 'BOOKING'
-    });
+    }, `e2e-deposit-${prefix}`);
   }
 
   async collectDeposit(prefix: string, depositId: string) {

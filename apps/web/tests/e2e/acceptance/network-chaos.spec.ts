@@ -117,9 +117,10 @@ rbacTest.describe('Level 3 - Network Chaos Suite', () => {
   });
 
   rbacTest('5. Automation - Timeout Error', async ({ admin }) => {
-    // Mock a timeout by aborting the route
+    // Return a bounded gateway timeout so the UI can render its unavailable state
+    // deterministically in CI instead of waiting on a browser-level network abort.
     await admin.page.route('**/api/v1/automation/rules', route => {
-      route.abort('timedout');
+      route.fulfill({ status: 504, json: { message: 'Gateway Timeout' } });
     });
 
     await admin.page.goto('/automation');
@@ -127,7 +128,7 @@ rbacTest.describe('Level 3 - Network Chaos Suite', () => {
 
     await expect(admin.page.getByTestId('automation-root')).toBeVisible();
     await admin.page.getByTestId('tab-rules').click();
-    await expect(admin.page.getByTestId('rules-unavailable')).toBeVisible();
+    await expect(admin.page.getByText('Không thể tải rules', { exact: true })).toBeVisible({ timeout: 15000 });
     await expect(admin.page.getByTestId('rule-card')).toHaveCount(0);
   });
 

@@ -4,7 +4,7 @@
   "main": "index.ts",
   "types": "index.ts",
   "scripts": {
-    "test": "vitest run index.test.ts"
+    "test": "vitest run index.test.ts prisma/document-templates.test.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.0.0"

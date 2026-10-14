@@ -92,7 +92,7 @@ export class DataFactory {
   async collectDeposit(prefix: string, depositId: string) {
     return this.post(`/api/v1/deposits/${depositId}/collect`, {
       note: `Thu tien coc test ${prefix}`
-    });
+    }, `e2e-collect-${prefix}`);
   }
 
   async createInvoice(prefix: string, contractId: string, customerId: string, roomId: string) {
@@ -108,16 +108,12 @@ export class DataFactory {
   }
 
   async createPayment(prefix: string, invoiceId: string, amount: number) {
-    const headers: any = { 'Content-Type': 'application/json' };
-    if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
-    
-    return this.request.patch(`/api/v1/invoices/${invoiceId}`, {
-      data: {
-        status: 'PAID',
-        paidAmount: amount
-      },
-      headers
-    }).then(r => r.json());
+    await this.post(`/api/v1/invoices/${invoiceId}/issue`, {});
+    return this.post(`/api/v1/invoices/${invoiceId}/pay`, {
+      amount,
+      provider: 'MANUAL',
+      providerRef: `e2e-payment-${prefix}`,
+    });
   }
 
   async generateDocument(prefix: string, templateCode: string) {

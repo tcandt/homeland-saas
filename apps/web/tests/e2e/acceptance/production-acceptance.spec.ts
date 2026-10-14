@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { test as rbacTest } from '../fixtures/rbac.fixture';
 import { DataFactory } from '../utils/data-factory';
 import { checkA11y } from '../utils/a11y-helper';
+import { PrismaClient } from '@prisma/client';
 
 rbacTest.describe.configure({ mode: 'serial' });
 
@@ -11,13 +12,29 @@ const failOnError = (msg: string) => {
 };
 
 export const attachStrictListeners = (page: any) => {
+  // These are deliberate persona-boundary probes made by the finance UI. Keep
+  // the exception narrow: only the exact endpoint and status are acceptable;
+  // all 401s, other 403s and all 5xx responses remain fatal.
+  const expected403 = new Map<string, number>([
+    ['/api/v1/settings/profile?scope=USER', 0],
+    ['/api/v1/settings/notifications?scope=TENANT', 0],
+    ['/api/v1/settings/access-control?scope=TENANT', 0],
+    ['/api/v1/finance/owners/profit-summary', 0],
+  ]);
+  const consumeExpected403 = () => {
+    for (const [url, count] of expected403) {
+      if (count > 0) {
+        expected403.set(url, count - 1);
+        return true;
+      }
+    }
+    return false;
+  };
   page.on('console', (msg: any) => {
     if (msg.type() === 'error') {
       const text = msg.text();
       if (
         text.includes('SSE Error') ||
-        text.includes('status of 401') ||
-        text.includes('status of 403') ||
         text.includes('status of 503') ||
         text.includes('notifications/stream')
       ) return;
@@ -25,6 +42,7 @@ export const attachStrictListeners = (page: any) => {
         const url = msg.location()?.url || '';
         if (url.includes('auth/login') || url.includes('auth/refresh')) return;
       }
+      if (text.includes('status of 403') && consumeExpected403()) return;
       failOnError(`Console Error: ${text}`);
     }
     if (msg.text().includes('Hydration') || msg.text().includes('Minified React error')) failOnError(`Hydration Warning: ${msg.text()}`);
@@ -33,8 +51,15 @@ export const attachStrictListeners = (page: any) => {
     failOnError(`Page Error: ${err.message}`);
   });
   page.on('response', (response: any) => {
-    if (response.status() === 500) {
-      failOnError(`Unexpected 500 from ${response.url()}`);
+    const status = response.status();
+    const responseUrl = new URL(response.url());
+    const normalizedUrl = `${responseUrl.pathname}${responseUrl.search}`;
+    if (status === 403 && expected403.has(normalizedUrl)) {
+      expected403.set(normalizedUrl, (expected403.get(normalizedUrl) || 0) + 1);
+      return;
+    }
+    if (status === 500 || status === 401 || status === 403) {
+      failOnError(`Unexpected ${status} from ${response.url()}`);
     }
   });
 };
@@ -44,8 +69,20 @@ rbacTest.describe('Level 3 - Production Acceptance: Full Business Workflow', () 
   let factory: DataFactory;
   let testPrefix: string;
   let createdIds: any;
+  let prisma: PrismaClient;
 
   rbacTest.beforeAll(async () => {
+    if (process.env.E2E_DISPOSABLE_DATABASE !== 'true' || !process.env.E2E_DATABASE_URL || !process.env.E2E_TARGET_DB_ID) {
+      throw new Error('Production acceptance requires an explicitly identified disposable E2E database.');
+    }
+    for (const target of [process.env.E2E_API_BASE_URL, process.env.E2E_WEB_BASE_URL, process.env.E2E_DATABASE_URL]) {
+      if (!target || !['localhost', '127.0.0.1', '[::1]'].includes(new URL(target).hostname)) {
+        throw new Error('Destructive production acceptance is local-only; refusing non-loopback target.');
+      }
+    }
+    prisma = new PrismaClient({ datasources: { db: { url: process.env.E2E_DATABASE_URL } } });
+    const identity = await prisma.$queryRaw<Array<{ databaseId: string }>>`SELECT current_database() AS "databaseId"`;
+    if (identity[0]?.databaseId !== process.env.E2E_TARGET_DB_ID) throw new Error('E2E database identity mismatch.');
     testPrefix = 'E2E-ACC-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7);
     createdIds = {};
   });
@@ -54,26 +91,19 @@ rbacTest.describe('Level 3 - Production Acceptance: Full Business Workflow', () 
     factory = new DataFactory(admin.api, admin.token);
     
     attachStrictListeners(admin.page);
-    admin.page.context().pages().forEach(attachStrictListeners);
   });
 
-  rbacTest.afterAll(async ({ admin }) => {
-    // Cleanup must be reverse dependency
-    if (!factory && admin) factory = new DataFactory(admin.api, admin.token);
-    if (factory) {
-      try {
-        console.log('Cleaning up acceptance test data...', createdIds);
-        await factory.cleanup(createdIds);
-      } catch (err: any) {
-        console.warn('Cleanup warning:', err.message);
-      }
-    }
+  rbacTest.afterAll(async () => {
+    // Financial evidence is append-only; the disposable database owner resets it
+    // after the suite, rather than trying to delete confirmed payments via APIs.
+    await prisma?.$disconnect();
   });
 
   rbacTest('1. Setup Core Entities (Building, Room, Customer)', async ({ admin }) => {
     // Fast setup via API, verify via UI
     const building = await factory.createBuilding(testPrefix);
     createdIds.buildingId = building.id;
+    expect(await prisma.building.findFirst({ where: { id: building.id, tenantId: admin.tenantId } })).not.toBeNull();
     
     const floor = await factory.createFloor(testPrefix, building.id);
     createdIds.floorId = floor.id;
@@ -113,10 +143,11 @@ rbacTest.describe('Level 3 - Production Acceptance: Full Business Workflow', () 
     const finFactory = new DataFactory(finance.api, finance.token);
     
     attachStrictListeners(finance.page);
-    finance.page.context().pages().forEach(attachStrictListeners);
     
     // Collect Deposit
-    await finFactory.collectDeposit(testPrefix, createdIds.depositId);
+    const collected = await finFactory.collectDeposit(testPrefix, createdIds.depositId);
+    expect(collected).toMatchObject({ depositId: createdIds.depositId, status: 'PAID', collectedAmount: 5000000 });
+    createdIds.depositOperationId = collected.operationId;
     
     // Create Invoice
     const invoice = await finFactory.createInvoice(testPrefix, createdIds.contractId, createdIds.customerId, createdIds.roomId);
@@ -124,7 +155,9 @@ rbacTest.describe('Level 3 - Production Acceptance: Full Business Workflow', () 
 
     // Pay Invoice
     const payment = await finFactory.createPayment(testPrefix, invoice.id, 5000000);
-    createdIds.paymentId = payment.id;
+    expect(payment).toMatchObject({ id: invoice.id, status: 'PAID', paidAmount: 5000000 });
+    expect(payment.paymentId).toEqual(expect.any(String));
+    createdIds.paymentId = payment.paymentId;
 
     await finance.page.goto('/finance');
     await finance.page.waitForLoadState('domcontentloaded');
@@ -135,25 +168,26 @@ rbacTest.describe('Level 3 - Production Acceptance: Full Business Workflow', () 
     expect(isOverflowing).toBe(false);
   });
 
-  rbacTest('4. Verification of Side-Effects (Ledger, Notifications, Automation)', async ({ admin }) => {
-    // Check Ledger API
-    const ledgerRes = await admin.api.get('/api/v1/finance/ledger?limit=10').then(r => r.json());
-    const entries = ledgerRes.data || [];
-    const hasPaymentEntry = entries.some((e: any) => e.referenceId === createdIds.paymentId || e.metadata?.invoiceId === createdIds.invoiceId);
-    expect(hasPaymentEntry).toBeTruthy();
-
-    // Verify Automation executed (API check) with polling
-    let hasDepositExec = false;
-    for (let i = 0; i < 10; i++) {
-      const execRes = await admin.api.get('/api/v1/automation/executions?limit=10').then(r => r.json());
-      const execs = execRes.data || [];
-      hasDepositExec = execs.some((e: any) => e.workflowName === 'deposit.collected.workflow' && e.status === 'SUCCESS');
-      if (hasDepositExec) break;
-      await new Promise(r => setTimeout(r, 1000));
-    }
-    if (process.env.DISABLE_SCHEDULED_JOBS !== 'true') {
-      expect(hasDepositExec).toBeTruthy();
-    }
+  rbacTest('4. Exact financial persistence, allocation and durable outbox evidence', async ({ admin }) => {
+    const scope = { tenantId: admin.tenantId };
+    const payments = await prisma.payment.findMany({ where: { ...scope, invoiceId: createdIds.invoiceId } });
+    expect(payments).toHaveLength(1);
+    expect(payments[0]).toMatchObject({ id: createdIds.paymentId, status: 'CONFIRMED', providerRef: `e2e-payment-${testPrefix}` });
+    expect(Number(payments[0].amount)).toBe(5000000);
+    const allocations = await prisma.paymentAllocation.findMany({ where: { ...scope, paymentId: createdIds.paymentId } });
+    expect(allocations).toHaveLength(1);
+    expect(allocations[0].invoiceId).toBe(createdIds.invoiceId);
+    expect(Number(allocations[0].amount)).toBe(5000000);
+    const deposits = await prisma.depositLedgerEntry.findMany({ where: { ...scope, depositId: createdIds.depositId, type: 'CASH_IN' } });
+    expect(deposits).toHaveLength(1);
+    expect(Number(deposits[0].balanceEffect)).toBe(5000000);
+    const events = await prisma.outboxEvent.findMany({ where: { ...scope, OR: [
+      { aggregateType: 'Invoice', aggregateId: createdIds.invoiceId, eventName: 'invoice.paid' },
+      { aggregateType: 'DepositOperation', aggregateId: createdIds.depositOperationId, eventName: 'deposit.collected' },
+    ] } });
+    expect(events).toHaveLength(2);
+    const paidEvent = events.find((event) => event.eventName === 'invoice.paid');
+    expect(paidEvent?.payload).toMatchObject({ paymentId: createdIds.paymentId });
 
     // Check Ledger UI (Admin should see finance ledger because admin has all permissions)
     await admin.page.goto('/finance');

@@ -319,6 +319,9 @@ test('CI creates a validated reproducible SBOM while retaining the runtime audit
   for (const scan of scans) {
     assert.match(scan.uses, /@[a-f0-9]{40}$/);
     assert.equal(scan.with['exit-code'], '1');
+    assert.equal(scan.with.severity, 'CRITICAL,HIGH');
+    assert.equal(scan.with['limit-severities-for-sarif'], 'true', 'SARIF must respect the blocking severity threshold');
+    assert.equal(scan.with.scanners, 'vuln,secret', 'Both vulnerability and secret scans must remain enabled');
   }
 });
 

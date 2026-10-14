@@ -59,9 +59,6 @@ test.describe('Notifications Core Regression', () => {
     const debugBody = await debugRes.json();
     console.log('DEBUG API NOTIFICATIONS:', JSON.stringify(debugBody, null, 2));
 
-    const debugInfo = await adminPage.getByTestId('debug-info').textContent();
-    console.log('UI DEBUG INFO:', debugInfo);
-
     // 3. Verify notification appears
     const root = adminPage.getByTestId('notifications-root');
     await expect(root).toBeVisible();

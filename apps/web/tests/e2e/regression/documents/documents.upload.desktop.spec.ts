@@ -107,6 +107,7 @@ test.describe('Documents upload regression', () => {
     });
     await expect(admin.page.getByText('Đã tải tài liệu lên.')).toBeVisible();
     await expect(admin.page.getByTestId('document-card').getByText('Ảnh đã tải lên')).toBeVisible();
+    await expect(admin.page.getByTestId('document-upload-file')).toBeEnabled();
     expect(state.getUploadRequests()).toBe(1);
     expect(state.getListRequests()).toBe(2);
 
@@ -116,6 +117,7 @@ test.describe('Documents upload regression', () => {
       buffer: Buffer.from('%PDF-1.7'),
     });
     await expect(admin.page.getByTestId('document-card').getByText('Tệp PDF đã tải lên')).toBeVisible();
+    await expect(admin.page.getByTestId('document-upload-camera')).toBeEnabled();
     expect(state.getUploadRequests()).toBe(2);
 
     await inputs.nth(1).setInputFiles({

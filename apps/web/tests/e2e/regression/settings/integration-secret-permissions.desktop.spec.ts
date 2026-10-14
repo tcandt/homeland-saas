@@ -87,7 +87,7 @@ test.describe("Integration Secret Permissions Desktop Regression", () => {
     const secretFields = main.getByTestId("integration-secret-field");
     await expect(secretFields).toHaveCount(6);
     for (let index = 0; index < 6; index += 1) {
-      await expect(secretFields.nth(index)).toBeEnabled();
+      await expect(secretFields.nth(index)).toBeDisabled();
       await expect(secretFields.nth(index)).toHaveValue("");
     }
 

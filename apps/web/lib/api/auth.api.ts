@@ -123,7 +123,7 @@ export const authApi = {
     return apiClient.get<TeamAccount[]>('/auth/team');
   },
 
-  createTeamMember: (data: { fullName: string; email: string; role: 'ADMIN' | 'MANAGER' | 'SALES' | 'FINANCE'; temporaryPassword: string }) => {
+  createTeamMember: (data: { fullName: string; email: string; role: 'ADMIN' | 'MANAGER' | 'FINANCE'; temporaryPassword: string }) => {
     return apiClient.post<TeamAccount>('/auth/team', data);
   },
 
@@ -131,7 +131,7 @@ export const authApi = {
     id: string,
     data: {
       fullName?: string;
-      role?: 'ADMIN' | 'MANAGER' | 'SALES' | 'FINANCE';
+      role?: 'ADMIN' | 'MANAGER' | 'FINANCE';
       status?: 'ACTIVE' | 'PENDING_VERIFICATION' | 'DISABLED' | 'LOCKED';
       temporaryPassword?: string;
       avatarUrl?: string;

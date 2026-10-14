@@ -23,22 +23,33 @@ describe('retired Sales CRM boundary', () => {
     ]) expect(read(file), file).not.toMatch(/["']\/sales(?:["'?/]|$)/);
   });
 
-  it('stops provisioning CRM leads and permissions without removing the SALES role', () => {
+  it('stops provisioning CRM leads, permissions, and the retired SALES role', () => {
     const seed = read('packages/database/prisma/seed.ts');
     const permissions = read('packages/database/update-manager-permissions.ts');
     expect(seed).not.toMatch(/salesLead|LeadStatus|["']sales\./);
     expect(permissions).not.toMatch(/["']sales\./);
-    expect(seed).toContain('RoleCode.SALES');
-    const salesPermissions = seed.match(/const salesPerms = createdPermissions\.filter\(p =>([\s\S]*?)\n  \);/)?.[1];
-    expect(salesPermissions).toBeDefined();
-    for (const permission of ['room.', 'customer.', 'contract.', 'deposit.', 'invoice.read', 'task.']) {
-      expect(salesPermissions).toContain(`p.key.startsWith('${permission}')`);
-    }
-    expect(salesPermissions).not.toContain('finance.');
+    expect(seed).not.toContain('RoleCode.SALES');
+    expect(seed).not.toMatch(/salesPerms|SALES/);
   });
 
-  it('keeps the legacy table compatible with backup and rollback without dropping data', () => {
-    expect(read('packages/database/prisma/schema.prisma')).toContain('model SalesLead {');
-    expect(read('apps/api/src/prisma.service.ts')).toContain("'SalesLead'");
+  it('removes retired role and CRM model from the active runtime schema', () => {
+    const schema = read('packages/database/prisma/schema.prisma');
+    expect(schema).not.toMatch(/model SalesLead\s*\{/);
+    expect(schema).not.toMatch(/enum LeadStatus\s*\{/);
+    expect(schema).not.toMatch(/\bSALES\b/);
+    expect(read('apps/api/src/prisma.service.ts')).not.toContain("'SalesLead'");
+  });
+
+  it('rejects the retired role in team DTOs', () => {
+    const dto = read('packages/shared/src/auth/auth.dto.ts');
+    expect(dto).not.toMatch(/z\.enum\(\[[^\]]*SALES/);
+  });
+
+  it('ships a forward-only cleanup migration without rewriting historical migrations', () => {
+    const migration = read('packages/database/prisma/migrations/20261014130000_retire_sales_role_and_leads/migration.sql');
+    expect(migration).toContain('DROP TABLE IF EXISTS "SalesLead"');
+    expect(migration).toContain('DROP TYPE IF EXISTS "LeadStatus"');
+    expect(migration).toContain('CREATE TYPE "RoleCode" AS ENUM (\'ADMIN\', \'MANAGER\', \'FINANCE\')');
+    expect(migration).toContain('DELETE FROM "Permission"');
   });
 });

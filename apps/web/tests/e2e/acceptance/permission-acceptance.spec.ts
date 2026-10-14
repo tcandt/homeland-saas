@@ -16,17 +16,6 @@ test.describe('Level 3 - Permission Acceptance', () => {
     }
   });
 
-  test('Sales does not see finance', async ({ sales }) => {
-    const page = sales.page;
-    await page.goto('/');
-    const isFinanceVisible = await page.locator('a[href="/finance"]').first().isVisible();
-    expect(isFinanceVisible).toBeFalsy();
-
-    // Sales cannot call finance API
-    const res = await sales.api.get('/api/v1/finance/ledger');
-    expect(res.status()).toBe(403);
-  });
-
   test('Finance sees finance but not settings', async ({ finance }) => {
     const page = finance.page;
     await page.goto('/');

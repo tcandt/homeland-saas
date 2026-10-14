@@ -189,12 +189,6 @@ function getUserAvatar(user: any, displayName: string, roles?: string[]): { src:
       fallback,
     };
   }
-  if (role === "SALES") {
-    return {
-      src: `https://api.dicebear.com/7.x/personas/svg?seed=${encodeURIComponent(displayName || "Sales")}&backgroundColor=10b981,06b6d4`,
-      fallback,
-    };
-  }
   if (role === "FINANCE") {
     return {
       src: `https://api.dicebear.com/7.x/personas/svg?seed=${encodeURIComponent(displayName || "Finance")}&backgroundColor=f59e0b,ef4444`,
@@ -211,7 +205,6 @@ function getRoleLabel(roles?: string[]): string {
   if (!roles || roles.length === 0) return "Quản trị viên";
   if (roles.includes("ADMIN")) return "Quản trị viên";
   if (roles.includes("MANAGER")) return "Quản lý";
-  if (roles.includes("SALES")) return "Kinh doanh";
   if (roles.includes("FINANCE")) return "Kế toán";
   return roles[0];
 }

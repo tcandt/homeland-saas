@@ -90,7 +90,7 @@ describe('requireRoutePermission', () => {
 
   it('returns 403 FORBIDDEN if user lacks required permission and is not ADMIN', async () => {
     const mockUser = {
-      roles: ['SALES'],
+      roles: ['FINANCE'],
       permissions: ['other.permission'],
     };
 

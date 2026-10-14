@@ -308,7 +308,6 @@ jobs:
       E2E_ADMIN_PASSWORD: homeland_e2e_password_123!
       E2E_DEFAULT_PASSWORD: homeland_e2e_password_123!
       E2E_MANAGER_PASSWORD: homeland_e2e_password_123!
-      E2E_SALES_PASSWORD: homeland_e2e_password_123!
       E2E_FINANCE_PASSWORD: homeland_e2e_password_123!
       SEED_FORCE_PASSWORD_CHANGE: "false"
     steps:
@@ -623,7 +622,6 @@ jobs:
       E2E_OWNER_A_PASSWORD: ${{ secrets.E2E_OWNER_A_PASSWORD }}
       E2E_OWNER_B_PASSWORD: ${{ secrets.E2E_OWNER_B_PASSWORD }}
       E2E_MANAGER_PASSWORD: ${{ secrets.E2E_MANAGER_PASSWORD }}
-      E2E_SALES_PASSWORD: ${{ secrets.E2E_SALES_PASSWORD }}
       E2E_FINANCE_PASSWORD: ${{ secrets.E2E_FINANCE_PASSWORD }}
       CORE_10_04_TEST_COMMAND: ${{ vars.CORE_10_04_TEST_COMMAND }}
       CORE1004_FIXTURE_PROVISION_COMMAND: ${{ vars.CORE1004_FIXTURE_PROVISION_COMMAND }}
@@ -636,7 +634,7 @@ jobs:
           node scripts/staging-url-guard.js
           test -n "$INTERNAL_API_TOKEN" || { echo 'BLOCKED: INTERNAL_API_TOKEN is not configured'; exit 1; }
           case "$STAGING_URL" in *localhost*|*127.0.0.1*|*homeland-production*) echo 'BLOCKED: STAGING_URL is not a staging endpoint'; exit 1;; esac
-          for key in E2E_ADMIN_PASSWORD E2E_OWNER_A_PASSWORD E2E_OWNER_B_PASSWORD E2E_MANAGER_PASSWORD E2E_SALES_PASSWORD E2E_FINANCE_PASSWORD; do
+          for key in E2E_ADMIN_PASSWORD E2E_OWNER_A_PASSWORD E2E_OWNER_B_PASSWORD E2E_MANAGER_PASSWORD E2E_FINANCE_PASSWORD; do
             if [ -z "${!key:-}" ]; then echo "BLOCKED: $key is not configured (persona credential missing)"; exit 1; fi
           done
       - name: Verify staging build commit

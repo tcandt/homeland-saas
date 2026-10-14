@@ -20,17 +20,17 @@ test.describe('Documents RBAC Regression', () => {
     expect(downloadRes.status()).toBe(200);
   });
 
-  test('Sales cannot download document without document.download permission', async ({ sales, admin }) => {
+  test('Finance cannot download document without document.download permission', async ({ finance, admin }) => {
     const factoryAdmin = new DataFactory(admin.api);
-    const docResponse = await factoryAdmin.generateDocument('RBAC-DOC-SALES', 'CONTRACT_TEMPLATE');
+    const docResponse = await factoryAdmin.generateDocument('RBAC-DOC-FINANCE', 'CONTRACT_TEMPLATE');
     
-    const factorySales = new DataFactory(sales.api);
-    const downloadRes = await factorySales.downloadDocument(docResponse.id, sales.token);
+    const factoryFinance = new DataFactory(finance.api);
+    const downloadRes = await factoryFinance.downloadDocument(docResponse.id, finance.token);
     // Depending on logic, it should return 403 or 401
     expect([401, 403]).toContain(downloadRes.status());
   });
 
-  test('Tenant isolation: Cannot access document from another tenant', async ({ admin, sales }) => {
+  test('Tenant isolation: Cannot access document from another tenant', async ({ admin }) => {
     test.info().annotations.push({
       type: 'issue',
       description: 'Tenant document access: PENDING - Reason: Tenant portal not implemented',

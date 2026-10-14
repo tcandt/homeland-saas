@@ -130,11 +130,9 @@ const createRoleFixture = (email: string, roleName: string, passwordEnv?: string
 export const test = base.extend<{
   admin: RoleFixture;
   manager: RoleFixture;
-  sales: RoleFixture;
   finance: RoleFixture;
 }>({
   admin: createRoleFixture('admin@homeland.vn', 'admin', 'E2E_ADMIN_PASSWORD'),
   manager: createRoleFixture('manager@homeland.local', 'manager', 'E2E_MANAGER_PASSWORD'),
-  sales: createRoleFixture('sales@homeland.local', 'sales', 'E2E_SALES_PASSWORD'),
   finance: createRoleFixture('finance@homeland.local', 'finance', 'E2E_FINANCE_PASSWORD'),
 });

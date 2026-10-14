@@ -54,13 +54,13 @@ export const ResetPasswordSchema = z.object({
 export const CreateTeamMemberSchema = z.object({
   fullName: z.string().trim().min(2, 'Họ và tên phải có ít nhất 2 ký tự'),
   email: z.string().trim().email('Email không đúng định dạng'),
-  role: z.enum(['ADMIN', 'MANAGER', 'SALES', 'FINANCE']),
+  role: z.enum(['ADMIN', 'MANAGER', 'FINANCE']),
   temporaryPassword: z.string().min(6, 'Mật khẩu tạm phải có ít nhất 6 ký tự').optional(),
 });
 
 export const UpdateTeamMemberSchema = z.object({
   fullName: z.string().trim().min(2, 'Họ và tên phải có ít nhất 2 ký tự').optional(),
-  role: z.enum(['ADMIN', 'MANAGER', 'SALES', 'FINANCE']).optional(),
+  role: z.enum(['ADMIN', 'MANAGER', 'FINANCE']).optional(),
   status: z.enum(['ACTIVE', 'PENDING_VERIFICATION', 'DISABLED', 'LOCKED']).optional(),
   temporaryPassword: z.string().min(6, 'Mật khẩu tạm phải có ít nhất 6 ký tự').optional(),
   avatarUrl: z.string().trim().min(1).optional(),

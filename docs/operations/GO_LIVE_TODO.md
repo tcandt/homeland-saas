@@ -39,7 +39,6 @@ Owner trong file là vai trò chịu trách nhiệm đề xuất, không phải 
 - `DBA`: người chịu trách nhiệm PostgreSQL/Redis/backup.
 - `INT`: người chịu trách nhiệm SePay/Hunonic/Zalo/Telegram/SMTP.
 - `OPS`: quản lý vận hành.
-- `SALES`: nhân sự đặt cọc, hợp đồng và chăm sóc khách thuê.
 - `FIN`: kế toán/đối soát.
 - `OWNER-A`, `OWNER-B`: hai chủ sở hữu.
 
@@ -80,9 +79,9 @@ Quy tắc bắt buộc sau hợp nhất: mọi kết quả DEV2 cũ được xem
 | `CORE-01` | `IN PROGRESS` | TL, DEV, SEC, DBA | Gate 0: baseline, dữ liệu, tenant, token, SePay và idempotency nền | Regression probes được khóa; backup/restore DB riêng; cross-tenant và retry tiền đạt |
 | `CORE-02` | `IN PROGRESS` | DEV, DBA, OPS | Customer + RentalCycle + Occupancy | Khách quay lại dùng hồ sơ cũ; không phòng ma; backfill có dry-run |
 | `CORE-03` | `IN PROGRESS` | DEV, FIN | Payment/Receipt/Allocation/Credit/Refund và sổ nguồn | Thu đồng thời không mất tiền; retry không nhân đôi; Nợ = Có |
-| `CORE-04` | `IN PROGRESS — CORE/DEV1` | DEV, OPS, SALES | Booking deposit và giữ chỗ | WHOLE/SHARED/capacity/hết hạn nhất quán; không giữ trùng |
+| `CORE-04` | `IN PROGRESS — CORE/DEV1` | DEV, OPS | Booking deposit và giữ chỗ | WHOLE/SHARED/capacity/hết hạn nhất quán; không giữ trùng |
 | `CORE-05` | `IN PROGRESS — CORE/DEV1` | DEV, FIN, OPS | Chuyển/hủy/hoàn cọc | B<C/B=C/B>C đúng; không ghi đè tiền gốc; không hoàn vượt dư |
-| `CORE-06` | [x] | DEV, OPS, SALES | Hợp đồng và nhận phòng | Một activation command; Contract–Occupancy–Room nhất quán; không hiển thị trùng |
+| `CORE-06` | [x] | DEV, OPS | Hợp đồng và nhận phòng | Một activation command; Contract–Occupancy–Room nhất quán; không hiển thị trùng |
 | `CORE-07` | `IN PROGRESS — CORE/DEV1` | DEV, INT, FIN, OPS | Hóa đơn đầu kỳ/tháng, Hunonic và chia điện nước | Không lập trùng; snapshot kỳ khóa; tổng chia bằng tổng phòng |
 | `CORE-08` | `IN PROGRESS` | DEV, FIN | Thanh toán và tab Tài chính | API/UI đúng room/customer/contract/kỳ thuê; truy vết đủ chứng từ |
 | `CORE-09` | [x] | DEV, FIN, OPS | Gia hạn/chuyển/trả phòng/settlement và báo cáo đối soát | GATE-09 PASS; kỳ cũ bất biến; cọc/nợ/điện cuối, trạng thái phòng và đối soát nhất quán |
@@ -208,7 +207,7 @@ Quy tắc bắt buộc sau hợp nhất: mọi kết quả DEV2 cũ được xem
   - `LOCAL EVIDENCE` 26/09/2026: isolated stack đã chạy `CORE-10.04` với RUN_ID `core1004-20260926-2020`, database `homeland_e2e_test`, migration `24/24` và release source SHA `7bed941e12c65d9bfd586919bfe8d89b84cecda2`: 31/31 Playwright PASS, 0 failed, 0 skipped; lưu 31 trace, 32 screenshot, snapshot trạng thái DB và không có `error-context.md`. Các case gồm lifecycle hợp đồng/hóa đơn, SePay signed replay/idempotency, duplicate provider transaction `NEEDS_REVIEW`, refund/settlement, monthly snapshot, report và shared-room tenant isolation. Đây chỉ là evidence kỹ thuật local; `CORE-10.04` vẫn mở cho đến khi staging chạy SHA bất biến với DB cô lập, persona/fixture masked, cleanup record và 11 ảnh vận hành. Chi tiết: `docs/evidence/P17_CORE1004_LOCAL_RUN_20260926.md`.
   - Thay đổi nghiệp vụ UI ngày 19/09/2026: popup đầu tiên sau nút Thêm khách thuê là “Cọc giữ phòng / Thuê ở ngay”; chỉ sau khi chọn intent mới mở “Khách có sẵn / Khách mới”. Sau khi lưu hồ sơ khách, hệ thống tự sinh đúng một nhánh: cọc giữ phòng tạo hợp đồng cọc DRAFT + deposit/RoomHold + invoice + PaymentRequest QR; thuê ở ngay tạo contract DRAFT + invoice đầu kỳ + PaymentRequest QR và gửi Zalo nếu khách đã đăng ký, chờ thanh toán/activation theo lifecycle. Không tạo hóa đơn/cọc/hoàn cọc từ popup Hóa đơn; tab Hóa đơn chỉ hiển thị danh sách/chi tiết/QR. Đã sửa lỗi phòng hiển thị “Trống” dù tab Tài chính có RentalCycle/hợp đồng: Room API trả hợp đồng DRAFT/PENDING/APPROVED cho hồ sơ phòng, UI hiển thị khách và trạng thái đặt cọc/chờ HĐ nhưng không tính là đang ở trước activation. Web focused 122/122, API focused PASS, Web/API typecheck PASS.
 - [ ] `CORE-10.05` Dual-read/reconciliation và feature flag theo tenant/tòa nhà trước khi đổi source of truth.
-- [ ] `CORE-10.06` Staging UAT OPS/FIN/SALES/OWNER ký duyệt; không còn P0/P1 cốt lõi.
+- [ ] `CORE-10.06` Staging UAT OPS/FIN/OWNER ký duyệt; không còn P0/P1 cốt lõi.
 - [ ] `CORE-10.07` Backup pre-cutover, immutable release, smoke, monitoring, GO/NO-GO và rollback drill.
   - `OWNER REOPEN` 10/10/2026: phát triển và diễn tập Backup/Restore/Rollback trên local Docker Desktop đã được duyệt; sửa B01–B12 với kỳ mặc định là tháng hiện tại GMT+7. NAS Synology/Container Manager là target phát hành, chưa được phép thao tác trong đợt local. Giữ dirty working tree; commit/bump phiên bản chỉ sau khi phạm vi hoàn chỉnh và qua review/test gate. CI/CD phải chặn deploy tự động không được duyệt; evidence local không thay thế production GO.
   - `LOCAL DEPENDENCY CHECKPOINT — FINAL GATE OPEN` 10/10/2026: owner đã duyệt và triển khai local Nodemailer10.0.6, QR0.1.5/0.21.3 và Web ESLint9; CI22/API Docker22/Web Docker20 giữ nguyên. Runtime audit từ high17/critical3 về high0/critical0, còn low1/moderate28 được báo nguyên trạng; dev-inclusive audit còn high16 cần triage cuối. Cài sạch và affected checks trong Docker PASS; riêng test giờ hóa đơn từng fail dưới UTC đã sửa GMT+7 và rerun PASS. Đây không phải release image/full regression sign-off. Chi tiết lock-resolution, một lần writer dùng force đã bị dừng và evidence: `VPS_REPAIR_LOCAL_2026-10-10.md`. Không bump/commit phát hành khi toàn bộ gate chưa đạt.
@@ -394,13 +393,13 @@ Thực hiện theo thứ tự. Một phase không được coi là đạt nếu 
 
 | ID | Trạng thái | Owner | Dependency | Việc cần làm | Definition of Done / bằng chứng |
 |---|---|---|---|---|---|
-| `UAT-01` | [ ] | OPS, SALES, FIN | `STG-04`, integrations staging | Chạy luồng chuẩn end-to-end | Chọn phòng -> cọc -> SePay -> hợp đồng -> hóa đơn -> điện/nước -> thanh toán -> chi phí -> quyết toán -> vệ sinh -> trống; không sửa DB tay |
+| `UAT-01` | [ ] | OPS, FIN | `STG-04`, integrations staging | Chạy luồng chuẩn end-to-end | Chọn phòng -> cọc -> SePay -> hợp đồng -> hóa đơn -> điện/nước -> thanh toán -> chi phí -> quyết toán -> vệ sinh -> trống; không sửa DB tay |
 | `UAT-02` | [ ] | OPS, FIN | `UAT-01` | Chạy ngoại lệ cọc | Cọc chưa thu, hoàn toàn phần/một phần, giữ cọc, khấu trừ phí, pending refund/completed refund đúng chứng từ/audit |
 | `UAT-03` | [ ] | OPS, FIN | `UAT-01` | Chạy trả phòng sớm và quyết toán | Tiền thuê theo ngày, hỗ trợ/hoàn tiền phòng, điện/nước sớm, công nợ/cọc, CLEANING/MAINTENANCE/AVAILABLE đúng |
 | `UAT-04` | [ ] | FIN | `SEP-*`, `HUN-*`, `UAT-01..03` | Nghiệm thu kế toán và chia lợi nhuận | Tổng thu/chi/còn lại, người ứng tiền, owner chịu chi, hoàn ứng/khấu trừ, deposit held/refund/credit khớp sổ kiểm soát |
 | `UAT-05` | [ ] | OWNER-A | `UAT-04` | Owner A nghiệm thu dashboard/tòa/bank/lợi nhuận | Chỉ thấy/quản lý đúng phạm vi đã duyệt; số liệu và audit đúng; ký acceptance |
 | `UAT-06` | [ ] | OWNER-B | `UAT-04` | Owner B nghiệm thu dashboard/tòa/bank/lợi nhuận | Chỉ thấy/quản lý đúng phạm vi đã duyệt; số liệu và audit đúng; ký acceptance |
-| `UAT-07` | [ ] | OPS, TL | `STG-03` | Nghiệm thu RBAC account thật | Admin vận hành không sửa token; owner A/B sửa token; manager không vào Settings; sales/finance đúng quyền nếu đưa vào vận hành |
+| `UAT-07` | [ ] | OPS, TL | `STG-03` | Nghiệm thu RBAC account thật | Admin vận hành không sửa token; owner A/B sửa token; manager không vào Settings; finance đúng quyền |
 | `UAT-08` | [ ] | OPS | `STG-04` | UAT thiết bị Android/iOS thật | Chrome Android và Safari iOS: login, theme, Buildings 3D/2.5D, phòng, hợp đồng, chi phí, table/modal/toast không vỡ/overflow |
 | `UAT-09` | [ ] | DEV, OPS | WebKit browser được phê duyệt/cài | Chạy Playwright WebKit hoặc BrowserStack/device farm | Public/auth route light/dark PASS; lỗi khác Chromium được đóng; artifact gắn đúng SHA |
 | `UAT-10` | [ ] | OPS, FIN, TL | `UAT-01..09` | Ký staging acceptance | Danh sách testcase PASS, issue còn lại không có P0/P1, acceptance có TL/OPS/FIN/OWNER-A/OWNER-B |
@@ -409,7 +408,7 @@ Thực hiện theo thứ tự. Một phase không được coi là đạt nếu 
 
 | ID | Trạng thái | Owner | Dependency | Việc cần làm | Definition of Done / bằng chứng |
 |---|---|---|---|---|---|
-| `ACC-01` | [ ] | TL, OPS, SEC | Production sẵn sàng | Tạo account production riêng | `admin`, `adminA`, `adminB`, `manager` và sales/finance nếu dùng; không dùng chung account; email/role đúng |
+| `ACC-01` | [ ] | TL, OPS, SEC | Production sẵn sàng | Tạo account production riêng | `admin`, `adminA`, `adminB`, `manager` và `finance`; không dùng chung account; email/role đúng |
 | `ACC-02` | [ ] | SEC, OPS | `ACC-01` | Bàn giao mật khẩu tạm qua password manager | Mỗi account mật khẩu riêng, must-change bật, không gửi trong Git/chat/log; người nhận xác nhận |
 | `ACC-03` | [ ] | Mỗi user | `ACC-02` | Đổi mật khẩu lần đầu và đăng nhập lại | Must-change tắt sau đổi; refresh token cũ bị thu hồi; audit có đúng user/IP/user-agent |
 | `ACC-04` | [ ] | OPS, SEC | `ACC-03` | Test quy trình khóa/thu hồi account | Disable account trả 401/403; refresh token bị revoke; SOP nhân sự nghỉ/đổi vai trò được ghi nhận |

@@ -123,7 +123,7 @@ Dashboard để giao việc: [`maps/index.html`](../../maps/index.html). Mỗi p
 | P17.3 | QA + DEV | Lưu 11 ảnh và rerun finding. | Ảnh có URL/run ID/timestamp; P0/P1 retest PASS. |
 | P18.1 | OPS | Sync ba tháng dữ liệu ẩn danh. | Mapping mẫu, mask PII, đối chiếu số lượng trước/sau. |
 | P18.2 | INT + FIN | UAT SePay payment-code match; Hunonic dùng mock theo `SCP-01`. | SePay đối soát >=99%; mismatch có owner/resolution. Hunonic provider không được ghi PASS trong đợt này. |
-| P18.3 | OPS + FIN + SALES + OWNER | Ký acceptance staging. | Không còn P0/P1; scope/date/known risks có chữ ký. |
+| P18.3 | OPS + FIN + OWNER | Ký acceptance staging. | Không còn P0/P1; scope/date/known risks có chữ ký. |
 | P19.1 | INFRA | `DEFERRED (OWNER)`: production preflight immutable release. | Mở lại đợt sau; config/secret/migration/health/monitoring PASS không lộ secret. |
 | P19.2 | DBA | `DEFERRED (OWNER)`: backup off-host + isolated restore drill. | Mở lại đợt sau; manifest/checksum/RPO/RTO/financial totals đúng. |
 | P19.3 | TL + INFRA | `DEFERRED (OWNER)`: rollback manual, smoke, alert và nâng phiên bản. | Mở lại đợt sau; về đúng SHA, service healthy, on-call xác nhận. |

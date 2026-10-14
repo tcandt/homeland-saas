@@ -4,13 +4,13 @@ import { test } from '../../fixtures/rbac.fixture';
 test.describe.configure({ mode: 'serial' });
 
 test.describe('AI RBAC & Tool Permissions Regression Flow', () => {
-  test.beforeEach(async ({ sales }) => {
-    sales.page.on('console', msg => console.log('[PAGE CONSOLE]', msg.text()));
-    sales.page.on('pageerror', err => console.log('[PAGE ERROR]', err.message));
+  test.beforeEach(async ({ finance }) => {
+    finance.page.on('console', msg => console.log('[PAGE CONSOLE]', msg.text()));
+    finance.page.on('pageerror', err => console.log('[PAGE ERROR]', err.message));
   });
 
-  test('Sales role should be denied execution of finance/admin tools', async ({ sales }) => {
-    const page = sales.page;
+  test('Finance role should be denied execution of finance/admin tools', async ({ finance }) => {
+    const page = finance.page;
     await page.goto('/ai');
     await page.waitForLoadState('networkidle');
 

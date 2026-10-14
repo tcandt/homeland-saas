@@ -5,7 +5,7 @@ import { ClsService } from 'nestjs-cls';
 export const TENANT_AWARE_MODELS = [
   'Building', 'Floor', 'Room', 'Customer', 'Contract', 
   'Deposit', 'Invoice', 'Payment', 'CreditNote', 'Task', 
-  'SalesLead', 'NotificationJob', 'User', 'AuditLog',
+  'NotificationJob', 'User', 'AuditLog',
   'AppSetting', 'PaymentRequest', 'PaymentWebhookLog',
   'Owner', 'BankAccount', 'CashAccount', 'ChartOfAccount',
   'CostCenter', 'Expense', 'Receipt', 'JournalEntry', 'JournalLine',

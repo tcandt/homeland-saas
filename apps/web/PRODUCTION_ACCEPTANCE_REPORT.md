@@ -11,12 +11,12 @@ This document tracks the readiness of the application for production deployment,
 - `[x]` **Fresh State Guarantee**: Reverse-dependency cleanup sequences ensure test suites leave the database clean, supporting true parallel execution.
 
 ## Level 2 Sign-off Status
-**Sales CRM/Lead/Pipeline**: RETIRED BY OWNER (14/10/2026).
-The CRM runtime and its dedicated tests have been removed. The SALES role and
-`tests/e2e/regression/sales/sales-rbac.spec.ts` remain for core operational permissions
-and Finance isolation; this is not a CRM test. Existing SalesLead storage and immutable
-migrations remain only for data/backup/rollback compatibility, with no CRM endpoints or
-new lead seeding. No database cleanup or NAS deployment is performed by this change.
+**Sales CRM/Lead/Pipeline and SALES role**: RETIRED BY OWNER (14/10/2026).
+The CRM runtime, dedicated tests, SALES role, role grants, and SalesLead model have
+been removed from the active runtime. A forward migration drops the legacy table,
+enum, role, and `sales.*` permissions; immutable historical migrations remain
+unchanged for checksum/audit history. No database cleanup or NAS deployment is
+performed until the migration is approved and applied to an isolated staging database.
 
 This document's earlier checklist is historical, not current production approval.
 Current release gates and GO/NO-GO are tracked in `docs/operations/GO_LIVE_TODO.md`.

@@ -304,14 +304,14 @@ dbDescribe('DepositCoreService PostgreSQL concurrency', () => {
         amount: 1_000_000, status: 'PENDING', expiredAt: new Date(Date.now() + 60 * 60 * 1000),
       },
     });
-    await service.collect(tenantId, deposit.id, { idempotencyKey: 'integration-move-collect' }, 'user-sales');
+    await service.collect(tenantId, deposit.id, { idempotencyKey: 'integration-move-collect' }, 'user-finance');
     const renewedExpiry = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
     await service.renewHold(tenantId, deposit.id, {
       idempotencyKey: 'integration-move-renew', expiresAt: renewedExpiry,
-    }, 'user-sales');
+    }, 'user-finance');
     await service.transferHold(tenantId, deposit.id, {
       idempotencyKey: 'integration-move-transfer', targetRoomId: targetRoom.id,
-    }, 'user-sales');
+    }, 'user-finance');
 
     expect(await prisma.roomHold.count({ where: { tenantId, roomId: sourceRoom.id, status: 'ACTIVE' } })).toBe(0);
     expect(await prisma.roomHold.count({ where: { tenantId, roomId: targetRoom.id, status: 'ACTIVE' } })).toBe(1);
@@ -321,7 +321,7 @@ dbDescribe('DepositCoreService PostgreSQL concurrency', () => {
 
     await service.releaseHold(tenantId, deposit.id, {
       idempotencyKey: 'integration-move-release', reason: 'Bàn giao sang bước tiếp theo',
-    }, 'user-sales');
+    }, 'user-finance');
     expect(await prisma.roomHold.count({ where: { tenantId, rentalCycleId: cycle.id, status: 'ACTIVE' } })).toBe(0);
     expect(await service.getBalance(tenantId, deposit.id)).toBe(1_000_000);
 

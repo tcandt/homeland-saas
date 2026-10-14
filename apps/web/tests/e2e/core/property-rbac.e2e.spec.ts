@@ -36,8 +36,8 @@ test.describe('Property Structure RBAC', () => {
     await expect(page.locator(`text=${testBuildingName}`).filter({ visible: true }).first()).toBeVisible({ timeout: 10000 });
   });
 
-  test('Sales can view but cannot edit or delete building', async ({ sales }) => {
-    const page = sales.page;
+  test('Finance can view but cannot edit or delete building', async ({ finance }) => {
+    const page = finance.page;
     
     // Skip on mobile/tablet viewports since building CRUD/Explorer is desktop-only
     const isMobile = page.viewportSize()?.width && page.viewportSize()!.width < 1024;
@@ -55,14 +55,14 @@ test.describe('Property Structure RBAC', () => {
     const authState = await page.evaluate(() => localStorage.getItem('auth-storage'));
     console.log("AUTH STATE IN PAGE:", authState);
 
-    // Sales should NOT see add button
+    // Finance should NOT see add button
     await expect(page.getByTestId('add-building-button').first()).not.toBeVisible();
 
     // Click building to view details in right panel
     await buildingNode.click();
     await expect(page.locator(`h1:has-text("${testBuildingName}")`).first()).toBeVisible({ timeout: 10000 });
 
-    // Sales should NOT see Edit Building or Add Floor buttons in detail view
+    // Finance should NOT see Edit Building or Add Floor buttons in detail view
     const btnCount = await page.getByTestId('edit-building-button').count();
     console.log("BUTTON COUNT:", btnCount);
     if (btnCount > 0) {

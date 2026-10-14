@@ -24,22 +24,6 @@ async function main() {
     }
   }
 
-  // Also ensure Sales has read access
-  const salesRole = await prisma.role.findUnique({ where: { code: RoleCode.SALES } });
-  if (salesRole) {
-    const readPerms = ['building.read', 'floor.read', 'room.read'];
-    for (const rKey of readPerms) {
-      const perm = await prisma.permission.findUnique({ where: { key: rKey } });
-      if (perm) {
-        await prisma.rolePermission.upsert({
-          where: { roleId_permissionId: { roleId: salesRole.id, permissionId: perm.id } },
-          update: {},
-          create: { roleId: salesRole.id, permissionId: perm.id }
-        });
-        console.log(`Added ${rKey} to Sales role`);
-      }
-    }
-  }
 }
 
 main()

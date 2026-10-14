@@ -17,7 +17,7 @@ const historicalManifest = JSON.parse(fs.readFileSync(historicalManifestPath, 'u
 const supplementalManifest = JSON.parse(fs.readFileSync(path.join(root, 'packages/database/prisma/baseline/supplemental-migration-manifest.json'), 'utf8'));
 const baselineV2Manifest = JSON.parse(fs.readFileSync(baselineV2ManifestPath, 'utf8'));
 const reviewedMigrations = historicalManifest.migrations.map(({ name, sha256 }) => [name, sha256]);
-const nasReleaseFingerprint = 'fd9d42c90e48aae98cc51e745989c7797a04c709ed16dd97c0c0a61d5e7739ca';
+const nasReleaseFingerprint = '4174b76eac14c8e3800a382d13e757c0bfd291c02d68c737863eebf6b6c8581d';
 
 const sha256 = (file) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 const migrationFile = (name) => path.join(migrationsRoot, name, 'migration.sql');
@@ -199,7 +199,7 @@ async function existingVerifiedBaseline(prisma) {
 
 function validateNasReleaseHistory(rows, expected) {
   const active = rows.filter((row) => row.rolled_back_at === null);
-  if (expected.length !== 34 || active.length !== expected.length) throw new Error('NAS staging release migration coverage drift; no automatic repair is allowed.');
+  if (expected.length !== 35 || active.length !== expected.length) throw new Error('NAS staging release migration coverage drift; no automatic repair is allowed.');
   for (const [index, migration] of expected.entries()) {
     const row = active[index];
     if (!row.finished_at || row.migration_name !== migration.name || row.checksum !== migration.sha256) {

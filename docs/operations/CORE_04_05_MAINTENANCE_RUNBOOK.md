@@ -15,7 +15,7 @@ Runbook này không phải quyền chạy production. Chỉ thực thi sau khi c
 - [ ] Script opening-balance có dry-run, file review được FIN ký và tổng Nợ/Có được chốt.
 - [ ] Backup pre-cutover thành công và restore drill trên DB riêng đạt.
 - [ ] Có feature flag tắt command CORE-04/05 theo tenant/tòa nhà.
-- [ ] OPS/SALES/FIN xác nhận thời điểm ngừng tạo/thu/chuyển/hoàn cọc trong UI cũ.
+- [ ] OPS/FIN xác nhận thời điểm ngừng tạo/thu/chuyển/hoàn cọc trong UI cũ.
 - [ ] Dashboard/log/alert và người trực rollback đã sẵn sàng.
 
 Thiếu một mục thì quyết định là **NO-GO**.

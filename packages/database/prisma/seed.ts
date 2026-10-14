@@ -54,7 +54,7 @@ async function main() {
   );
 
   const roles = await Promise.all(
-    [RoleCode.ADMIN, RoleCode.MANAGER, RoleCode.SALES, RoleCode.FINANCE].map((code) =>
+    [RoleCode.ADMIN, RoleCode.MANAGER, RoleCode.FINANCE].map((code) =>
       prisma.role.upsert({
         where: { code },
         update: {},
@@ -65,7 +65,6 @@ async function main() {
 
   const adminRole = roles.find((r) => r.code === RoleCode.ADMIN)!;
   const managerRole = roles.find((r) => r.code === RoleCode.MANAGER)!;
-  const salesRole = roles.find((r) => r.code === RoleCode.SALES)!;
   const financeRole = roles.find((r) => r.code === RoleCode.FINANCE)!;
 
   // Grant all to admin
@@ -93,20 +92,6 @@ async function main() {
   );
   await prisma.rolePermission.createMany({
     data: managerPerms.map(p => ({ roleId: managerRole.id, permissionId: p.id })),
-    skipDuplicates: true,
-  });
-
-  // Grant to Sales
-  const salesPerms = createdPermissions.filter(p => 
-    p.key.startsWith('room.') || 
-    p.key.startsWith('customer.') || 
-    p.key.startsWith('contract.') || 
-    p.key.startsWith('deposit.') || 
-    p.key.startsWith('invoice.read') || 
-    p.key.startsWith('task.')
-  );
-  await prisma.rolePermission.createMany({
-    data: salesPerms.map(p => ({ roleId: salesRole.id, permissionId: p.id })),
     skipDuplicates: true,
   });
 
@@ -167,12 +152,6 @@ async function main() {
     create: { tenantId: org.id, email: 'manager@homeland.local', fullName: 'Operations Manager', passwordHash },
   });
 
-  const salesUser = await prisma.user.upsert({
-    where: { tenantId_email: { tenantId: org.id, email: 'sales@homeland.local' } },
-    update: {},
-    create: { tenantId: org.id, email: 'sales@homeland.local', fullName: 'Sales Executive', passwordHash },
-  });
-
   const financeUser = await prisma.user.upsert({
     where: { tenantId_email: { tenantId: org.id, email: 'finance@homeland.local' } },
     update: {},
@@ -184,7 +163,6 @@ async function main() {
     data: [
       { userId: adminUser.id, roleId: adminRole.id },
       { userId: managerUser.id, roleId: managerRole.id },
-      { userId: salesUser.id, roleId: salesRole.id },
       { userId: financeUser.id, roleId: financeRole.id },
     ],
     skipDuplicates: true,
@@ -472,7 +450,7 @@ async function main() {
         description: `Hợp đồng sắp hết hạn trong 15 ngày tới`,
         status: TaskStatus.TODO,
         priority: TaskPriority.HIGH,
-        assigneeId: salesUser.id,
+        assigneeId: managerUser.id,
         dueDate: addDays(now, 5)
       }
     });

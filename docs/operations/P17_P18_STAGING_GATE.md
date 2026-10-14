@@ -46,7 +46,7 @@ Record `release SHA`, `run ID`, `fixture ID`, `target database ID`, migration/sc
 
 ### Acceptance
 
-OPS, FIN, SALES, and Owner each sign the same staging acceptance record containing the run date, release SHA, scope, evidence links, reconciliation metrics, open risks, and explicit PASS/NO-GO decision. A missing signature, an open P0/P1, or an unexplained mismatch blocks P18.
+OPS, FIN, and Owner each sign the same staging acceptance record containing the run date, release SHA, scope, evidence links, reconciliation metrics, open risks, and explicit PASS/NO-GO decision. A missing signature, an open P0/P1, or an unexplained mismatch blocks P18.
 
 ## Isolated Database Cleanup
 

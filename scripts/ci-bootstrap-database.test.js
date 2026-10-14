@@ -69,7 +69,7 @@ test('existing BASELINE-V2 path is audit-only and cannot resolve or apply baseli
 });
 
 test('NAS release audit rejects partial, failed, duplicated, unknown or changed migration history', () => {
-  const expected = Array.from({ length: 34 }, (_, i) => ({ name: `migration_${String(i).padStart(2, '0')}`, sha256: 'a'.repeat(64) }));
+  const expected = Array.from({ length: 35 }, (_, i) => ({ name: `migration_${String(i).padStart(2, '0')}`, sha256: 'a'.repeat(64) }));
   const rows = expected.map(({ name, sha256 }) => ({ migration_name: name, checksum: sha256, finished_at: new Date(), rolled_back_at: null }));
   assert.doesNotThrow(() => validateNasReleaseHistory(rows, expected));
   assert.doesNotThrow(() => validateNasReleaseHistory([...rows, { rolled_back_at: new Date() }], expected));
@@ -115,7 +115,7 @@ test('NAS seed failure cannot write completion marker and a partial seed cannot 
 test('NAS seed completion marker must match the initialized tenant, entity and pinned schema', async () => {
   const marker = {
     tenantId: 'synthetic-tenant', entity: 'NasStagingBootstrap', entityId: 'homeland_staging', action: 'CREATE',
-    after: { seedCompleted: true, schemaFingerprint: 'fd9d42c90e48aae98cc51e745989c7797a04c709ed16dd97c0c0a61d5e7739ca' },
+    after: { seedCompleted: true, schemaFingerprint: '4174b76eac14c8e3800a382d13e757c0bfd291c02d68c737863eebf6b6c8581d' },
   };
   const prisma = {
     auditLog: { findUnique: async () => marker },

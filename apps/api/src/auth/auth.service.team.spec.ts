@@ -121,7 +121,7 @@ describe('AuthService team directory', () => {
             fullName: 'Member One',
             status: 'ACTIVE',
             mustChangePassword: false,
-            roles: [{ role: { code: 'SALES', name: 'Sales' } }],
+            roles: [{ role: { code: 'FINANCE', name: 'Finance' } }],
           })
           .mockResolvedValueOnce({
             id: 'member-1',
@@ -254,8 +254,8 @@ describe('AuthService team directory', () => {
     const prisma: any = {
       user: {
         findFirst: vi.fn().mockResolvedValue({
-          email: 'sales@homeland.local',
-          roles: [{ role: { code: 'SALES', name: 'SALES' } }],
+          email: 'finance@homeland.local',
+          roles: [{ role: { code: 'FINANCE', name: 'FINANCE' } }],
         }),
       },
     };

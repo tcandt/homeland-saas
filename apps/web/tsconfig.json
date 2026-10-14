@@ -33,19 +33,12 @@
     "**/*.ts",
     "**/*.tsx",
     ".next/types/**/*.ts",
-    ".next/dev/types/**/*.ts",
-    ".next-sepay-e2e/types/**/*.ts",
-    ".next-sepay-e2e/dev/types/**/*.ts",
-    ".next-p8p9-uat/types/**/*.ts",
-    ".next-p8p9-uat/dev/types/**/*.ts",
-    ".next-core1004-e2e/types/**/*.ts",
-    ".next-core1004-e2e/dev/types/**/*.ts",
-    ".next-uat-20260929-resume/types/**/*.ts",
-    ".next-uat-20260929-resume/dev/types/**/*.ts"
+    ".next/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
     ".next",
+    ".next-*",
     "dist",
     "tests",
     "playwright-report",

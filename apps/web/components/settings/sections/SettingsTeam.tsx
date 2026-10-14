@@ -31,12 +31,11 @@ import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 
-type TeamRole = "ADMIN" | "MANAGER" | "SALES" | "FINANCE";
+type TeamRole = "ADMIN" | "MANAGER" | "FINANCE";
 
 const roleLabels: Record<string, string> = {
   ADMIN: "Quản trị viên",
   MANAGER: "Quản lý vận hành",
-  SALES: "Kinh doanh",
   FINANCE: "Kế toán",
 };
 
@@ -302,7 +301,6 @@ export default function SettingsTeam() {
             <option value="ALL">Tất cả vai trò</option>
             <option value="ADMIN">Quản trị viên (Admin)</option>
             <option value="MANAGER">Quản lý (Manager)</option>
-            <option value="SALES">Kinh doanh (Sales)</option>
             <option value="FINANCE">Kế toán (Finance)</option>
           </select>
         </div>
@@ -496,7 +494,6 @@ export default function SettingsTeam() {
             >
               <option value="MANAGER">Quản lý vận hành (Manager)</option>
               <option value="ADMIN">Quản trị viên toàn quyền (Admin)</option>
-              <option value="SALES">Chuyên viên kinh doanh (Sales)</option>
               <option value="FINANCE">Kế toán / Thủ quỹ (Finance)</option>
             </select>
           </div>
@@ -554,7 +551,6 @@ export default function SettingsTeam() {
             >
               <option value="MANAGER">Quản lý vận hành (Manager)</option>
               <option value="ADMIN">Quản trị viên toàn quyền (Admin)</option>
-              <option value="SALES">Chuyên viên kinh doanh (Sales)</option>
               <option value="FINANCE">Kế toán / Thủ quỹ (Finance)</option>
             </select>
           </div>

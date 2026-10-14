@@ -817,7 +817,6 @@ export class SystemUpdateService {
             const tasks = await deleteMany('task', { where: { tenantId } });
             const notifs = await deleteMany('notificationQueue', { where: { tenantId } });
             const jobs = await deleteMany('notificationJob', { where: { tenantId } });
-            const leads = await deleteMany('salesLead', { where: { tenantId } });
             const customers = await deleteMany('customer', { where: { tenantId } });
 
             // Preserve buildings/floors/rooms, but reset room operational status.
@@ -864,7 +863,6 @@ export class SystemUpdateService {
             deletedCounts.tasks = tasks?.count ?? 0;
             deletedCounts.notificationQueue = notifs?.count ?? 0;
             deletedCounts.notificationJobs = jobs?.count ?? 0;
-            deletedCounts.salesLeads = leads?.count ?? 0;
           } finally {
             await setAdminWipeTriggers(txAny, true).catch(() => undefined);
           }

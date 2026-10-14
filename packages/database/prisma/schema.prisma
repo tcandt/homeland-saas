@@ -13,7 +13,6 @@ datasource db {
 enum RoleCode {
   ADMIN
   MANAGER
-  SALES
   FINANCE
 }
 
@@ -204,15 +203,6 @@ enum TaskPriority {
   MEDIUM
   HIGH
   URGENT
-}
-
-enum LeadStatus {
-  NEW
-  CONTACTED
-  QUALIFIED
-  PROPOSAL
-  WON
-  LOST
 }
 
 enum UserStatus {
@@ -938,24 +928,6 @@ model Task {
   @@index([tenantId, contractId])
   @@index([tenantId, rentalCycleId])
   @@index([tenantId, customerId])
-}
-
-model SalesLead {
-  id           String     @id @default(cuid())
-  tenantId     String
-  name         String
-  phone        String
-  email        String?
-  status       LeadStatus @default(NEW)
-  notes        String?
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
-  deletedAt    DateTime?
-  deletedBy    String?
-  deleteReason String?
-
-  @@index([tenantId, status])
-  @@index([tenantId, phone])
 }
 
 model NotificationJob {

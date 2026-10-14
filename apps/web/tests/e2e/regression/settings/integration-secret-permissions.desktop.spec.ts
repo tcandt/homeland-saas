@@ -95,7 +95,9 @@ test.describe("Integration Secret Permissions Desktop Regression", () => {
       await expect(secretFields.nth(index)).toHaveValue("");
     }
 
-    await main.getByRole("button", { name: "Lưu cấu hình" }).click();
+    await main.getByRole("button", { name: "Thiết lập cấu hình" }).click();
+    await expect(admin.page.getByRole("button", { name: "Lưu cấu hình" })).toBeVisible();
+    await admin.page.getByRole("button", { name: "Lưu cấu hình" }).click();
     await expect.poll(() => sePayPatchBody).not.toBeNull();
 
     expect(sePayPatchBody).toMatchObject({

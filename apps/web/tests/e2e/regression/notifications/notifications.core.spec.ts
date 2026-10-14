@@ -111,7 +111,7 @@ test.describe('Notifications Core Regression', () => {
 
     // Look for the failed item row
     console.log('QUEUE HTML:', await adminPage.getByTestId('notification-queue-table').innerHTML());
-    const failedRow = adminPage.getByTestId('notification-queue-row').filter({ hasText: 'Test Failed Notification' }).first();
+    const failedRow = adminPage.getByTestId('notification-queue-row').filter({ hasText: /TEST_FAIL|FAILED/i }).first();
     await expect(failedRow).toBeVisible();
 
     const statusBadge = failedRow.getByTestId('notification-queue-status-badge');

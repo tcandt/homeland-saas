@@ -63,14 +63,14 @@ test.describe('Notifications RBAC Regression', () => {
     expect(hasAdminNotification).toBeTruthy();
   });
 
-  test('Sales can read their own notifications', async ({ sales }) => {
-    const res = await sales.api.get('/api/v1/notifications');
+  test('Finance can read their own notifications', async ({ finance }) => {
+    const res = await finance.api.get('/api/v1/notifications');
     expect(res.status()).toBe(200);
     const body = await res.json();
     const data = body.data || body;
     expect(data).toBeInstanceOf(Array);
     
-    // Sales should NOT see Admin's notifications
+    // Finance should NOT see Admin's notifications
     const hasAdminNotification = data.some((n: any) => n.title === 'Thông báo hệ thống: Contract Expiring Soon');
     expect(hasAdminNotification).toBeFalsy();
   });

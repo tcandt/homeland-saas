@@ -5,6 +5,7 @@ import request from 'supertest';
 import { AppModule } from './../src/app.module';
 import { PrismaService } from './../src/prisma.service';
 import { beforeAll, afterAll, describe, it, expect } from 'vitest';
+import { Prisma } from '@prisma/client';
 
 const describeDestructive = process.env.RUN_DESTRUCTIVE_E2E === 'true' ? describe : describe.skip;
 
@@ -34,15 +35,20 @@ describeDestructive('Auth Flow (e2e)', () => {
     prisma = app.get<PrismaService>(PrismaService);
 
     // Seed ADMIN role if it doesn't exist
-    await prisma.role.upsert({
-      where: { code: 'ADMIN' },
-      update: {},
-      create: {
-        code: 'ADMIN',
-        name: 'Administrator',
-      }
-    });
-  });
+    try {
+      await prisma.role.upsert({
+        where: { code: 'ADMIN' },
+        update: {},
+        create: {
+          code: 'ADMIN',
+          name: 'Administrator',
+        }
+      });
+    } catch (error) {
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') throw error;
+      await prisma.role.findUniqueOrThrow({ where: { code: 'ADMIN' } });
+    }
+  }, 30_000);
 
   afterAll(async () => {
     if (!prisma || !app) return;

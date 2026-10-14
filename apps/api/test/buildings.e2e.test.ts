@@ -6,6 +6,7 @@ import { AppModule } from './../src/app.module';
 import { PrismaService } from './../src/prisma.service';
 import { AuthService } from './../src/auth/auth.service';
 import { beforeAll, afterAll, describe, it, expect } from 'vitest';
+import { Prisma } from '@prisma/client';
 
 const describeDestructive = process.env.RUN_DESTRUCTIVE_E2E === 'true' ? describe : describe.skip;
 
@@ -47,14 +48,20 @@ describeDestructive('Building Property Flow (e2e)', () => {
       { key: 'room.update', description: 'Update Room' },
       { key: 'room.delete', description: 'Delete Room' },
     ];
-    const adminRole = await prisma.role.upsert({
-      where: { code: 'ADMIN' },
-      update: {},
-      create: {
-        code: 'ADMIN',
-        name: 'Administrator',
-      },
-    });
+    let adminRole;
+    try {
+      adminRole = await prisma.role.upsert({
+        where: { code: 'ADMIN' },
+        update: {},
+        create: {
+          code: 'ADMIN',
+          name: 'Administrator',
+        },
+      });
+    } catch (error) {
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') throw error;
+      adminRole = await prisma.role.findUniqueOrThrow({ where: { code: 'ADMIN' } });
+    }
     const permissions = await Promise.all(buildingPermissions.map((permission) =>
       prisma.permission.upsert({
         where: { key: permission.key },
@@ -76,7 +83,7 @@ describeDestructive('Building Property Flow (e2e)', () => {
     const res2 = await authService.register({ email: email2, password: 'Password123!', fullName: 'Tenant Two', phone: '987654321' }, '127.0.0.1', 'Vitest');
     tenant2Token = res2.accessToken;
     tenant2Id = res2.user.tenantId;
-  });
+  }, 30_000);
 
   afterAll(async () => {
     if (!prisma || !app) return;

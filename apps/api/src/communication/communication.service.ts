@@ -611,11 +611,17 @@ export class CommunicationService {
     if (item.status === 'DELIVERED') {
       throw new BadRequestException('Queue item đã gửi thành công, không thể retry.');
     }
+    if (item.status === 'SENDING') {
+      throw new BadRequestException('Queue item đang gửi, không thể retry.');
+    }
 
-    await this.prisma.notificationQueue.update({
-      where: { id: queueId },
+    const retried = await this.prisma.notificationQueue.updateMany({
+      where: { id: queueId, tenantId, status: { in: ['QUEUED', 'FAILED', 'RETRYING', 'DEAD_LETTER'] } },
       data: { status: 'QUEUED', error: null, nextRetryAt: null },
     });
+    if (retried.count !== 1) {
+      throw new BadRequestException('Trạng thái queue item đã thay đổi, không thể retry.');
+    }
     await this.processQueueItem(queueId);
 
     return { success: true };
@@ -658,15 +664,21 @@ export class CommunicationService {
     if (item.status === 'DELIVERED') {
       throw new BadRequestException('Queue item đã gửi thành công, không thể hủy.');
     }
+    if (item.status === 'SENDING') {
+      throw new BadRequestException('Queue item đang gửi, không thể hủy.');
+    }
 
-    await this.prisma.notificationQueue.update({
-      where: { id: queueId },
+    const cancelled = await this.prisma.notificationQueue.updateMany({
+      where: { id: queueId, tenantId, status: { in: ['QUEUED', 'FAILED', 'RETRYING'] } },
       data: {
         status: 'DEAD_LETTER',
         error: 'Cancelled manually',
         nextRetryAt: null,
       },
     });
+    if (cancelled.count !== 1) {
+      throw new BadRequestException('Trạng thái queue item đã thay đổi, không thể hủy.');
+    }
     await this.syncNotificationStatus(item.notificationId);
 
     return { success: true };

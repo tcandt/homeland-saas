@@ -42,7 +42,8 @@ export class CommunicationScheduler {
 
     const queueItems = await this.prisma.notificationQueue.findMany({
       where: {
-        error: { not: 'Cancelled manually' },
+        // SQL NOT excludes NULL, which is the normal error value on new items.
+        AND: [{ OR: [{ error: null }, { error: { not: 'Cancelled manually' } }] }],
         OR: [
           { status: 'QUEUED' },
           {

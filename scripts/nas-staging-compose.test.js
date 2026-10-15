@@ -5,6 +5,12 @@ const test = require('node:test');
 const yaml = require('yaml');
 
 const directory = path.resolve(__dirname, '../deploy/nas-staging-49c185d0');
+test('All NAS bootstrap artifacts require a nonempty seed password at Compose validation', () => {
+  for (const relative of ['docker-compose.nas-staging.yml', 'nas-root/docker-compose.nas-staging.yml', 'deploy-only/docker-compose.yml']) {
+    const { services } = yaml.parse(fs.readFileSync(path.join(directory, relative), 'utf8'));
+    assert.equal(services.bootstrap.environment.SEED_DEFAULT_PASSWORD, '${SEED_DEFAULT_PASSWORD:?SEED_DEFAULT_PASSWORD is required}');
+  }
+});
 for (const relative of ['docker-compose.nas-staging.yml', 'nas-root/docker-compose.nas-staging.yml']) {
   test(`NAS staging safety contract: ${relative}`, () => {
     const config = yaml.parse(fs.readFileSync(path.join(directory, relative), 'utf8'));

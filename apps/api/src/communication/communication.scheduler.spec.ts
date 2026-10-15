@@ -39,6 +39,7 @@ describe('CommunicationScheduler', () => {
     }));
     expect(prisma.notificationQueue.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
+        AND: [{ OR: [{ error: null }, { error: { not: 'Cancelled manually' } }] }],
         OR: expect.arrayContaining([
           { status: 'QUEUED' },
           expect.objectContaining({

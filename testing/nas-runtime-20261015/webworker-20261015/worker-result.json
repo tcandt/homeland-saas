@@ -1,0 +1,41 @@
+{
+  "passed": true,
+  "actualCronTick": true,
+  "heartbeat": {
+    "checked": 3,
+    "recovered": 1,
+    "checkedAt": "2026-10-15T04:15:00.025Z"
+  },
+  "statuses": {
+    "queued": {
+      "status": "DELIVERED",
+      "deliveries": 1
+    },
+    "stale": {
+      "status": "DELIVERED",
+      "deliveries": 1
+    },
+    "guarded": {
+      "status": "FAILED",
+      "deliveries": 1
+    },
+    "future": {
+      "status": "FAILED",
+      "deliveries": 0
+    },
+    "cancelled": {
+      "status": "FAILED",
+      "deliveries": 0
+    },
+    "dead": {
+      "status": "DEAD_LETTER",
+      "deliveries": 0
+    }
+  },
+  "changedTables": [
+    "Notification",
+    "NotificationDelivery",
+    "NotificationQueue"
+  ],
+  "externalDelivery": false
+}

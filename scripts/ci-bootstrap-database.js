@@ -76,6 +76,12 @@ function assertDisposableLocalDatabase(env = process.env) {
   }
 }
 
+function assertNasSeedPassword(env = process.env) {
+  if (typeof env.SEED_DEFAULT_PASSWORD !== 'string' || !env.SEED_DEFAULT_PASSWORD.trim()) {
+    throw new Error('NAS staging bootstrap blocked before database writes: SEED_DEFAULT_PASSWORD is required.');
+  }
+}
+
 function assertNasStagingDatabase(env = process.env) {
   const databaseUrl = new URL(env.DATABASE_URL || '');
   const allowed = env.NAS_STAGING_BOOTSTRAP === 'true'
@@ -279,6 +285,7 @@ async function main() {
   let seedRuntime;
   if (mode === 'NAS_STAGING') {
     assertNasStagingDatabase();
+    assertNasSeedPassword();
     seedRuntime = assertNasSeedRuntime();
   }
   const { PrismaClient } = require('@prisma/client');
@@ -310,4 +317,4 @@ async function main() {
 
 if (require.main === module) main().catch((error) => { console.error(error instanceof Error ? error.message : error); process.exitCode = 1; });
 
-module.exports = { assertBaselineV2Artifact, assertCanonicalFingerprint, assertHistoricalManifest, assertDisposableLocalDatabase, assertNasStagingDatabase, validateMigrationInventory, contractStatusAudit, historicalManifest, supplementalManifest, reviewedMigrations, validateNasReleaseHistory, auditNasRelease, bootstrapNasStaging, assertNasSeedCompleted, assertNasSeedRuntime };
+module.exports = { assertBaselineV2Artifact, assertCanonicalFingerprint, assertHistoricalManifest, assertDisposableLocalDatabase, assertNasStagingDatabase, assertNasSeedPassword, validateMigrationInventory, contractStatusAudit, historicalManifest, supplementalManifest, reviewedMigrations, validateNasReleaseHistory, auditNasRelease, bootstrapNasStaging, assertNasSeedCompleted, assertNasSeedRuntime };

@@ -7,6 +7,28 @@ const { assertBaselineV2Artifact, assertHistoricalManifest, assertDisposableLoca
 const root = path.resolve(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 
+test('NAS seed password rejects missing or blank configuration before opening the database', () => {
+  const { assertNasSeedPassword } = require('./ci-bootstrap-database');
+  for (const value of [undefined, null, '', ' ', '\t\r\n', 123]) {
+    assert.throws(() => assertNasSeedPassword({ SEED_DEFAULT_PASSWORD: value }), /blocked before database writes/);
+  }
+  assert.doesNotThrow(() => assertNasSeedPassword({ SEED_DEFAULT_PASSWORD: 'synthetic-test-only' }));
+  const main = read('scripts/ci-bootstrap-database.js').split('async function main()')[1];
+  assert.ok(main.indexOf('assertNasSeedPassword()') < main.indexOf('new PrismaClient()'));
+  const { spawnSync } = require('node:child_process');
+  const env = {
+    ...process.env, NAS_STAGING_BOOTSTRAP: 'true', DEPLOY_ENV: 'staging',
+    NAS_STAGING_BOOTSTRAP_CONFIRM: 'homeland_nas_staging', CI_DATABASE_BOOTSTRAP_MODE: 'NAS_STAGING',
+    DATABASE_URL: 'postgresql://homeland_staging:synthetic@postgres:5432/homeland_staging',
+  };
+  for (const value of ['', '   ']) {
+    const result = spawnSync(process.execPath, ['scripts/ci-bootstrap-database.js'], { cwd: root, env: { ...env, SEED_DEFAULT_PASSWORD: value }, encoding: 'utf8' });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /^NAS staging bootstrap blocked before database writes: SEED_DEFAULT_PASSWORD is required\./);
+    assert.equal(result.stdout, '');
+  }
+});
+
 test('BASELINE-V2 is static, checksum-locked and sourced from all 18 immutable historical migrations', () => {
   assert.equal(historicalManifest.migrations.length, 18);
   assert.equal(reviewedMigrations.length, 18);

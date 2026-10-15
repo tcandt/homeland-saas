@@ -1,0 +1,80 @@
+{
+  "ready": true,
+  "restored": true,
+  "backupId": "2026-10-15T03-22-41-367Z-ce390812-578c-400b-9e97-9420eb05f60a",
+  "backupDir": "/backup/2026-10-15T03-22-41-367Z-ce390812-578c-400b-9e97-9420eb05f60a",
+  "target": {
+    "protocol": "postgresql:",
+    "host": "127.0.0.1",
+    "port": "5432",
+    "databaseName": "homeland_restore_drill_20261015_fresh",
+    "maskedUrl": "postgresql://***@127.0.0.1:5432/homeland_restore_drill_20261015_fresh"
+  },
+  "summary": {
+    "passed": 12,
+    "failed": 0,
+    "total": 12
+  },
+  "checks": [
+    {
+      "id": "manifest_id",
+      "status": "PASS",
+      "message": "Backup ID is well-formed."
+    },
+    {
+      "id": "manifest_status",
+      "status": "PASS",
+      "message": "Latest backup manifest reports SUCCESS."
+    },
+    {
+      "id": "backup_age",
+      "status": "PASS",
+      "message": "Backup age is within 24h."
+    },
+    {
+      "id": "database_dump",
+      "status": "PASS",
+      "message": "database_dump exists and matches checksum."
+    },
+    {
+      "id": "env_file",
+      "status": "PASS",
+      "message": "Environment is explicitly managed by the deployment host and is not part of this backup bundle."
+    },
+    {
+      "id": "storage_manifest",
+      "status": "PASS",
+      "message": "storage_manifest exists and matches checksum."
+    },
+    {
+      "id": "off_host_copy",
+      "status": "PASS",
+      "message": "Off-host backup is not required by this check."
+    },
+    {
+      "id": "pg_restore_list",
+      "status": "PASS",
+      "message": "pg_restore --list can read the database dump."
+    },
+    {
+      "id": "restore_target",
+      "status": "PASS",
+      "message": "Restore target is explicitly confirmed: postgresql://***@127.0.0.1:5432/homeland_restore_drill_20261015_fresh."
+    },
+    {
+      "id": "restore_target_empty",
+      "status": "PASS",
+      "message": "Target database is empty and safe to restore."
+    },
+    {
+      "id": "pg_restore_drill",
+      "status": "PASS",
+      "message": "Database dump restored into the isolated drill database."
+    },
+    {
+      "id": "prisma_migrate_status",
+      "status": "PASS",
+      "message": "Prisma migration status can inspect the restored database."
+    }
+  ]
+}

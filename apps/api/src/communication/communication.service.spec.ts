@@ -538,6 +538,44 @@ describe('CommunicationService', () => {
     });
   });
 
+  it.each(['SENDING', 'DELIVERED'])('rejects manual retry of %s items without writing or sending', async (status) => {
+    const prisma = createPrismaMock();
+    prisma.notificationQueue.findFirst.mockResolvedValueOnce({ id: 'queue-1', notificationId: 'notif-1', status });
+    const service = new CommunicationService(prisma as any);
+    const process = vi.spyOn(service, 'processQueueItem').mockResolvedValue(undefined);
+    await expect(service.retryQueueItem('tenant-1', 'queue-1')).rejects.toThrow();
+    expect(prisma.notificationQueue.updateMany).not.toHaveBeenCalled();
+    expect(prisma.notificationQueue.update).not.toHaveBeenCalled();
+    expect(process).not.toHaveBeenCalled();
+  });
+
+  it('rejects manual retry when another worker claims or finishes after the initial read', async () => {
+    const prisma = createPrismaMock();
+    prisma.notificationQueue.updateMany.mockResolvedValueOnce({ count: 0 });
+    const service = new CommunicationService(prisma as any);
+    const process = vi.spyOn(service, 'processQueueItem').mockResolvedValue(undefined);
+    await expect(service.retryQueueItem('tenant-1', 'queue-1')).rejects.toThrow();
+    expect(prisma.notificationQueue.updateMany).toHaveBeenCalledWith({
+      where: { id: 'queue-1', tenantId: 'tenant-1', status: { in: ['QUEUED', 'FAILED', 'RETRYING', 'DEAD_LETTER'] } },
+      data: { status: 'QUEUED', error: null, nextRetryAt: null },
+    });
+    expect(prisma.notificationQueue.update).not.toHaveBeenCalled();
+    expect(process).not.toHaveBeenCalled();
+  });
+
+  it.each(['QUEUED', 'FAILED', 'RETRYING', 'DEAD_LETTER'])('atomically retries eligible %s items before processing', async (status) => {
+    const prisma = createPrismaMock();
+    prisma.notificationQueue.findFirst.mockResolvedValueOnce({ id: 'queue-1', notificationId: 'notif-1', status });
+    const service = new CommunicationService(prisma as any);
+    const process = vi.spyOn(service, 'processQueueItem').mockResolvedValue(undefined);
+    await expect(service.retryQueueItem('tenant-1', 'queue-1')).resolves.toEqual({ success: true });
+    expect(prisma.notificationQueue.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'queue-1', tenantId: 'tenant-1', status: { in: ['QUEUED', 'FAILED', 'RETRYING', 'DEAD_LETTER'] } },
+    }));
+    expect(process).toHaveBeenCalledOnce();
+    expect(process).toHaveBeenCalledWith('queue-1');
+  });
+
   it('moves queue item to dead letter on manual cancel', async () => {
     const prisma = createPrismaMock();
     prisma.notificationQueue.findMany.mockResolvedValueOnce([{ status: 'DEAD_LETTER' }]);
@@ -545,8 +583,8 @@ describe('CommunicationService', () => {
 
     await service.cancelQueueItem('tenant-1', 'queue-1');
 
-    expect(prisma.notificationQueue.update).toHaveBeenCalledWith({
-      where: { id: 'queue-1' },
+    expect(prisma.notificationQueue.updateMany).toHaveBeenCalledWith({
+      where: { id: 'queue-1', tenantId: 'tenant-1', status: { in: ['QUEUED', 'FAILED', 'RETRYING'] } },
       data: {
         status: 'DEAD_LETTER',
         error: 'Cancelled manually',
@@ -557,5 +595,39 @@ describe('CommunicationService', () => {
       where: { id: 'notif-1' },
       data: { status: 'DEAD_LETTER' },
     });
+  });
+
+  it.each(['SENDING', 'DELIVERED'])('rejects cancellation of %s items without writing', async (status) => {
+    const prisma = createPrismaMock();
+    prisma.notificationQueue.findFirst.mockResolvedValueOnce({ id: 'queue-1', notificationId: 'notif-1', status });
+    const service = new CommunicationService(prisma as any);
+    await expect(service.cancelQueueItem('tenant-1', 'queue-1')).rejects.toThrow();
+    expect(prisma.notificationQueue.updateMany).not.toHaveBeenCalled();
+    expect(prisma.notificationQueue.update).not.toHaveBeenCalled();
+    expect(prisma.notification.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects cancellation when the worker wins the claim after the initial read', async () => {
+    const prisma = createPrismaMock();
+    prisma.notificationQueue.updateMany.mockResolvedValueOnce({ count: 0 });
+    const service = new CommunicationService(prisma as any);
+    await expect(service.cancelQueueItem('tenant-1', 'queue-1')).rejects.toThrow();
+    expect(prisma.notificationQueue.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'queue-1', tenantId: 'tenant-1', status: { in: ['QUEUED', 'FAILED', 'RETRYING'] } },
+    }));
+    expect(prisma.notificationQueue.update).not.toHaveBeenCalled();
+    expect(prisma.notification.update).not.toHaveBeenCalled();
+  });
+
+  it('does not send when cancellation wins the claim after the worker initial read', async () => {
+    const prisma = createPrismaMock();
+    prisma.notificationQueue.updateMany.mockResolvedValueOnce({ count: 0 });
+    const service = new CommunicationService(prisma as any);
+    const send = vi.fn();
+    service.registerProvider({ channel: NotificationChannel.ZALO, send });
+    await service.processQueueItem('queue-1');
+    expect(send).not.toHaveBeenCalled();
+    expect(prisma.notificationQueue.update).not.toHaveBeenCalled();
+    expect(prisma.notificationDelivery.create).not.toHaveBeenCalled();
   });
 });

@@ -37,7 +37,7 @@ services:
     container_name: homeland_nas_staging_bootstrap
     environment:
       DATABASE_URL: postgresql://homeland_staging:${POSTGRES_PASSWORD}@postgres:5432/homeland_staging?schema=public
-      SEED_DEFAULT_PASSWORD: ${SEED_DEFAULT_PASSWORD}
+      SEED_DEFAULT_PASSWORD: ${SEED_DEFAULT_PASSWORD:?SEED_DEFAULT_PASSWORD is required}
       SEED_MODE: staging
       SEED_FORCE_PASSWORD_CHANGE: "false"
       NODE_ENV: production

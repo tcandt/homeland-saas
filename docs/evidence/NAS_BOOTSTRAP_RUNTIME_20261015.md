@@ -133,6 +133,29 @@ Production remains NO-GO.
   unified release and off-host recovery remain unverified. BKP-03/STG-05 are
   NOT closed by this API-only drill.
 
+## CI433 and final checkpoint
+
+- Source/artifact fix committed and pushed as
+  `780610688ce25eca1ec2765621d37093962280dc`.
+- CI433 completed SUCCESS: lint, typecheck, unit, integration, API/Web builds,
+  security job and E2E PASS. Actual E2E logs: smoke22/22, regression84/84,
+  acceptance37/37. Compose focused6/6, actual Docker Compose config validation
+  with example env, downloaded recovery evidence assertions and diff check PASS.
+  https://github.com/tcandt/homeland-saas/actions/runs/38677103283
+- CodeQL is BLOCKED because GHAS is unavailable for this private repository;
+  security job success must not be interpreted as SAST PASS. Semantic release,
+  package publishing, deployment/staging gate/rollback and production jobs were
+  SKIPPED, not executed successfully.
+- All five temporary API/Redis/PostgreSQL drill containers removed. No application
+  or backup volumes were deleted. Drill backup/storage volumes and sanitized
+  reports retained. Public staging readiness still200; live services unchanged.
+- Subsequent bounded admin UI smoke passed Finance/Reports current GMT+7 period,
+  settled390px layout, Finance light/dark, logout and protected-route redirect;
+  console errors empty. See `NAS_UI_SMOKE_20261015.md`. This later UI activity
+  creates expected authentication/audit writes after the source-hash drill.
+- API/worker on NAS remain573bc663 and Webe9; no new NAS image deployment,
+  production migration, release tag or traffic switch from commit78061068.
+
 ## Remaining
 
 1. Obtain independent Sol High review; CI432 evidence does not replace it.

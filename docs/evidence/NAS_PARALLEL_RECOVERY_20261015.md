@@ -83,7 +83,8 @@ Harness: `testing/nas-runtime-20261015/webworker-drill.cjs`.
   live DB. Removed the synthetic RENT override to use valid default LEGACY;
   final run exited0. No application constraint/migration was modified.
 - Initial successful run: `run-1792038949738-15d2e4d6`; expanded audited run:
-  `run-1792039517604-0ba2979a`. Earlier blocked run
+  `run-1792039517604-0ba2979a`; post-secret-scan fixture rerun:
+  `run-1792041564139-a936bfa6`. Earlier blocked run
   `run-1792038854460-6f2f279a` was initially mis-cited by the agent; root checked
   the corrected actual summary and both attachment files before accepting it.
 - All financial-test containers removed; ephemeral database data removed with

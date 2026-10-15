@@ -1,0 +1,8 @@
+{
+  "phase": "current",
+  "checks": 23,
+  "commit": "573bc6636266313a04cb2d7b1fbcdef3223eec7b",
+  "database": "homeland_restore_drill_20261015_fresh",
+  "ready": true,
+  "passed": true
+}

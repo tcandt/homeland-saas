@@ -36,6 +36,18 @@ test('Deploy-only bootstrap executes the guarded script without shell argv split
   assert.equal(services.bootstrap.environment.NAS_STAGING_BOOTSTRAP_CONFIRM, 'homeland_nas_staging');
 });
 
+test('Deploy-only services pin the verified seed-runtime image and truthful component identities', () => {
+  const { services } = yaml.parse(fs.readFileSync(path.join(directory, 'deploy-only/docker-compose.yml'), 'utf8'));
+  for (const name of ['bootstrap', 'api', 'notification_worker']) {
+    assert.equal(services[name].image, 'homeland-api:3.0.2-573bc663');
+  }
+  assert.equal(services.api.environment.COMMIT_SHA, '573bc6636266313a04cb2d7b1fbcdef3223eec7b');
+  assert.equal(services.api.environment.APP_VERSION, '3.0.2-573bc663');
+  assert.equal(services.api.environment.BUILD_ID, 'release-573bc663');
+  assert.equal(services.web.image, 'homeland-web:3.0.2-e9e24274');
+  assert.equal(services.web.environment.NEXT_PUBLIC_COMMIT_SHA, 'e9e242741a556822abe2febcb61fb80824c5e236');
+});
+
 test('NAS-root artifact differs only in root-relative paths', () => {
   const canonical = fs.readFileSync(path.join(directory, 'docker-compose.nas-staging.yml'), 'utf8');
   const artifact = fs.readFileSync(path.join(directory, 'nas-root/docker-compose.nas-staging.yml'), 'utf8');

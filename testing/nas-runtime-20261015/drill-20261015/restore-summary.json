@@ -1,0 +1,12 @@
+{
+  "backupId": "2026-10-15T03-22-41-367Z-ce390812-578c-400b-9e97-9420eb05f60a",
+  "elapsedMs": 3392,
+  "restoredTables": 75,
+  "restoredRows": 348,
+  "schemaMatchesLiveSource": true,
+  "fullDataMatchesLiveSource": true,
+  "changedTables": [],
+  "verifiedStorageFiles": 0,
+  "financialFixturePresent": false,
+  "offHostVerified": false
+}

@@ -1,0 +1,381 @@
+{
+  "tables": [
+    {
+      "table": "AiChatRequest",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "AiConversation",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "AiKnowledgeChunk",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "AiKnowledgeDocument",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "AiMessage",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "AiModelConfig",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "AiPromptTemplate",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "AiTokenUsage",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "AiToolCall",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "AppSetting",
+      "count": 3,
+      "digest": "b0348c39a5a9033fb6d5cf16b5349bb6"
+    },
+    {
+      "table": "AuditLog",
+      "count": 21,
+      "digest": "a2226153b320b882eac8148038f9de04"
+    },
+    {
+      "table": "BankAccount",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "BillingSnapshot",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "Building",
+      "count": 4,
+      "digest": "1d6a10756182afc4cba6baac8a1fc463"
+    },
+    {
+      "table": "CashAccount",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "ChartOfAccount",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "Contract",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "ContractParty",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "ContractSettlement",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "CostCenter",
+      "count": 4,
+      "digest": "034dda49404378f230c4fe6dd7c25d46"
+    },
+    {
+      "table": "CreditNote",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "Customer",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "Deposit",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "DepositLedgerEntry",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "DepositOperation",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "Document",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "DocumentFolder",
+      "count": 5,
+      "digest": "57e58c207698a2a11fe179685ea9559b"
+    },
+    {
+      "table": "DocumentShare",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "DocumentTemplate",
+      "count": 5,
+      "digest": "2ce465bfb33d029d0083cafc54af262e"
+    },
+    {
+      "table": "DocumentVersion",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "Expense",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "Floor",
+      "count": 16,
+      "digest": "ea812a686fc59c81329fcd8860e46964"
+    },
+    {
+      "table": "HunonicMeterMapping",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "HunonicMeterReading",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "HunonicSyncLog",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "Invoice",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "InvoiceItem",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "JournalEntry",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "JournalLine",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "MonthlySettlementRun",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "Notification",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "NotificationDelivery",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "NotificationJob",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "NotificationPreference",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "NotificationQueue",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "NotificationTemplate",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "NotificationTemplateVersion",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "Occupancy",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "OutboxEvent",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "Owner",
+      "count": 2,
+      "digest": "ad3780c1e7e9984dfe78b92763971f58"
+    },
+    {
+      "table": "Payment",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "PaymentAllocation",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "PaymentPromise",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "PaymentRequest",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "PaymentWebhookLog",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "Permission",
+      "count": 74,
+      "digest": "e9c671ceaa806c5b8acf97ea11ed48f4"
+    },
+    {
+      "table": "Receipt",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "Reconciliation",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "RentalCycle",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "Role",
+      "count": 3,
+      "digest": "6b0c2315976a107eafffe0b48df746ac"
+    },
+    {
+      "table": "RolePermission",
+      "count": 147,
+      "digest": "6ea0501f1e0aff5fb1874b00c13a81a9"
+    },
+    {
+      "table": "Room",
+      "count": 34,
+      "digest": "70c38fca922019e9a8741501c25e7867"
+    },
+    {
+      "table": "RoomHold",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "RoomPaymentAccountRoute",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "RuleExecution",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "SignatureLog",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "SignatureParty",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "SignatureRequest",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "Task",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "TenantOrg",
+      "count": 1,
+      "digest": "1fb7910af82adc87f2728dec3693fe31"
+    },
+    {
+      "table": "User",
+      "count": 3,
+      "digest": "07e4a65019d532967b9dff8e7aa5523d"
+    },
+    {
+      "table": "UserRole",
+      "count": 3,
+      "digest": "37f973b2dbfc264d04cad765239142d0"
+    },
+    {
+      "table": "WorkflowExecution",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "WorkflowStepExecution",
+      "count": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    {
+      "table": "_prisma_migrations",
+      "count": 35,
+      "digest": "21e45547b8ac9c1f572d2d374905a4d8"
+    }
+  ],
+  "fullDataSha256": "5ab15ba8aee5f3704b3c0b3de12442fa89982aef3810527d6914da13ed8fb507",
+  "schemaSha256": "45274cd1d689304e29e89d765b819de28138f1a56b48817e9a0f14815b7f4b59"
+}

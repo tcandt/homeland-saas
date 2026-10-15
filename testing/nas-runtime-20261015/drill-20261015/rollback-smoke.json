@@ -1,0 +1,8 @@
+{
+  "phase": "rollback",
+  "checks": 23,
+  "commit": "e9e242741a556822abe2febcb61fb80824c5e236",
+  "database": "homeland_restore_drill_20261015_fresh",
+  "ready": true,
+  "passed": true
+}

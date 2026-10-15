@@ -23,7 +23,7 @@ services:
     restart: unless-stopped
 
   bootstrap:
-    image: homeland-api:3.0.2-e9e24274
+    image: homeland-api:3.0.2-573bc663
     container_name: homeland_nas_staging_bootstrap
     environment:
       DATABASE_URL: postgresql://homeland_staging:${POSTGRES_PASSWORD}@postgres:5432/homeland_staging?schema=public
@@ -43,7 +43,7 @@ services:
     restart: "no"
 
   api:
-    image: homeland-api:3.0.2-e9e24274
+    image: homeland-api:3.0.2-573bc663
     container_name: homeland_nas_staging_api
     environment:
       DATABASE_URL: postgresql://homeland_staging:${POSTGRES_PASSWORD}@postgres:5432/homeland_staging?schema=public
@@ -67,9 +67,9 @@ services:
       COMMUNICATION_IMMEDIATE_DELIVERY: "false"
       COMMUNICATION_EXTERNAL_DELIVERY_ENABLED: "false"
       INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN}
-      COMMIT_SHA: e9e242741a556822abe2febcb61fb80824c5e236
-      APP_VERSION: 3.0.2-e9e24274
-      BUILD_ID: release-e9e24274
+      COMMIT_SHA: 573bc6636266313a04cb2d7b1fbcdef3223eec7b
+      APP_VERSION: 3.0.2-573bc663
+      BUILD_ID: release-573bc663
       BUILD_TIME: ${BUILD_TIME:-2026-10-13T00:00:00Z}
     volumes:
       - homeland_nas_staging_storage:/app/apps/api/storage
@@ -88,7 +88,7 @@ services:
     restart: unless-stopped
 
   notification_worker:
-    image: homeland-api:3.0.2-e9e24274
+    image: homeland-api:3.0.2-573bc663
     container_name: homeland_nas_staging_notification_worker
     environment:
       DATABASE_URL: postgresql://homeland_staging:${POSTGRES_PASSWORD}@postgres:5432/homeland_staging?schema=public

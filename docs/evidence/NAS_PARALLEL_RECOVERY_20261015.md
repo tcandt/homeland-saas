@@ -59,9 +59,43 @@ image rebuild/exact-SHA CI. Full worker/UAT/release gates and production remain 
 Sanitized JSON: `testing/nas-runtime-20261015/webworker-20261015/`.
 Harness: `testing/nas-runtime-20261015/webworker-drill.cjs`.
 
+## Financial Recovery Lane
+
+- Isolated local PostgreSQL16 with no network/host ports; generated ephemeral
+  credentials were inherited through environment, not command-line values.
+  Bootstrap used API573 and its unchanged guarded 35-migration NAS runner.
+- Direct Prisma synthetic fixture: one deposit2,000,000, CASH_IN ledger2,000,000,
+  invoice3,000,000 with paid1,250,000, confirmed payment/allocation1,250,000.
+  This is recovery coverage, NOT evidence of business/API lifecycle correctness.
+- Unchanged production backup/restore runners:13/13 checks PASS, including
+  dump/storage checksums, explicitly confirmed empty target and actual Prisma
+  migration status. Full-row/selected-schema hashes match source and restored DB; source
+  audit unchanged before backup, after backup and after restore verification.
+  Initial review found enum/extension/sequence coverage missing. Expanded audit
+  now compares229 enum labels,2 extension versions/schemas and1 nonempty synthetic
+  sequence definition/state (`last_value` and `is_called`) as well as columns,
+  constraints, indexes, functions and triggers. Expanded run exited0 PASS.
+- One nonempty synthetic contract attachment was copied from the backup manifest
+  into empty target storage by the TEST HARNESS and its SHA256 matched source.
+  Application storage-restore workflow and restore UI were NOT tested.
+- The first harness run lacked password pass-through; the next fixture violated
+  the invoice billing-kind shape constraint. Both stopped without touching any
+  live DB. Removed the synthetic RENT override to use valid default LEGACY;
+  final run exited0. No application constraint/migration was modified.
+- Initial successful run: `run-1792038949738-15d2e4d6`; expanded audited run:
+  `run-1792039517604-0ba2979a`. Earlier blocked run
+  `run-1792038854460-6f2f279a` was initially mis-cited by the agent; root checked
+  the corrected actual summary and both attachment files before accepting it.
+- All financial-test containers removed; ephemeral database data removed with
+  them. Private backup artifacts remain ignored locally. Sanitized summary and
+  harness: `testing/recovery-financial-20261015/`. Initial Sol High review
+  PASS_WITH_FINDINGS; exact audit gap fixed, expanded rerun and final Sol review PASS.
+- The local check did NOT require off-host copy; its `off_host_copy: PASS` means
+  that optional check was waived, not that off-host backup was exercised.
+
 ## Remaining
 
-- Financial/nonempty-file recovery lane, real DB cancellation race verification,
+- Real DB cancellation race verification,
   independent runtime gate, new exact-SHA CI and unified immutable images.
 - Full nonzero lifecycle/persona/device UAT, working SAST (CodeQL blocked without
   GHAS), approved provider integrations, off-host backup/recovery and sign-off.

@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
-const { assertBaselineV2Artifact, assertHistoricalManifest, assertDisposableLocalDatabase, assertNasStagingDatabase, validateMigrationInventory, historicalManifest, supplementalManifest, reviewedMigrations, validateNasReleaseHistory, bootstrapNasStaging, assertNasSeedCompleted } = require('./ci-bootstrap-database');
+const { assertBaselineV2Artifact, assertHistoricalManifest, assertDisposableLocalDatabase, assertNasStagingDatabase, validateMigrationInventory, historicalManifest, supplementalManifest, reviewedMigrations, validateNasReleaseHistory, bootstrapNasStaging, assertNasSeedCompleted, assertNasSeedRuntime } = require('./ci-bootstrap-database');
 
 const root = path.resolve(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
@@ -96,6 +96,26 @@ test('NAS first initialization audits before seed and restart never initializes 
   prisma.$queryRawUnsafe = async () => [{ count: 0 }];
   await assert.rejects(bootstrapNasStaging(prisma, actions), /schema drift/);
   assert.deepEqual(calls, ['initialize', 'audit']);
+});
+
+test('NAS seed runtime is retained after pruning and checked before opening the database', () => {
+  const runtime = assertNasSeedRuntime();
+  assert.ok(fs.existsSync(runtime.cli));
+  assert.equal(runtime.seed, path.join(root, 'packages/database/prisma/seed.ts'));
+  for (const missing of ['tsx/cli', 'bcryptjs']) {
+    assert.throws(() => assertNasSeedRuntime((name) => {
+      if (name === missing) throw new Error('MODULE_NOT_FOUND');
+      return require.resolve(name);
+    }), /blocked before database writes/);
+  }
+  assert.throws(() => assertNasSeedRuntime(require.resolve, () => false), /blocked before database writes/);
+  const databasePackage = JSON.parse(read('packages/database/package.json'));
+  assert.ok(databasePackage.dependencies.tsx);
+  assert.ok(databasePackage.dependencies.bcryptjs);
+  const script = read('scripts/ci-bootstrap-database.js');
+  const main = script.slice(script.indexOf('async function main()'));
+  assert.ok(main.indexOf('assertNasSeedRuntime()') < main.indexOf('new PrismaClient()'));
+  assert.match(main, /execFileSync\(process.execPath, \[seedRuntime.cli, seedRuntime.seed\]/);
 });
 
 test('NAS seed failure cannot write completion marker and a partial seed cannot pass restart', async () => {

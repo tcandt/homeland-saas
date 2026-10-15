@@ -58,6 +58,7 @@ RUN npm run build --workspace=api
 # explicitly because guarded migration/rollback commands run inside this image.
 RUN npm prune --omit=dev \
     && npm install --no-save --omit=dev --ignore-scripts prisma@5.22.0 \
+    && node -e "require.resolve('tsx/cli'); require.resolve('bcryptjs')" \
     && npm cache clean --force
 
 # Copy the guarded update/backup runners used by SystemUpdateService. These are

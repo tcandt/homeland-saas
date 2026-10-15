@@ -45,9 +45,8 @@ services:
       NAS_STAGING_BOOTSTRAP: "true"
       NAS_STAGING_BOOTSTRAP_CONFIRM: homeland_nas_staging
       CI_DATABASE_BOOTSTRAP_MODE: NAS_STAGING
-    entrypoint: ["/bin/sh", "-c"]
-    command: >-
-      "node scripts/ci-bootstrap-database.js"
+    entrypoint: ["node"]
+    command: ["scripts/ci-bootstrap-database.js"]
     depends_on:
       postgres:
         condition: service_healthy

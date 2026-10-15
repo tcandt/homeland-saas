@@ -235,6 +235,18 @@ async function bootstrapNasStaging(prisma, actions) {
   return 'VERIFIED_EXISTING';
 }
 
+function assertNasSeedRuntime(resolve = require.resolve, exists = fs.existsSync) {
+  const seed = path.join(root, 'packages/database/prisma/seed.ts');
+  try {
+    const cli = resolve('tsx/cli');
+    resolve('bcryptjs');
+    if (!exists(seed) || !exists(cli)) throw new Error('Missing seed runtime files.');
+    return { cli, seed };
+  } catch {
+    throw new Error('NAS staging seed runtime is incomplete; initialization is blocked before database writes. Rebuild the API image with runtime tsx and bcryptjs.');
+  }
+}
+
 const nasSeedMarkerId = 'nas-staging-bootstrap-v1';
 
 async function markNasSeedCompleted(prisma) {
@@ -264,7 +276,11 @@ async function main() {
   assertBaselineV2Artifact();
   const mode = process.env.CI_DATABASE_BOOTSTRAP_MODE || 'FRESH';
   if (!['FRESH', 'EXISTING', 'NAS_STAGING'].includes(mode)) throw new Error('CI_DATABASE_BOOTSTRAP_MODE must be FRESH, EXISTING or NAS_STAGING.');
-  if (mode === 'NAS_STAGING') assertNasStagingDatabase();
+  let seedRuntime;
+  if (mode === 'NAS_STAGING') {
+    assertNasStagingDatabase();
+    seedRuntime = assertNasSeedRuntime();
+  }
   const { PrismaClient } = require('@prisma/client');
   const prisma = new PrismaClient();
   try {
@@ -276,7 +292,7 @@ async function main() {
           runPrisma(['migrate', 'status', '--schema', schema]);
         },
         audit: () => auditNasRelease(prisma),
-        seed: async () => runPrisma(['db', 'seed', '--schema', schema]),
+        seed: async () => execFileSync(process.execPath, [seedRuntime.cli, seedRuntime.seed], { cwd: root, env: process.env, stdio: 'inherit' }),
         markSeedCompleted: () => markNasSeedCompleted(prisma),
         verifySeedCompleted: () => assertNasSeedCompleted(prisma),
       });
@@ -294,4 +310,4 @@ async function main() {
 
 if (require.main === module) main().catch((error) => { console.error(error instanceof Error ? error.message : error); process.exitCode = 1; });
 
-module.exports = { assertBaselineV2Artifact, assertCanonicalFingerprint, assertHistoricalManifest, assertDisposableLocalDatabase, assertNasStagingDatabase, validateMigrationInventory, contractStatusAudit, historicalManifest, supplementalManifest, reviewedMigrations, validateNasReleaseHistory, auditNasRelease, bootstrapNasStaging, assertNasSeedCompleted };
+module.exports = { assertBaselineV2Artifact, assertCanonicalFingerprint, assertHistoricalManifest, assertDisposableLocalDatabase, assertNasStagingDatabase, validateMigrationInventory, contractStatusAudit, historicalManifest, supplementalManifest, reviewedMigrations, validateNasReleaseHistory, auditNasRelease, bootstrapNasStaging, assertNasSeedCompleted, assertNasSeedRuntime };

@@ -10,7 +10,9 @@ for (const relative of ['docker-compose.nas-staging.yml', 'nas-root/docker-compo
     const config = yaml.parse(fs.readFileSync(path.join(directory, relative), 'utf8'));
     const { services } = config;
     assert.equal(services.bootstrap.environment.CI_DATABASE_BOOTSTRAP_MODE, 'NAS_STAGING');
-    assert.doesNotMatch(services.bootstrap.command, /prisma db seed/);
+    assert.deepEqual(services.bootstrap.entrypoint, ['node']);
+    assert.deepEqual(services.bootstrap.command, ['scripts/ci-bootstrap-database.js']);
+    assert.equal(services.bootstrap.environment.NAS_STAGING_BOOTSTRAP_CONFIRM, 'homeland_nas_staging');
     for (const name of ['postgres', 'redis', 'api', 'notification_worker']) assert.equal(services[name].ports, undefined);
     assert.deepEqual(services.web.ports, ['127.0.0.1:3000:3000']);
     assert.match(services.api.healthcheck.test[1], /\/health\/ready/);
@@ -26,6 +28,13 @@ for (const relative of ['docker-compose.nas-staging.yml', 'nas-root/docker-compo
     assert.equal(services.web.depends_on.api.condition, 'service_healthy');
   });
 }
+
+test('Deploy-only bootstrap executes the guarded script without shell argv splitting', () => {
+  const { services } = yaml.parse(fs.readFileSync(path.join(directory, 'deploy-only/docker-compose.yml'), 'utf8'));
+  assert.deepEqual(services.bootstrap.entrypoint, ['node']);
+  assert.deepEqual(services.bootstrap.command, ['scripts/ci-bootstrap-database.js']);
+  assert.equal(services.bootstrap.environment.NAS_STAGING_BOOTSTRAP_CONFIRM, 'homeland_nas_staging');
+});
 
 test('NAS-root artifact differs only in root-relative paths', () => {
   const canonical = fs.readFileSync(path.join(directory, 'docker-compose.nas-staging.yml'), 'utf8');

@@ -252,6 +252,10 @@ jobs:
           exit-code: '1'
       - name: Build Docker Image for Scan
         run: docker build -t homeland-api:test -f Dockerfile.api .
+      - name: Verify NAS bootstrap in production-pruned image
+        env:
+          VERIFY_DISPOSABLE_NAS_IMAGE: "true"
+        run: node scripts/verify-nas-bootstrap-image.js homeland-api:test
       - name: Trivy Image Scan
         uses: aquasecurity/trivy-action@c03d123cb480c08c69b054af418ea5e69fe6e57e
         with:

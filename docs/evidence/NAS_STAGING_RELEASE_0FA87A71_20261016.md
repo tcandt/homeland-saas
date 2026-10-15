@@ -11,6 +11,7 @@ Secrets, tokens, cookies and customer data are intentionally omitted.
 - Web image: `homeland-web:0fa87a71-v2`
 - Web image ID: `sha256:44104fa6d8acdff6085931deb0ac38697fa0647f1f7a7bbd3e96c0bcdc5ac583d`
 - API and Web containers: running/healthy; readiness returned `READY` with database and schema `UP`.
+- Staging bootstrap one-shot using the same API image exited `0`; no production migration or production database was touched.
 - Public login route: HTTPS 200; footer shows `v3.1.0`.
 - Protected build info: unauthenticated 401; internal check returned commit `0fa87a71`, version `3.1.0`, deployment environment `staging`, runtime role `api`.
 - Staging diagnostics: HTTP 200, environment `staging`, migration count `34`.

@@ -169,6 +169,15 @@ test('deployment workflow preserves env files and validates compose before resta
   for (const name of remoteJobs) assert.equal(workflowModel().jobs[name].if, '${{ false }}');
 });
 
+test('CodeQL analysis is mandatory and is not gated by an unreliable capability probe', () => {
+  const workflow = read('.github/workflows/ci-cd-pipeline.yml');
+  const securityScan = workflowModel().jobs['security-scan'];
+  const codeqlSteps = securityScan.steps.filter((step) => /github\/codeql-action\/(?:init|analyze)@v3/.test(step.uses || ''));
+  assert.equal(codeqlSteps.length, 2);
+  for (const step of codeqlSteps) assert.equal(step.if, undefined, 'CodeQL must not be silently skipped');
+  assert.doesNotMatch(workflow, /Check CodeQL Capability|code-scanning\/alerts|steps\.check-codeql/);
+});
+
 test('staging and production gates use the real production Playwright command', () => {
   const workflow = read('.github/workflows/ci-cd-pipeline.yml');
   const localGate = read('scripts/verify-production.ps1');

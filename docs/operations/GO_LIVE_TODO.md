@@ -591,3 +591,16 @@ Không mở hoặc phải dừng LIVE khi có một trong các điều kiện:
   local với business API mock, không thay thế staging/provider/UAT; activation
   race, visual/mobile/WebKit, backup off-host, NAS binding, exact-SHA CI và
   GATE-10 vẫn mở.
+
+## 24. CI exact-SHA release checkpoint — 16/10/2026
+
+- GitHub Actions run **444** trên SHA `ea9edb3520323dbbc379bb1a4d8ec3a86187a7e4`
+  đã hoàn tất **SUCCESS**: Lint, Type Check, Unit, Integration, Build Web,
+  Build API, E2E smoke/regression/acceptance và Security & Supply Chain đều
+  PASS. Security job đã thực sự chạy Gitleaks, CodeQL initialize/analysis,
+  npm audit, license scan, SBOM, Trivy filesystem/image và runtime dependency
+  policy; không có bước security bị skip.
+- Các job publish/deploy/staging/production và rollback của workflow vẫn
+  **SKIPPED** theo chủ ý vì các gate staging/UAT/backup/owner approval chưa
+  đóng. Đây là CI evidence trên exact SHA, không phải GO-LIVE approval.
+- Run URL: `https://github.com/tcandt/homeland-saas/actions/runs/38854184813`.

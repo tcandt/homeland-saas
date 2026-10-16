@@ -42,6 +42,29 @@ describe('HealthController readiness', () => {
     expect(result.status).toBe('READY');
     expect(result.checks.database.status).toBe('UP');
     expect(result.checks.schema.status).toBe('UP');
+    const schemaSql = prisma.$queryRaw.mock.calls[1][0].join('');
+    expect(schemaSql).toContain("migration_name = '20261014130000_retire_sales_role_and_leads'");
+    expect(schemaSql).toContain('WHERE finished_at IS NULL AND rolled_back_at IS NULL');
+    expect(schemaSql).toContain(`to_regclass('public."SalesLead"') IS NULL`);
+    expect(schemaSql).toContain("= ARRAY['ADMIN', 'FINANCE', 'MANAGER']::text[]");
+  });
+
+  it('keeps readiness closed when the release migration or retired schema checks fail', async () => {
+    const prisma = {
+      $queryRaw: vi.fn()
+        .mockResolvedValueOnce([{ ok: 1 }])
+        .mockResolvedValueOnce([{ compatible: false }]),
+    };
+    try {
+      await new HealthController(prisma as any).checkReadiness();
+      expect.fail('An outdated release schema must not serve traffic');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ServiceUnavailableException);
+      expect((error as ServiceUnavailableException).getResponse()).toMatchObject({
+        code: 'SERVICE_NOT_READY',
+        details: { checks: { database: { status: 'UP' }, schema: { status: 'DOWN' } } },
+      });
+    }
   });
 
   it('throws 503 when the database is reachable but has an incompatible schema', async () => {

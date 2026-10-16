@@ -49,6 +49,26 @@ export class HealthController {
               AND finished_at IS NOT NULL
               AND rolled_back_at IS NULL
           )
+          AND EXISTS (
+            SELECT 1
+            FROM "_prisma_migrations"
+            WHERE migration_name = '20261014130000_retire_sales_role_and_leads'
+              AND finished_at IS NOT NULL
+              AND rolled_back_at IS NULL
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM "_prisma_migrations"
+            WHERE finished_at IS NULL AND rolled_back_at IS NULL
+          )
+          AND to_regclass('public."SalesLead"') IS NULL
+          AND (
+            SELECT array_agg(e.enumlabel::text ORDER BY e.enumlabel::text)
+            FROM pg_enum e
+            JOIN pg_type t ON t.oid = e.enumtypid
+            JOIN pg_namespace n ON n.oid = t.typnamespace
+            WHERE n.nspname = 'public'
+              AND t.typname = 'RoleCode'
+          ) = ARRAY['ADMIN', 'FINANCE', 'MANAGER']::text[]
           AND to_regclass('public."PaymentPromise"') IS NOT NULL
           AND to_regclass('public."NotificationTemplateVersion"') IS NOT NULL
           AND to_regclass('public."AiChatRequest"') IS NOT NULL

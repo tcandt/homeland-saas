@@ -287,6 +287,7 @@ async function mockContracts(page: any, rejectTurnover = false) {
 }
 
 async function mockFullRentalJourney(page: any) {
+  const bookingHoldExpiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
   const state = {
     roomStatus: "AVAILABLE",
     deposit: {
@@ -295,9 +296,9 @@ async function mockFullRentalJourney(page: any) {
       type: "BOOKING",
       status: "PENDING",
       amount: 5000000,
-      availableBalance: 5000000,
+      availableBalance: 0,
       note: "Deposit for end-to-end rental journey",
-      expiredAt: "2026-09-01T00:00:00.000Z",
+      expiredAt: bookingHoldExpiry,
       createdAt: "2026-08-13T08:00:00.000Z",
       updatedAt: "2026-08-13T08:00:00.000Z",
       customer: { id: "customer-journey-1", fullName: "Nguyen Van Journey", phone: "0901234567" },
@@ -309,13 +310,41 @@ async function mockFullRentalJourney(page: any) {
       },
       refundSummary: null as any,
     },
+    bookingContract: {
+      id: "contract-booking-journey-1",
+      code: "HD-COC-JOURNEY-001",
+      isBookingHold: true,
+      status: "DRAFT",
+      startDate: "2026-11-03T00:00:00.000Z",
+      endDate: "2026-12-01T00:00:00.000Z",
+      monthlyRent: 5000000,
+      depositMoney: 5000000,
+      purpose: "Cọc giữ phòng. Giá thuê: 5000000. Tiền cọc hợp đồng: 5000000",
+      debt: 0,
+      memberCount: 1,
+      attachments: [],
+      customerId: "customer-journey-1",
+      roomId: "room-journey-1",
+      customer: { id: "customer-journey-1", fullName: "Nguyen Van Journey", phone: "0901234567", idImages: [] },
+      room: {
+        id: "room-journey-1",
+        number: "31-01",
+        code: "31-01",
+        status: "AVAILABLE",
+        monthlyPrice: 5000000,
+        building: { id: "building-journey-1", code: "LK01-31", name: "LK01-31" },
+      },
+      coRepresentatives: [],
+      createdAt: "2026-08-13T08:00:00.000Z",
+      updatedAt: "2026-08-13T08:00:00.000Z",
+    },
     contract: {
       id: "contract-journey-1",
       code: "CTR-JOURNEY-001",
       status: "DRAFT",
-      startDate: "2026-08-13T00:00:00.000Z",
-      endDate: "2027-08-12T00:00:00.000Z",
-      signedAt: "2026-08-13T00:00:00.000Z",
+      startDate: null as string | null,
+      endDate: null as string | null,
+      signedAt: null as string | null,
       monthlyRent: 5000000,
       depositMoney: 5000000,
       debt: 0,
@@ -333,6 +362,34 @@ async function mockFullRentalJourney(page: any) {
       settlementRefund: null as any,
       createdAt: "2026-08-13T08:00:00.000Z",
       updatedAt: "2026-08-13T08:00:00.000Z",
+    },
+    bookingInvoice: {
+      id: "invoice-booking-journey-1",
+      code: "INV-BOOKING-JOURNEY-001",
+      status: "ISSUED",
+      billingKind: "BOOKING_HOLD",
+      period: "Cọc giữ phòng",
+      usagePeriod: "Cọc giữ phòng",
+      paidAmount: 0,
+      creditAmount: 0,
+      remainingAmount: 5000000,
+      paymentRequests: [{ id: "request-booking-journey-1", code: "PAY-BOOKING-JOURNEY-001", status: "PENDING", amount: 5000000 }],
+      total: 5000000,
+      paidPercent: 0,
+      createdAt: "2026-08-13T08:00:00.000Z",
+      dueDate: "2026-11-03T00:00:00.000Z",
+      customer: { id: "customer-journey-1", name: "Nguyen Van Journey", fullName: "Nguyen Van Journey" },
+      contract: {
+        id: "contract-booking-journey-1",
+        roomId: "room-journey-1",
+        room: {
+          id: "room-journey-1",
+          number: "31-01",
+          code: "31-01",
+          building: { id: "building-journey-1", code: "LK01-31", name: "LK01-31" },
+        },
+      },
+      items: [{ id: "item-booking-1", type: "RENT", description: "Tiền cọc giữ phòng", servicePeriod: "BOOKING_HOLD", quantity: 1, unitPrice: 5000000, amount: 5000000 }],
     },
     invoice: {
       id: "invoice-journey-1",
@@ -362,8 +419,10 @@ async function mockFullRentalJourney(page: any) {
     },
     contractCreated: false,
     invoiceCreated: false,
-    lastCollectPayload: null as any,
-    lastConvertPayload: null as any,
+    lastBookingInvoicePaymentPayload: null as any,
+    lastBookingConversionPayload: null as any,
+    lastBookingConversionIdempotencyKey: null as any,
+    lastSignaturePayload: null as any,
     lastInvoicePaymentPayload: null as any,
     lastSettlementPreviewPayload: null as any,
     lastTerminationPayload: null as any,
@@ -377,27 +436,20 @@ async function mockFullRentalJourney(page: any) {
   });
 
   await mockProofUpload(page, "/uploads/journey-settlement-receipt.png");
+  await page.route("**/api/v1/documents/upload", async (route: any) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    const uploadBody = route.request().postData() || "";
+    const url = uploadBody.includes("rental-contract.pdf")
+      ? "/uploads/rental-contract.pdf"
+      : "/uploads/journey-settlement-receipt.png";
+    return json(route, { url, size: 24, mimeType: url.endsWith(".pdf") ? "application/pdf" : "image/png" }, 201);
+  });
 
   await page.route("**/api/v1/deposits**", async (route: any) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
     const method = request.method();
 
-    if (path.endsWith("/collect") && method === "POST") {
-      state.lastCollectPayload = request.postDataJSON?.() || {};
-      state.deposit.status = "PAID";
-      state.roomStatus = "RESERVED";
-      state.contract.room.status = state.roomStatus;
-      return json(route, state.deposit);
-    }
-    if (path.endsWith("/convert-contract") && method === "POST") {
-      state.lastConvertPayload = request.postDataJSON?.() || {};
-      state.deposit.status = "CONVERTED_TO_CONTRACT";
-      state.contractCreated = true;
-      state.invoiceCreated = true;
-      state.invoice.status = "ISSUED";
-      return json(route, state.contract);
-    }
     if (path.endsWith(`/deposits/${state.deposit.id}`) && method === "GET") {
       return json(route, state.deposit);
     }
@@ -412,6 +464,50 @@ async function mockFullRentalJourney(page: any) {
     const path = new URL(request.url()).pathname;
     const method = request.method();
 
+    if (path.endsWith("/convert-booking-hold") && method === "POST") {
+      state.lastBookingConversionPayload = request.postDataJSON?.() || {};
+      state.lastBookingConversionIdempotencyKey = request.headers()["idempotency-key"];
+      state.contract.startDate = state.lastBookingConversionPayload.startDate;
+      state.contract.endDate = state.lastBookingConversionPayload.endDate;
+      state.contract.monthlyRent = state.lastBookingConversionPayload.rentAmount;
+      state.contract.depositMoney = state.lastBookingConversionPayload.depositAmount;
+      state.contract.signedAt = null;
+      state.deposit.status = "CONVERTED_TO_CONTRACT";
+      state.deposit.availableBalance = 0;
+      state.contractCreated = true;
+      state.invoiceCreated = true;
+      state.invoice.status = "ISSUED";
+      state.bookingContract.bookingConversion = {
+        rentalContract: { id: state.contract.id, code: state.contract.code },
+        sourceBookingContract: { id: state.bookingContract.id, code: state.bookingContract.code },
+      };
+      return json(route, {
+        ...state.contract,
+        conversionPaymentRequest: { id: "request-journey-1", code: "PAY-JOURNEY-001", paymentCode: "PAY-JOURNEY-001", status: "PENDING" },
+        termsSnapshot: {
+          convertedFromBookingHold: {
+            sourceContractId: state.bookingContract.id,
+            sourceContractCode: state.bookingContract.code,
+            bookingDepositConversion: {
+              securityDepositId: "security-deposit-journey-1",
+              securityRequired: 5000000,
+              transferAmount: 5000000,
+              additionalCashRequired: 0,
+              excessAmount: 0,
+              excessAction: "CREDIT",
+            },
+            initialEntryInvoice: {
+              invoiceId: state.invoice.id,
+              invoiceCode: state.invoice.code,
+              amount: state.invoice.total,
+              rentAmount: state.invoice.total,
+              status: state.invoice.status,
+              paymentPolicyVersion: "BOOKING_ENTRY_COMBINED_V1",
+            },
+          },
+        },
+      });
+    }
     if (path.endsWith("/submit") && method === "POST") {
       state.contract.status = "PENDING_APPROVAL";
       return json(route, state.contract);
@@ -492,24 +588,51 @@ async function mockFullRentalJourney(page: any) {
       };
       return json(route, state.contract);
     }
+    if (path.endsWith(`/contracts/${state.contract.id}`) && method === "PATCH") {
+      const payload = request.postDataJSON?.() || {};
+      if (Array.isArray(payload.attachments)) state.contract.attachments = payload.attachments;
+      if (payload.signedAt) state.contract.signedAt = payload.signedAt;
+      state.lastSignaturePayload = payload.signedAt ? payload : state.lastSignaturePayload;
+      return json(route, state.contract);
+    }
+    if (path.endsWith(`/contracts/${state.bookingContract.id}`) && method === "GET") {
+      return json(route, {
+        ...state.bookingContract,
+        room: { ...state.bookingContract.room, status: state.roomStatus },
+        bookingDeposit: state.deposit,
+        bookingInvoice: state.bookingInvoice,
+        bookingPaymentRequest: state.bookingInvoice.paymentRequests[0],
+        bookingHold: {
+          status: "ACTIVE",
+          expiresAt: bookingHoldExpiry,
+          isActive: true,
+          requiresRecovery: false,
+          fundedInvalidAggregate: false,
+          validPartialActive: false,
+        },
+      });
+    }
     if (path.endsWith(`/contracts/${state.contract.id}`) && method === "GET") {
       const entryInvoicePaid = state.invoice.status === "PAID" && state.invoice.paidAmount + state.invoice.creditAmount >= state.invoice.total;
       const approved = ["APPROVED", "ACTIVE", "TERMINATED"].includes(state.contract.status);
+      const signed = Boolean(state.contract.signedAt);
       return json(route, state.contractCreated ? {
         ...state.contract,
         entryInvoice: state.invoice,
         bookingConversion: {
           rentalReadiness: {
-            canActivate: approved && entryInvoicePaid,
+            canActivate: approved && entryInvoicePaid && signed,
             entryInvoicePaid,
             securityDepositPaid: true,
-            blockingReasons: [...(!approved ? ["CONTRACT_APPROVAL_REQUIRED"] : []), ...(!entryInvoicePaid ? ["ENTRY_INVOICE_UNPAID"] : [])],
+            blockingReasons: [...(!approved ? ["CONTRACT_APPROVAL_REQUIRED"] : []), ...(!entryInvoicePaid ? ["ENTRY_INVOICE_UNPAID"] : []), ...(!signed ? ["CONTRACT_SIGNATURE_REQUIRED"] : [])],
           },
         },
       } : null, state.contractCreated ? 200 : 404);
     }
     if (path.endsWith("/contracts") && method === "GET") {
-      const items = state.contractCreated ? [state.contract] : [];
+      const items = state.contractCreated
+        ? [state.bookingContract, state.contract]
+        : [state.bookingContract];
       return json(route, { items, total: items.length });
     }
     return json(route, null, 404);
@@ -525,17 +648,35 @@ async function mockFullRentalJourney(page: any) {
       return json(route, state.invoice);
     }
     if (path.endsWith("/pay") && method === "POST") {
-      state.lastInvoicePaymentPayload = request.postDataJSON?.() || {};
-      state.invoice.paidAmount = Math.min(state.invoice.total, state.invoice.paidAmount + Number(state.lastInvoicePaymentPayload.amount || 0));
+      const payload = request.postDataJSON?.() || {};
+      if (path.includes(state.bookingInvoice.id)) {
+        state.lastBookingInvoicePaymentPayload = payload;
+        state.bookingInvoice.paidAmount = Math.min(state.bookingInvoice.total, state.bookingInvoice.paidAmount + Number(payload.amount || 0));
+        state.bookingInvoice.remainingAmount = Math.max(0, state.bookingInvoice.total - state.bookingInvoice.paidAmount - state.bookingInvoice.creditAmount);
+        state.bookingInvoice.paidPercent = Math.round((state.bookingInvoice.paidAmount / state.bookingInvoice.total) * 100);
+        state.bookingInvoice.status = state.bookingInvoice.remainingAmount === 0 ? "PAID" : "PARTIALLY_PAID";
+        state.bookingInvoice.paymentRequests[0].status = state.bookingInvoice.status === "PAID" ? "CONFIRMED" : "PENDING";
+        state.deposit.status = state.bookingInvoice.status === "PAID" ? "PAID" : "PENDING";
+        state.deposit.availableBalance = state.bookingInvoice.paidAmount;
+        state.roomStatus = state.bookingInvoice.status === "PAID" ? "RESERVED" : "AVAILABLE";
+        state.contract.room.status = state.roomStatus;
+        state.bookingContract.room.status = state.roomStatus;
+        return json(route, state.bookingInvoice);
+      }
+      state.lastInvoicePaymentPayload = payload;
+      state.invoice.paidAmount = Math.min(state.invoice.total, state.invoice.paidAmount + Number(payload.amount || 0));
       state.invoice.paidPercent = Math.round((state.invoice.paidAmount / state.invoice.total) * 100);
       state.invoice.status = state.invoice.paidAmount >= state.invoice.total ? "PAID" : "PARTIALLY_PAID";
       return json(route, state.invoice);
+    }
+    if (path.endsWith(`/invoices/${state.bookingInvoice.id}`) && method === "GET") {
+      return json(route, state.bookingInvoice);
     }
     if (path.endsWith(`/invoices/${state.invoice.id}`) && method === "GET") {
       return json(route, state.invoiceCreated ? state.invoice : null, state.invoiceCreated ? 200 : 404);
     }
     if (path.endsWith("/invoices") && method === "GET") {
-      const items = state.invoiceCreated ? [state.invoice] : [];
+      const items = state.invoiceCreated ? [state.bookingInvoice, state.invoice] : [state.bookingInvoice];
       return json(route, { items, total: items.length });
     }
     return json(route, null, 404);
@@ -571,6 +712,18 @@ async function mockFullRentalJourney(page: any) {
 test.describe("Contracts Settlement Desktop Regression", () => {
   test.beforeEach(async ({ admin }, testInfo) => {
     test.skip(!/Desktop|Laptop/.test(testInfo.project.name), "Desktop-only regression");
+  });
+
+  test("does not offer contract conversion for a legacy paid deposit without booking identity or hold", async ({ admin }) => {
+    const journey = await mockFullRentalJourney(admin.page);
+    journey.deposit.status = "PAID";
+    journey.deposit.availableBalance = journey.deposit.amount;
+
+    await admin.page.goto("/deposits", { waitUntil: "domcontentloaded" });
+    await admin.page.locator("[data-testid='deposit-card']:visible").filter({ hasText: journey.deposit.code }).first().click();
+    const legacyDepositDrawer = admin.page.getByTestId("deposit-detail-drawer");
+    await expect(legacyDepositDrawer).toBeVisible();
+    await expect(legacyDepositDrawer.getByTestId("deposit-action-convert")).toHaveCount(0);
   });
 
   test("opens settlement modal and terminates contract with pending refund payload", async ({ admin }) => {
@@ -770,29 +923,73 @@ test.describe("Contracts Settlement Desktop Regression", () => {
       });
   });
 
-  test("runs one rental record from deposit collection through paid invoice and room turnover", async ({ admin }) => {
+  test("runs one rental record from booking payment through paid entry invoice and room turnover", async ({ admin }) => {
     test.setTimeout(60_000);
     const journey = await mockFullRentalJourney(admin.page);
+    const rentalStartDate = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const rentalEnd = new Date(`${rentalStartDate}T00:00:00.000Z`);
+    rentalEnd.setUTCFullYear(rentalEnd.getUTCFullYear() + 1);
+    const rentalEndDate = rentalEnd.toISOString().slice(0, 10);
+    const displayDate = (value: string) => {
+      const [year, month, day] = value.split("-");
+      return `${day}/${month}/${year}`;
+    };
     admin.page.on("dialog", async (dialog) => {
       if (dialog.type() === "prompt") await dialog.accept("5000000");
       else await dialog.accept();
     });
 
-    await admin.page.goto("/deposits", { waitUntil: "domcontentloaded" });
-    await admin.page.locator("[data-testid='deposit-card']:visible").filter({ hasText: journey.deposit.code }).first().click();
-    await expect(admin.page.getByTestId("deposit-detail-drawer")).toBeVisible();
-    await admin.page.getByTestId("deposit-action-collect").click();
-    await expect.poll(() => journey.deposit.status).toBe("PAID");
-    const depositDrawer = admin.page.getByTestId("deposit-detail-drawer");
-    await expect(depositDrawer.getByTestId("deposit-status-badge")).toContainText("Đã thu cọc giữ phòng");
-    await expect(depositDrawer.getByTestId("deposit-action-convert")).toBeVisible();
-    await depositDrawer.getByTestId("deposit-action-convert").click();
-    await expect(admin.page.getByTestId("deposit-convert-modal")).toBeVisible();
-    await admin.page.getByTestId("deposit-convert-submit").click();
-    await expect.poll(() => journey.deposit.status).toBe("CONVERTED_TO_CONTRACT");
-    expect(journey.lastCollectPayload).toMatchObject({
-      idempotencyKey: expect.any(String),
+    await admin.page.goto("/invoices", { waitUntil: "domcontentloaded" });
+    const bookingInvoiceRow = admin.page.locator("tr").filter({ hasText: journey.bookingInvoice.code }).first();
+    await expect(bookingInvoiceRow).toBeVisible({ timeout: 15_000 });
+    await bookingInvoiceRow.click();
+    const bookingInvoiceDrawer = admin.page.getByRole("dialog").filter({
+      has: admin.page.getByRole("heading", { name: "Chi tiết hóa đơn", exact: true }),
     });
+    await expect(bookingInvoiceDrawer).toBeVisible();
+    await bookingInvoiceDrawer.getByRole("button", { name: /Thu tiền mặt/ }).click();
+    const bookingPaymentModal = bookingInvoiceDrawer
+      .getByRole("heading", { name: "Ghi nhận thu tiền mặt", exact: true })
+      .locator("xpath=ancestor::div[.//input][1]");
+    await expect(bookingPaymentModal).toBeVisible();
+    await bookingPaymentModal.getByPlaceholder("0").fill("5000000");
+    await bookingPaymentModal.getByRole("button", { name: "Xác nhận thu", exact: true }).click();
+    await expect(bookingPaymentModal).toBeHidden();
+    await expect.poll(() => journey.bookingInvoice.status).toBe("PAID");
+    expect(journey.lastBookingInvoicePaymentPayload).toMatchObject({
+      amount: 5000000,
+      provider: "MANUAL",
+      providerRef: expect.stringMatching(/^CASH:/),
+    });
+    expect(journey.deposit).toMatchObject({ status: "PAID", availableBalance: 5000000 });
+    expect(journey.roomStatus).toBe("RESERVED");
+
+    await admin.page.goto("/contracts", { waitUntil: "domcontentloaded" });
+    await admin.page.locator("[data-testid='contract-card']:visible").filter({ hasText: journey.bookingContract.code }).first().click();
+    await expect(admin.page.getByTestId("btn-open-booking-convert")).toBeVisible();
+    await admin.page.getByTestId("btn-open-booking-convert").click();
+    const bookingConversionModal = admin.page.getByTestId("booking-hold-convert-modal");
+    await expect(bookingConversionModal).toBeVisible();
+    await expect(bookingConversionModal.getByTestId("booking-conversion-header-deposit")).toContainText("5.000.000");
+    await bookingConversionModal.locator("#booking-rental-start").fill(displayDate(rentalStartDate));
+    await bookingConversionModal.locator("#booking-rental-end").fill(displayDate(rentalEndDate));
+    await bookingConversionModal.getByTestId("booking-hold-convert-submit").click();
+    await expect.poll(() => journey.deposit.status).toBe("CONVERTED_TO_CONTRACT");
+    expect(journey.lastBookingConversionPayload).toMatchObject({
+      idempotencyKey: expect.any(String),
+      startDate: rentalStartDate,
+      endDate: rentalEndDate,
+      rentAmount: 5000000,
+      depositAmount: 5000000,
+    });
+    expect(journey.lastBookingConversionIdempotencyKey).toBe(journey.lastBookingConversionPayload.idempotencyKey);
+    const bookingConversionResult = admin.page.getByTestId("booking-hold-conversion-result-modal");
+    await expect(bookingConversionResult).toBeVisible();
+    await expect(bookingConversionResult.getByRole("button", { name: `Hóa đơn ${journey.invoice.code}`, exact: true })).toBeVisible();
+    await bookingConversionResult.getByTestId("booking-hold-submit-rental-contract").click();
+    await expect.poll(() => journey.contract.status).toBe("PENDING_APPROVAL");
+    await bookingConversionResult.getByTestId("booking-hold-open-rental-contract").click();
+    await expect(admin.page.getByTestId("contract-detail-drawer")).toContainText(journey.contract.code);
 
     const openJourneyContract = async () => {
       const currentDrawer = admin.page.getByTestId("contract-detail-drawer");
@@ -811,9 +1008,6 @@ test.describe("Contracts Settlement Desktop Regression", () => {
 
     await admin.page.goto("/contracts", { waitUntil: "domcontentloaded" });
     await openJourneyContract();
-    await admin.page.getByTestId("btn-submit-contract").click();
-    await expect.poll(() => journey.contract.status).toBe("PENDING_APPROVAL");
-    await openJourneyContract();
     await admin.page.getByTestId("btn-approve-contract").click();
     await expect.poll(() => journey.contract.status).toBe("APPROVED");
     await openJourneyContract();
@@ -826,7 +1020,7 @@ test.describe("Contracts Settlement Desktop Regression", () => {
     expect(journey.invoiceCreated).toBe(true);
 
     const openJourneyInvoice = async () => {
-      const row = admin.page.locator("tr").filter({ hasText: journey.invoice.customer.fullName }).filter({ hasText: journey.invoice.contract.room.code }).first();
+      const row = admin.page.locator("tr").filter({ hasText: journey.invoice.code }).first();
       await expect(row).toBeVisible({ timeout: 15_000 });
       await expect(row).toContainText("5.000.000");
       await row.click();
@@ -861,6 +1055,28 @@ test.describe("Contracts Settlement Desktop Regression", () => {
     expect(journey.lastInvoicePaymentPayload).toMatchObject({ amount: 5000000 });
 
     await admin.page.goto("/contracts", { waitUntil: "domcontentloaded" });
+    await openJourneyContract();
+    await admin.page.getByTestId("btn-activate-contract").click();
+    const unsignedMoveIn = admin.page.getByTestId("contract-move-in-confirm");
+    await expect(unsignedMoveIn).toBeVisible();
+    await expect(unsignedMoveIn.getByText("Hợp đồng thuê chưa ghi nhận ngày ký.", { exact: true })).toBeVisible();
+    await expect(unsignedMoveIn.getByRole("button", { name: "Xác nhận đã bàn giao và nhận phòng", exact: true })).toBeDisabled();
+
+    await admin.page.reload({ waitUntil: "domcontentloaded" });
+    await openJourneyContract();
+    const signingDrawer = admin.page.getByTestId("contract-detail-drawer");
+    await signingDrawer.getByRole("button", { name: "Hồ sơ", exact: true }).click();
+    await signingDrawer.locator('input[type="file"][accept=".pdf,image/*"]').setInputFiles({
+      name: "rental-contract.pdf",
+      mimeType: "application/pdf",
+      buffer: Buffer.from("rental-contract"),
+    });
+    await expect(signingDrawer.getByText("rental-contract.pdf", { exact: true })).toBeVisible();
+    await signingDrawer.locator("#rental-signature-date").fill(rentalStartDate);
+    await signingDrawer.getByRole("button", { name: "Xác nhận đã ký hợp đồng", exact: true }).click();
+    await expect.poll(() => journey.lastSignaturePayload).toMatchObject({ signedAt: expect.any(String) });
+
+    await admin.page.reload({ waitUntil: "domcontentloaded" });
     await openJourneyContract();
     await admin.page.getByTestId("btn-activate-contract").click();
     await expect(admin.page.getByTestId("contract-move-in-confirm")).toBeVisible();

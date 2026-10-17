@@ -11,6 +11,7 @@ import { Public } from '../shared/decorators/public.decorator';
 import { randomBytes, timingSafeEqual } from 'crypto';
 import { buildTenantWebhookUrl, extractZaloWebhookChat, isWrappedZaloWebhookPayload, mergeRecentZaloWebhookChat, normalizeZaloUpdate, unwrapZaloWebhookPayload } from './adapters/zalo-normalizer';
 import { ZaloRegistrationService } from './services/zalo-registration.service';
+import { findOrCreateInAppNotification } from './services/in-app-notification-identity';
 import { RequirePermissions } from '../shared/decorators/require-permissions.decorator';
 import {
   buildAdminGroupConnectedMessage,
@@ -321,7 +322,13 @@ export class CommunicationController {
     const key = `${input.type}:${input.entityId}`;
     if (existingKeys.has(key)) return;
 
-    await this.prisma.notification.create({
+    // The read endpoints may run concurrently. The in-memory snapshot above is
+    // only an optimization, so serialize and recheck the persisted identity.
+    await findOrCreateInAppNotification(this.prisma, {
+      tenantId: input.tenantId,
+      userId: input.userId,
+      type: input.type,
+      entityId: input.entityId,
       data: {
         tenantId: input.tenantId,
         userId: input.userId,

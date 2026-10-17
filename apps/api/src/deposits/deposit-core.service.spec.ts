@@ -176,6 +176,45 @@ describe('DepositCoreService', () => {
     }));
   });
 
+  it('rejects direct collection for a booking deposit linked to an exact booking invoice', async () => {
+    const { tx, service } = createHarness();
+    tx.deposit.findFirst.mockResolvedValue({
+      ...booking,
+      contractId: 'booking-contract-1',
+      contract: {
+        id: 'booking-contract-1',
+        termsSnapshot: { bookingCommand: { depositId: booking.id, invoiceId: 'booking-invoice-1' } },
+      },
+    });
+
+    await expect(service.collect('tenant-1', booking.id, {
+      idempotencyKey: 'booking-direct-collect-rejected-1',
+    }, 'user-1')).rejects.toThrow('BOOKING_HOLD_PAY_THROUGH_LINKED_INVOICE');
+    expect(tx.depositLedgerEntry.create).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['missing invoiceId', { depositId: booking.id }],
+    ['wrong depositId', { depositId: 'booking-deposit-other', invoiceId: 'booking-invoice-1' }],
+    ['null marker', null],
+    ['malformed marker', 'booking-invoice-1'],
+  ])('fails closed for a present booking marker with %s', async (_case, marker) => {
+    const { tx, service } = createHarness();
+    tx.deposit.findFirst.mockResolvedValue({
+      ...booking,
+      contractId: 'booking-contract-1',
+      contract: {
+        id: 'booking-contract-1',
+        termsSnapshot: { bookingCommand: marker },
+      },
+    });
+
+    await expect(service.collect('tenant-1', booking.id, {
+      idempotencyKey: `booking-invalid-marker-${String(_case).replace(/\s+/g, '-')}`,
+    }, 'user-1')).rejects.toThrow('BOOKING_HOLD_INVOICE_MARKER_INVALID');
+    expect(tx.depositLedgerEntry.create).not.toHaveBeenCalled();
+  });
+
   it('reconciles a settled booking invoice without reviving an expired room hold', async () => {
     const { tx, service } = createHarness();
     tx.deposit.findFirst.mockResolvedValue({ ...booking, expiredAt: new Date('2026-09-22T00:00:00.000Z') });

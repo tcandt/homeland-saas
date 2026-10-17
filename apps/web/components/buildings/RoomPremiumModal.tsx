@@ -70,6 +70,7 @@ import {
 import { Input } from "../ui/Input";
 import { Select } from "../ui/Select";
 import OperationsBillingDrawer from "../invoices/OperationsBillingDrawer";
+import { getInvoicePaymentPresentation } from "@/lib/invoices/invoice-financials";
 import OperationsDepositDrawer from "../deposits/OperationsDepositDrawer";
 import { useInvoiceDetailQuery, useInvoicesQuery } from "@/lib/queries/invoices.queries";
 import { useCustomersQuery } from "@/lib/queries/customers.queries";
@@ -2497,12 +2498,15 @@ export default function RoomPremiumModal({
             bookingResult?.paymentRequest
               ? "Đã tạo cọc giữ chỗ, hợp đồng cọc, hóa đơn và yêu cầu thanh toán QR."
               : bookingResult?.paymentRequestError
-                ? "Đã tạo cọc giữ chỗ, hợp đồng cọc và hóa đơn; chưa tạo được yêu cầu thanh toán, bạn có thể thử lại."
+                ? "Đã tạo cọc giữ chỗ, hợp đồng cọc và hóa đơn; chưa tạo được yêu cầu thanh toán. Vui lòng mở hóa đơn để thử lại QR, không lập lại cọc."
                 : "Đã tạo cọc giữ chỗ, hợp đồng cọc và hóa đơn.",
             bookingResult?.paymentRequest ? "success" : "info",
           );
-          if (bookingResult?.paymentRequest) {
-            beginZaloWaitingIfNeeded(customerId, bookingResult?.invoice?.id || null);
+          if (
+            !bookingResult?.paymentRequest ||
+            !beginZaloWaitingIfNeeded(customerId, bookingResult?.invoice?.id || null)
+          ) {
+            closeTenantModal(true);
           }
           return;
         }
@@ -4231,7 +4235,9 @@ export default function RoomPremiumModal({
                                       );
                                     }
 
-                                    return cycleInvoices.map((inv: any) => (
+                                    return cycleInvoices.map((inv: any) => {
+                                      const paymentState = getInvoicePaymentPresentation(inv);
+                                      return (
                                       <tr
                                         key={inv.id}
                                         data-testid={`finance-invoice-${inv.id}`}
@@ -4271,26 +4277,21 @@ export default function RoomPremiumModal({
                                         <td className="px-4 py-3 text-right">
                                           <span
                                             className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase ${
-                                              ["PAID", "paid"].includes(
-                                                inv.status,
-                                              )
+                                              paymentState.tone === "success"
                                                 ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
-                                                : inv.status === "OVERDUE"
+                                                : paymentState.tone === "danger"
                                                   ? "bg-rose-500/10 text-rose-500 border border-rose-500/20"
+                                                  : paymentState.tone === "info"
+                                                    ? "bg-blue-500/10 text-blue-600 border border-blue-500/20"
                                                   : "bg-amber-500/10 text-amber-600 border border-amber-500/20"
                                             }`}
                                           >
-                                            {["PAID", "paid"].includes(
-                                              inv.status,
-                                            )
-                                              ? "Đã trả"
-                                              : inv.status === "OVERDUE"
-                                                ? "Quá hạn"
-                                                : "Chưa trả"}
+                                            {paymentState.label}
                                           </span>
                                         </td>
                                       </tr>
-                                    ));
+                                      );
+                                    });
                                   })()}
                                 </tbody>
                               </table>

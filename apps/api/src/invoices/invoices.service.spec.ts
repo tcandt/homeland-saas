@@ -712,6 +712,31 @@ describe("InvoicesService", () => {
       ],
     });
 
+    const bookingHoldInvoice = (status: InvoiceStatus = InvoiceStatus.ISSUED, paidAmount = 0, creditAmount = 0) => ({
+      id: "booking-invoice-1",
+      status,
+      billingKind: "BOOKING_HOLD",
+      period: "Cọc giữ phòng",
+      total: 1_000_000,
+      paidAmount,
+      creditAmount,
+      tenantId: "tenant-1",
+      customerId: "customer-1",
+      contractId: "booking-contract-1",
+      rentalCycleId: "booking-cycle-1",
+      customer: {},
+      contract: {
+        id: "booking-contract-1",
+        tenantId: "tenant-1",
+        customerId: "customer-1",
+        rentalCycleId: "booking-cycle-1",
+        termsSnapshot: {
+          bookingCommand: { depositId: "booking-deposit-1", invoiceId: "booking-invoice-1" },
+        },
+      },
+      items: [{ type: "RENT", amount: 1_000_000, servicePeriod: "BOOKING_HOLD" }],
+    });
+
     it("collects only the 7M cash remainder after a full 11M combined ENTRY payment", async () => {
       const invoice = combinedInvoice();
       expect((service as any).getScopedInvoiceDetail).toBeDefined();
@@ -795,6 +820,87 @@ describe("InvoicesService", () => {
 
       await expect(service.pay(invoice.id, 4_000_000, "MANUAL", "manual-combined-partial-1", "user-1", "tenant-1"))
         .resolves.toMatchObject({ status: InvoiceStatus.PARTIALLY_PAID, paidAmount: 4_000_000 });
+      expect(collectInTransaction).not.toHaveBeenCalled();
+    });
+
+    it("collects the exact booking deposit once after 400k then 600k cash payments", async () => {
+      const collectInTransaction = vi.fn().mockResolvedValue({ depositId: "booking-deposit-1" });
+      (service as any).depositCoreService = { collectInTransaction };
+      prisma.tx.deposit = { findFirst: vi.fn().mockResolvedValue({ id: "booking-deposit-1", amount: 1_000_000 }) };
+      prisma.tx.payment.create.mockResolvedValue({ id: "booking-payment-1", paidAt: new Date("2026-09-29") });
+
+      mockPaymentTarget(bookingHoldInvoice());
+      await expect(service.pay("booking-invoice-1", 400_000, "MANUAL", "booking-cash-400", "user-1", "tenant-1"))
+        .resolves.toMatchObject({ status: InvoiceStatus.PARTIALLY_PAID, paidAmount: 400_000 });
+      expect(collectInTransaction).not.toHaveBeenCalled();
+
+      mockPaymentTarget(bookingHoldInvoice(InvoiceStatus.PARTIALLY_PAID, 400_000));
+      await expect(service.pay("booking-invoice-1", 600_000, "MANUAL", "booking-cash-600", "user-1", "tenant-1"))
+        .resolves.toMatchObject({ status: InvoiceStatus.PAID, paidAmount: 1_000_000 });
+      expect(collectInTransaction).toHaveBeenCalledTimes(1);
+      expect(collectInTransaction).toHaveBeenCalledWith(
+        prisma.tx,
+        "tenant-1",
+        "booking-deposit-1",
+        expect.objectContaining({ idempotencyKey: "booking-invoice:booking-invoice-1:deposit-funding" }),
+        "user-1",
+      );
+    });
+
+    it("fails closed for a booking marker whose exact deposit is absent or mismatched", async () => {
+      const invoice = bookingHoldInvoice();
+      mockPaymentTarget(invoice);
+      prisma.tx.deposit = { findFirst: vi.fn().mockResolvedValue(null) };
+      (service as any).depositCoreService = { collectInTransaction: vi.fn() };
+
+      await expect(service.pay(invoice.id, 1_000_000, "MANUAL", "booking-mismatch-1", "user-1", "tenant-1"))
+        .rejects.toThrow("BOOKING_HOLD_INVOICE_SETTLEMENT_SCOPE_INVALID");
+      expect(prisma.tx.deposit.findFirst).toHaveBeenCalledWith({
+        where: expect.objectContaining({
+          id: "booking-deposit-1",
+          tenantId: "tenant-1",
+          contractId: "booking-contract-1",
+          customerId: "customer-1",
+          rentalCycleId: "booking-cycle-1",
+        }),
+        select: { id: true, amount: true },
+      });
+      expect(prisma.tx.payment.create).not.toHaveBeenCalled();
+    });
+
+    it("rejects a booking settlement completed by credit instead of full cash", async () => {
+      const invoice = bookingHoldInvoice(InvoiceStatus.ISSUED, 0, 100_000);
+      mockPaymentTarget(invoice);
+      prisma.tx.deposit = { findFirst: vi.fn() };
+
+      await expect(service.pay(invoice.id, 900_000, "MANUAL", "booking-credit-1", "user-1", "tenant-1"))
+        .rejects.toThrow("BOOKING_HOLD_INVOICE_SETTLEMENT_SCOPE_INVALID");
+      expect(prisma.tx.deposit.findFirst).not.toHaveBeenCalled();
+      expect(prisma.tx.payment.create).not.toHaveBeenCalled();
+    });
+
+    it("propagates booking cash-in failure so the payment transaction rolls back", async () => {
+      const invoice = bookingHoldInvoice();
+      mockPaymentTarget(invoice);
+      prisma.tx.deposit = { findFirst: vi.fn().mockResolvedValue({ id: "booking-deposit-1", amount: 1_000_000 }) };
+      const collectInTransaction = vi.fn().mockRejectedValue(new ConflictException("BOOKING_HOLD_INVOICE_SETTLEMENT_SCOPE_INVALID"));
+      (service as any).depositCoreService = { collectInTransaction };
+      prisma.tx.payment.create.mockResolvedValue({ id: "booking-payment-fail", paidAt: new Date("2026-09-29") });
+
+      await expect(service.pay(invoice.id, 1_000_000, "MANUAL", "booking-fail-1", "user-1", "tenant-1"))
+        .rejects.toThrow("BOOKING_HOLD_INVOICE_SETTLEMENT_SCOPE_INVALID");
+      expect(collectInTransaction).toHaveBeenCalledTimes(1);
+    });
+
+    it("replays a booking payment reference without a second cash-in", async () => {
+      const invoice = bookingHoldInvoice(InvoiceStatus.PAID, 1_000_000);
+      prisma.tx.payment.findFirst.mockResolvedValue({ invoiceId: invoice.id, amount: 1_000_000, status: "CONFIRMED" });
+      prisma.tx.invoice.findFirst.mockResolvedValue(invoice);
+      const collectInTransaction = vi.fn();
+      (service as any).depositCoreService = { collectInTransaction };
+
+      await expect(service.pay(invoice.id, 1_000_000, "SEPAY", "booking-replay-1", "user-1", "tenant-1"))
+        .resolves.toMatchObject({ id: invoice.id, status: InvoiceStatus.PAID });
       expect(collectInTransaction).not.toHaveBeenCalled();
     });
 

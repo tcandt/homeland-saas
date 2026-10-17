@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   getInvoiceDocumentCounts,
+  getInvoiceDocumentTitle,
   getInvoiceFinancials,
   getInvoicePaymentPresentation,
   getInvoiceOperationsSummary,
@@ -64,6 +65,13 @@ describe('getInvoiceFinancials', () => {
 });
 
 describe('invoice payment presentation', () => {
+  it('labels standalone booking invoices without presenting them as first rent', () => {
+    expect(getInvoiceDocumentTitle({ billingKind: 'BOOKING_HOLD' })).toBe('Hóa đơn cọc giữ phòng');
+    expect(getInvoiceDocumentTitle({ period: 'Cọc giữ phòng' })).toBe('Hóa đơn cọc giữ phòng');
+    expect(getInvoiceDocumentTitle({ billingKind: 'ENTRY' })).toBe('Hóa đơn tiền phòng kỳ đầu');
+    expect(getInvoiceDocumentTitle({ documentType: 'DEPOSIT' })).toBe('Hóa đơn cọc hợp đồng');
+    expect(getInvoiceDocumentTitle({ presentationTitle: 'Chứng từ liên kết', billingKind: 'BOOKING_HOLD' })).toBe('Chứng từ liên kết');
+  });
   it('does not treat PAID metadata with an outstanding balance as paid', () => {
     expect(getInvoicePaymentPresentation({ total: 13_709_677, paidAmount: 0, status: 'PAID' })).toMatchObject({
       label: 'Chờ thanh toán', isFullyPaid: false, isSettled: false, canCollect: true,

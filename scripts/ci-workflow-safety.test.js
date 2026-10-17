@@ -250,6 +250,40 @@ test('empty-database baseline runbook matches the reviewed CI migration checksum
   assert.match(baseline, /18/);
 });
 
+test('booking cash gate runs explicitly against a separate copy of the migrated CI schema', () => {
+  const steps = workflowModel().jobs['integration-test'].steps;
+  const bootstrap = steps.findIndex((step) => step.run === 'node scripts/ci-bootstrap-database.js');
+  const prepare = steps.findIndex((step) => step.name === 'Prepare isolated booking invoice gate database');
+  const gate = steps.findIndex((step) => step.name === 'Booking invoice real PostgreSQL gate');
+  const e2e = steps.findIndex((step) => step.run === 'npm run test:e2e --workspace=api');
+  assert.ok(prepare > bootstrap && gate > prepare && e2e > gate);
+  assert.match(steps[prepare].run, /-p homeland-ci-\$\{\{ github.run_id \}\}-\$\{\{ github.run_attempt \}\}/);
+  assert.match(steps[prepare].run, /exec -T postgres psql -U homeland -d postgres -v ON_ERROR_STOP=1/);
+  assert.match(steps[prepare].run, /CREATE DATABASE homeland_booking_invoice_test TEMPLATE homeland/);
+  assert.doesNotMatch(steps[prepare].run, /DROP|force-reset|db push/i);
+  assert.equal(steps[gate]['working-directory'], 'apps/api');
+  assert.deepEqual(steps[gate].env, {
+    RUN_BOOKING_INVOICE_DB_TESTS: '1',
+    TEST_DATABASE_URL: 'postgresql://homeland:homeland123@127.0.0.1:5433/homeland_booking_invoice_test?schema=public',
+  });
+  assert.equal(steps[gate].run, 'npx vitest run src/invoices/booking-invoice-payment.integration.spec.ts');
+});
+
+test('notification identity gate runs explicitly in the isolated database without provider dispatch', () => {
+  const steps = workflowModel().jobs['integration-test'].steps;
+  const booking = steps.findIndex((step) => step.name === 'Booking invoice real PostgreSQL gate');
+  const gate = steps.findIndex((step) => step.name === 'In-app notification real PostgreSQL gate');
+  const e2e = steps.findIndex((step) => step.run === 'npm run test:e2e --workspace=api');
+  assert.ok(gate > booking && e2e > gate);
+  assert.equal(steps[gate]['working-directory'], 'apps/api');
+  assert.deepEqual(steps[gate].env, {
+    RUN_IN_APP_NOTIFICATION_DB_TESTS: '1',
+    TEST_DATABASE_URL: 'postgresql://homeland:homeland123@127.0.0.1:5433/homeland_booking_invoice_test?schema=public',
+    COMMUNICATION_IMMEDIATE_DELIVERY: 'false',
+  });
+  assert.equal(steps[gate].run, 'npx vitest run src/communication/in-app-notification-identity.integration.spec.ts');
+});
+
 test('release documents point to the evidence-based central go-live backlog', () => {
   const goLiveTodo = read('docs/operations/GO_LIVE_TODO.md');
   for (const file of [

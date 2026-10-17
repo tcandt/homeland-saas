@@ -10,6 +10,12 @@ import {
   NOTIFICATION_TEMPLATE_CATALOG,
   type NotificationTemplateDefinition,
 } from './templates/notification-template-catalog';
+import {
+  findOrCreateInAppNotification,
+  IN_APP_NOTIFICATION_CHANNEL,
+  PAYMENT_RECEIVED_NOTIFICATION_TYPE,
+  resolvePaymentNotificationEntityId,
+} from './services/in-app-notification-identity';
 
 export interface CommunicationPayload {
   tenantId: string;
@@ -424,20 +430,39 @@ export class CommunicationService {
       renderedAt: new Date().toISOString(),
     };
 
-    // 4. Create master Notification record
-    const notification = await this.prisma.notification.create({
-      data: {
-        tenantId: payload.tenantId,
-        userId: payload.userId,
-        channel: payload.channel ? (payload.channel as NotificationChannel) : NotificationChannel.IN_APP,
-        title,
-        message,
-        type: payload.templateCode,
-        status: 'QUEUED',
-        metadata: { ...context, templateSnapshot },
-      }
-    });
-    if (notification.channel === NotificationChannel.IN_APP) {
+    // 4. Create master Notification record. Payment in-app events share the
+    // same identity lock as operational read-path synthesis.
+    const channel = payload.channel ? (payload.channel as NotificationChannel) : NotificationChannel.IN_APP;
+    const paymentEntityId = payload.templateCode === PAYMENT_RECEIVED_NOTIFICATION_TYPE
+      && channel === IN_APP_NOTIFICATION_CHANNEL
+      && payload.userId
+      ? resolvePaymentNotificationEntityId(context)
+      : null;
+    const notificationData = {
+      tenantId: payload.tenantId,
+      userId: payload.userId,
+      channel,
+      title,
+      message,
+      type: payload.templateCode,
+      status: 'QUEUED' as const,
+      metadata: paymentEntityId
+        ? { ...context, entityId: paymentEntityId, templateSnapshot }
+        : { ...context, templateSnapshot },
+    };
+    const paymentNotification = paymentEntityId
+      ? await findOrCreateInAppNotification(this.prisma, {
+          tenantId: payload.tenantId,
+          userId: payload.userId as string,
+          type: PAYMENT_RECEIVED_NOTIFICATION_TYPE,
+          entityId: paymentEntityId,
+          data: notificationData,
+        })
+      : null;
+    const notification = paymentNotification?.notification
+      || await this.prisma.notification.create({ data: notificationData });
+    const notificationCreated = paymentNotification?.created ?? true;
+    if (notificationCreated && notification.channel === NotificationChannel.IN_APP) {
       this.eventEmitter?.emit('notification.in_app.created', {
         tenantId: notification.tenantId,
         userId: notification.userId,
@@ -450,6 +475,7 @@ export class CommunicationService {
     const queueIds: string[] = [];
     for (const ch of channelsToUse) {
       const channelEnum = ch as NotificationChannel;
+      if (!notificationCreated && channelEnum === NotificationChannel.IN_APP) continue;
       
       const queueItem = await this.prisma.notificationQueue.create({
         data: {

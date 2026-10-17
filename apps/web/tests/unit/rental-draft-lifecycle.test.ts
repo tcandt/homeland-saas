@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import ts from "typescript";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { getContractDocumentStatus } from "../../lib/contracts/booking-conversion";
 
 const sourcePath = resolve(process.cwd(), "components/buildings/RoomPremiumModal.tsx");
@@ -31,6 +31,66 @@ function callsIn(name: string) {
 }
 
 describe("Rental draft lifecycle", () => {
+  // Run the production booking branch with controlled API/UI dependencies.
+  // In particular, a QR failure happens AFTER the booking was persisted.
+  async function finishBooking(paymentRequest: unknown, waitForZalo: boolean) {
+    let bookingBranch: ts.IfStatement | undefined;
+    const visit = (node: ts.Node) => {
+      if (ts.isIfStatement(node) && node.expression.getText(source) === 'rentalIntentMode === "BOOKING"' && node.thenStatement.getText(source).includes("await createBookingHoldFlow(")) {
+        bookingBranch = node;
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+    expect(bookingBranch).toBeDefined();
+    const closeTenantModal = vi.fn();
+    const beginZaloWaitingIfNeeded = vi.fn(() => waitForZalo);
+    const showToast = vi.fn();
+    const dependencies = {
+      rentalIntentMode: "BOOKING",
+      customerId: "customer-uat",
+      roomContext: { roomId: "room-uat" },
+      expectedGeneration: 1,
+      tenantSelectionContext: { current: { generation: 1, roomId: "room-uat" } },
+      createBookingHoldFlow: vi.fn().mockResolvedValue({
+        invoice: { id: "invoice-uat" },
+        paymentRequest,
+        paymentRequestError: paymentRequest ? null : "PROVIDER_DISABLED",
+      }),
+      queryClient: { invalidateQueries: vi.fn().mockResolvedValue(undefined) },
+      setActiveTab: vi.fn(), closeTenantModal, beginZaloWaitingIfNeeded, showToast,
+    };
+    const body = ts.transpileModule(bookingBranch!.getText(source), {
+      compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None },
+    }).outputText;
+    await new Function("deps", `const { ${Object.keys(dependencies).join(",")} } = deps; return (async () => { ${body} })();`)(dependencies);
+    return dependencies;
+  }
+
+  it("closes the persisted booking form when QR creation fails instead of offering another save", async () => {
+    const result = await finishBooking(null, false);
+    expect(result.closeTenantModal).toHaveBeenCalledExactlyOnceWith(true);
+    expect(result.beginZaloWaitingIfNeeded).not.toHaveBeenCalled();
+    expect(result.showToast).toHaveBeenCalledWith(expect.stringContaining("không lập lại cọc"), "info");
+    expect(result.createBookingHoldFlow).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes a successful booking when the customer does not need the Zalo linking step", async () => {
+    const result = await finishBooking({ id: "qr-uat" }, false);
+    expect(result.closeTenantModal).toHaveBeenCalledExactlyOnceWith(true);
+    expect(result.beginZaloWaitingIfNeeded).toHaveBeenCalledWith("customer-uat", "invoice-uat");
+  });
+
+  it("preserves the Zalo linking step only when it is actually opened", async () => {
+    const result = await finishBooking({ id: "qr-uat" }, true);
+    expect(result.closeTenantModal).not.toHaveBeenCalled();
+  });
+
+  it("uses balance-based payment labels in the room invoice table", () => {
+    expect(source.getText()).toContain("const paymentState = getInvoicePaymentPresentation(inv)");
+    expect(source.getText()).toContain("{paymentState.label}");
+  });
+
   it("delegates initial billing to the canonical entry-billing service", () => {
     const declaration = source.statements
       .flatMap((statement) => {

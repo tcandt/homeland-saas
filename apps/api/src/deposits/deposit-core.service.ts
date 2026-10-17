@@ -451,6 +451,14 @@ export class DepositCoreService {
         }
       }
 
+      await this.assertBookingHoldInvoiceSettlement(
+        tx,
+        tenantId,
+        deposit,
+        collectionAmount,
+        command.input.notificationContext,
+      );
+
       const operation = await tx.depositOperation.create({
         data: {
           tenantId,
@@ -746,6 +754,65 @@ export class DepositCoreService {
       Number(request.amount || 0) < collectionAmount || paidCash < collectionAmount
     ) {
       throw new ConflictException('DEPOSIT_RECONCILIATION_SCOPE_INVALID');
+    }
+  }
+
+  private async assertBookingHoldInvoiceSettlement(
+    tx: TransactionClient,
+    tenantId: string,
+    deposit: any,
+    collectionAmount: number,
+    context: CollectDepositCommand['notificationContext'],
+  ) {
+    if (![DepositType.BOOKING, DepositType.RESERVATION].includes(deposit.type)) return;
+    const termsSnapshot = deposit.contract?.termsSnapshot;
+    const hasBookingMarker = Boolean(
+      termsSnapshot &&
+      typeof termsSnapshot === 'object' &&
+      Object.prototype.hasOwnProperty.call(termsSnapshot, 'bookingCommand'),
+    );
+    if (!hasBookingMarker) return;
+    const marker = termsSnapshot.bookingCommand;
+    if (!marker || typeof marker !== 'object') {
+      throw new ConflictException('BOOKING_HOLD_INVOICE_MARKER_INVALID');
+    }
+    const linkedInvoiceId = String(marker?.invoiceId || '').trim();
+    if (!linkedInvoiceId || marker.depositId !== deposit.id) {
+      throw new ConflictException('BOOKING_HOLD_INVOICE_MARKER_INVALID');
+    }
+    if (!context?.linkedInvoicePayment || context.sourceInvoiceId !== linkedInvoiceId) {
+      throw new ConflictException('BOOKING_HOLD_PAY_THROUGH_LINKED_INVOICE');
+    }
+    const invoice = await tx.invoice.findFirst({
+      where: { id: linkedInvoiceId, tenantId, deletedAt: null },
+      select: {
+        id: true, billingKind: true, period: true, total: true, paidAmount: true,
+        creditAmount: true, status: true, contractId: true, customerId: true,
+        rentalCycleId: true,
+        contract: { select: { id: true, tenantId: true, customerId: true, rentalCycleId: true, roomId: true, termsSnapshot: true } },
+      },
+    });
+    const invoiceMarker = invoice?.contract?.termsSnapshot?.bookingCommand;
+    const isFullyCashPaid = Number(invoice?.paidAmount || 0) === Number(invoice?.total || 0) &&
+      Number(invoice?.creditAmount || 0) === 0;
+    if (
+      invoice?.billingKind !== 'BOOKING_HOLD' ||
+      invoice?.status !== 'PAID' ||
+      !isFullyCashPaid ||
+      invoice?.contractId !== deposit.contractId ||
+      invoice?.customerId !== deposit.customerId ||
+      invoice?.rentalCycleId !== deposit.rentalCycleId ||
+      invoice?.contract?.id !== deposit.contractId ||
+      invoice?.contract?.tenantId !== tenantId ||
+      invoice?.contract?.customerId !== deposit.customerId ||
+      invoice?.contract?.rentalCycleId !== deposit.rentalCycleId ||
+      invoice?.contract?.roomId !== deposit.roomId ||
+      invoiceMarker?.invoiceId !== invoice.id ||
+      invoiceMarker?.depositId !== deposit.id ||
+      this.toMoney(invoice.total) !== this.toMoney(deposit.amount) ||
+      this.toMoney(collectionAmount) !== this.toMoney(invoice.total)
+    ) {
+      throw new ConflictException('BOOKING_HOLD_INVOICE_SETTLEMENT_SCOPE_INVALID');
     }
   }
 

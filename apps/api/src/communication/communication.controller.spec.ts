@@ -75,6 +75,7 @@ describe('CommunicationController Zalo webhook', () => {
 
   function createController() {
     const prisma = {
+      $transaction: vi.fn(),
       appSetting: {
         findMany: vi.fn(),
         findUnique: vi.fn(),
@@ -884,6 +885,117 @@ describe('CommunicationController Zalo webhook', () => {
       title: 'Telegram test',
       message: 'Hello',
       context: {},
+    });
+  });
+
+  describe('operational notification deduplication', () => {
+    const input = {
+      tenantId: 'tenant-1',
+      userId: 'user-1',
+      type: 'PAYMENT_RECEIVED',
+      entityId: 'payment-1',
+      title: 'Received',
+      message: 'Payment received',
+      metadata: { entityId: 'payment-1', amount: 400000 },
+    };
+
+    function transactionWith(existing: { id: string } | null = null) {
+      const tx = {
+        $queryRaw: vi.fn().mockResolvedValue([{ lock: 'ok' }]),
+        notification: {
+          findFirst: vi.fn().mockResolvedValue(existing),
+          create: vi.fn().mockResolvedValue({ id: 'notification-1' }),
+        },
+      };
+      return tx;
+    }
+
+    it('rechecks the persisted, tenant-scoped entity identity after taking its lock', async () => {
+      const { controller, prisma } = createController();
+      const tx = transactionWith({ id: 'older-notification' });
+      prisma.$transaction.mockImplementation(async (work: any) => work(tx));
+      const existingKeys = new Set<string>();
+
+      await (controller as any).createOperationalNotification(input, existingKeys);
+
+      expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: 'ReadCommitted' });
+      expect(tx.notification.findFirst).toHaveBeenCalledWith({
+        where: {
+          tenantId: 'tenant-1',
+          userId: 'user-1',
+          channel: 'IN_APP',
+          type: 'PAYMENT_RECEIVED',
+          OR: [
+            { metadata: { path: ['entityId'], equals: 'payment-1' } },
+            { metadata: { path: ['paymentId'], equals: 'payment-1' } },
+          ],
+        },
+        select: { id: true, tenantId: true, userId: true, channel: true, type: true },
+      });
+      expect(tx.$queryRaw.mock.calls[0][0].values).toEqual([
+        JSON.stringify(['tenant-1', 'user-1', 'IN_APP', 'PAYMENT_RECEIVED', 'payment-1']),
+      ]);
+      expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(tx.notification.findFirst.mock.invocationCallOrder[0]);
+      expect(tx.notification.create).not.toHaveBeenCalled();
+      expect(existingKeys).toEqual(new Set(['PAYMENT_RECEIVED:payment-1']));
+    });
+
+    it('creates once when concurrent snapshots both missed the notification', async () => {
+      const { controller, prisma } = createController();
+      const persisted = new Set<string>();
+      const tx = {
+        $queryRaw: vi.fn().mockResolvedValue([{ lock: 'ok' }]),
+        notification: {
+          findFirst: vi.fn().mockImplementation(async ({ where }: any) =>
+            persisted.has(`${where.tenantId}:${where.userId}:${where.type}:${where.OR[0].metadata.equals}`) ? { id: 'notification-1' } : null,
+          ),
+          create: vi.fn().mockImplementation(async ({ data }: any) => {
+            persisted.add(`${data.tenantId}:${data.userId}:${data.type}:${data.metadata.entityId}`);
+            return { id: 'notification-1' };
+          }),
+        },
+      };
+      let lockQueue = Promise.resolve();
+      prisma.$transaction.mockImplementation((work: any) => {
+        const result = lockQueue.then(() => work(tx));
+        lockQueue = result.then(() => undefined, () => undefined);
+        return result;
+      });
+
+      await Promise.all([
+        (controller as any).createOperationalNotification(input, new Set<string>()),
+        (controller as any).createOperationalNotification(input, new Set<string>()),
+      ]);
+
+      expect(tx.notification.create).toHaveBeenCalledTimes(1);
+      expect(tx.notification.findFirst).toHaveBeenCalledTimes(2);
+    });
+
+    it('uses distinct locks for notification scopes that must remain independent', async () => {
+      const { controller, prisma } = createController();
+      const tx = transactionWith(null);
+      prisma.$transaction.mockImplementation(async (work: any) => work(tx));
+
+      await (controller as any).createOperationalNotification(input, new Set<string>());
+      await (controller as any).createOperationalNotification({ ...input, userId: 'user-2' }, new Set<string>());
+      await (controller as any).createOperationalNotification({ ...input, tenantId: 'tenant-2' }, new Set<string>());
+
+      expect(tx.$queryRaw.mock.calls.map((call: any[]) => call[0].values[0])).toEqual([
+        JSON.stringify(['tenant-1', 'user-1', 'IN_APP', 'PAYMENT_RECEIVED', 'payment-1']),
+        JSON.stringify(['tenant-1', 'user-2', 'IN_APP', 'PAYMENT_RECEIVED', 'payment-1']),
+        JSON.stringify(['tenant-2', 'user-1', 'IN_APP', 'PAYMENT_RECEIVED', 'payment-1']),
+      ]);
+      expect(tx.notification.create).toHaveBeenCalledTimes(3);
+    });
+
+    it('does not add a false in-memory key when the transaction rolls back', async () => {
+      const { controller, prisma } = createController();
+      prisma.$transaction.mockRejectedValueOnce(new Error('database unavailable'));
+      const existingKeys = new Set<string>();
+
+      await expect((controller as any).createOperationalNotification(input, existingKeys)).rejects.toThrow('database unavailable');
+
+      expect(existingKeys.size).toBe(0);
     });
   });
 });

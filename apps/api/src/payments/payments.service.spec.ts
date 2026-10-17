@@ -1376,7 +1376,7 @@ describe('PaymentsService', () => {
     });
   });
 
-  it('collects linked booking deposit when SePay confirms a booking-hold invoice QR', async () => {
+  it('leaves booking-hold deposit settlement to the canonical invoice payment transaction', async () => {
     const { service, prisma, invoicesService, depositsService } = createService({
       appSetting: {
         findMany: vi.fn().mockResolvedValue([{ tenantId: 'tenant-1', value: { webhookApiKey: 'db-key' } }]),
@@ -1410,9 +1410,6 @@ describe('PaymentsService', () => {
           contract: { roomId: 'room-1' },
         }),
       },
-      deposit: {
-        findFirst: vi.fn().mockResolvedValue({ id: 'deposit-booking-1' }),
-      },
     });
     invoicesService.pay.mockResolvedValue({
       id: 'invoice-booking-1',
@@ -1421,7 +1418,6 @@ describe('PaymentsService', () => {
       paidAmount: 1000000,
       creditAmount: 0,
     });
-    depositsService.collect.mockResolvedValue({ id: 'deposit-booking-1', status: 'PAID' });
 
     await service.handleSePayWebhook({
       id: 'txn-booking-1',
@@ -1438,38 +1434,7 @@ describe('PaymentsService', () => {
       'SEPAY_WEBHOOK',
       'tenant-1',
     );
-    expect(prisma.deposit.findFirst).toHaveBeenCalledWith({
-      where: expect.objectContaining({
-        tenantId: 'tenant-1',
-        OR: expect.arrayContaining([
-          { contractId: 'contract-booking-1' },
-          { roomId: 'room-1', customerId: 'customer-1' },
-        ]),
-        type: { in: ['BOOKING', 'RESERVATION'] },
-        status: { in: ['DRAFT', 'PENDING'] },
-        deletedAt: null,
-      }),
-      orderBy: { createdAt: 'desc' },
-      select: { id: true, rentalCycleId: true },
-    });
-    expect(depositsService.collect).toHaveBeenCalledWith(
-      'deposit-booking-1',
-      'SePay invoice confirmation txn-booking-1',
-      'SEPAY_WEBHOOK',
-      'sepay:invoice:invoice-booking-1:txn-booking-1',
-      null,
-      expect.objectContaining({
-        suppressCustomerZaloConfirmation: true,
-        linkedInvoicePayment: true,
-        sourceInvoiceId: 'invoice-booking-1',
-        paymentRequestId: 'request-booking-1',
-        skipHoldCreation: true,
-        skipRoomReservation: true,
-      }),
-    );
-    expect(depositsService.collect).toHaveBeenCalledTimes(1);
-    expect(prisma.paymentRequest.update.mock.invocationCallOrder[0])
-      .toBeLessThan(depositsService.collect.mock.invocationCallOrder[0]);
+    expect(depositsService.collect).not.toHaveBeenCalled();
   });
 
   it('ignores SePay webhooks with no payment code content', async () => {
@@ -2120,28 +2085,6 @@ describe('PaymentsService', () => {
       'user-1',
       'tenant-1',
     );
-    expect(depositsService.collect).not.toHaveBeenCalled();
-  });
-
-  it('does not collect a booking deposit from stale PAID metadata when balances remain unpaid', async () => {
-    const { service, depositsService } = createService();
-
-    await (service as any).collectLinkedBookingDepositForInvoicePayment(
-      { tenantId: 'tenant-1', sourceId: 'invoice-stale-paid-1' },
-      'txn-stale-paid-1',
-      {
-        period: 'Cọc giữ phòng',
-        total: 2_000_000,
-        paidAmount: 0,
-        creditAmount: 0,
-        status: 'PAID',
-        contractId: 'contract-booking-1',
-        customerId: 'customer-1',
-        rentalCycleId: 'cycle-1',
-        contract: { roomId: 'room-1' },
-      },
-    );
-
     expect(depositsService.collect).not.toHaveBeenCalled();
   });
 

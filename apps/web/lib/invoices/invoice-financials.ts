@@ -129,6 +129,12 @@ export function isBookingHoldInvoice(invoice: any) {
   );
 }
 
+export function getInvoiceDocumentTitle(invoice: any) {
+  if (invoice?.presentationTitle) return invoice.presentationTitle;
+  if (isBookingHoldInvoice(invoice)) return "Hóa đơn cọc giữ phòng";
+  return invoice?.documentType === "DEPOSIT" ? "Hóa đơn cọc hợp đồng" : "Hóa đơn tiền phòng kỳ đầu";
+}
+
 export function getInvoicesFinancialSummary(invoices: any[] = []) {
   return invoices.reduce(
     (summary, invoice) => {

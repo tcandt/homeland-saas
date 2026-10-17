@@ -1154,7 +1154,9 @@ function OperationsBillingModalContent({
                       <div className="text-[11px] text-slate-500">
                         {isPaid
                           ? `Đã thanh toán đủ ${formatVnd(totalAmount)}`
-                          : "Chưa có thanh toán nào được ghi nhận"}
+                          : paidAmount > 0
+                            ? `Đã ghi nhận ${formatVnd(paidAmount)}; còn phải thu ${formatVnd(remainingAmount)}`
+                            : "Chưa có thanh toán nào được ghi nhận"}
                       </div>
                     </div>
                   </div>

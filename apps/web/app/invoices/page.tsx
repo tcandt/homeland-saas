@@ -41,6 +41,7 @@ import InvoiceCreateModal, { InvoiceModalTab } from "@/components/invoices/Invoi
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import {
   getInvoiceDocumentCounts,
+  getInvoiceDocumentTitle,
   getInvoiceFinancials,
   getInvoiceOperationsSummary,
   getInvoicePaymentPresentation,
@@ -1309,7 +1310,7 @@ function SingleInvoiceRow({
               {code}
             </div>
             <div className="text-[11px] font-medium text-slate-400 dark:text-slate-500 truncate">
-              {invoice.presentationTitle || (isDeposit ? "Hóa đơn cọc hợp đồng" : "Hóa đơn tiền phòng kỳ đầu")}
+              {getInvoiceDocumentTitle(invoice)}
             </div>
           </div>
         </div>

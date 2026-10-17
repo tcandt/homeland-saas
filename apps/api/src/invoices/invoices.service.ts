@@ -1335,6 +1335,16 @@ export class InvoicesService extends BaseCrudService<Invoice> {
         newPaidAmount + creditAmount >= Number(invoice.total)
           ? InvoiceStatus.PAID
           : InvoiceStatus.PARTIALLY_PAID;
+      const bookingDeposit =
+        newStatus === InvoiceStatus.PAID && this.isBookingHoldInvoice(invoice)
+          ? await this.resolveBookingHoldDepositForCashSettlement(
+              tx,
+              tenantId,
+              invoice,
+              newPaidAmount,
+              creditAmount,
+            )
+          : null;
       const claimed = await tx.invoice.updateMany({
         where: {
           id,
@@ -1385,6 +1395,19 @@ export class InvoicesService extends BaseCrudService<Invoice> {
             linkedInvoicePayment: true, sourceInvoiceId: id,
             suppressCustomerZaloConfirmation: true,
             paymentProvider: normalizedProvider, paymentRef: normalizedProviderRef,
+          },
+        }, userId);
+      }
+      if (bookingDeposit) {
+        if (!this.depositCoreService) throw new ConflictException("DEPOSIT_CORE_UNAVAILABLE");
+        await this.depositCoreService.collectInTransaction(tx, tenantId, bookingDeposit.id, {
+          idempotencyKey: `booking-invoice:${id}:deposit-funding`,
+          notificationContext: {
+            linkedInvoicePayment: true,
+            sourceInvoiceId: id,
+            suppressCustomerZaloConfirmation: true,
+            paymentProvider: normalizedProvider,
+            paymentRef: normalizedProviderRef,
           },
         }, userId);
       }
@@ -1800,6 +1823,47 @@ export class InvoicesService extends BaseCrudService<Invoice> {
     const period = String(invoice?.period || invoice?.usagePeriod || "").trim().toLowerCase();
     const billingKind = String(invoice?.billingKind || "").trim().toUpperCase();
     return period === "cọc giữ phòng" || billingKind === "BOOKING_HOLD" || billingKind === "BOOKING_DEPOSIT";
+  }
+
+  private async resolveBookingHoldDepositForCashSettlement(
+    tx: InvoiceTransactionClient,
+    tenantId: string,
+    invoice: any,
+    paidAmount: number,
+    creditAmount: number,
+  ) {
+    const contract = invoice.contract;
+    const marker = contract?.termsSnapshot?.bookingCommand;
+    const depositId = String(marker?.depositId || "").trim();
+    if (
+      !contract ||
+      contract.tenantId !== tenantId ||
+      contract.id !== invoice.contractId ||
+      contract.customerId !== invoice.customerId ||
+      contract.rentalCycleId !== invoice.rentalCycleId ||
+      marker?.invoiceId !== invoice.id ||
+      !depositId ||
+      creditAmount !== 0 ||
+      this.toMoney(paidAmount) !== this.toMoney(invoice.total)
+    ) {
+      throw new ConflictException("BOOKING_HOLD_INVOICE_SETTLEMENT_SCOPE_INVALID");
+    }
+    const deposit = await (tx as any).deposit?.findFirst?.({
+      where: {
+        id: depositId,
+        tenantId,
+        contractId: invoice.contractId,
+        customerId: invoice.customerId,
+        rentalCycleId: invoice.rentalCycleId,
+        type: { in: ["BOOKING", "RESERVATION"] as any },
+        deletedAt: null,
+      },
+      select: { id: true, amount: true },
+    });
+    if (!deposit || this.toMoney(deposit.amount) !== this.toMoney(invoice.total)) {
+      throw new ConflictException("BOOKING_HOLD_INVOICE_SETTLEMENT_SCOPE_INVALID");
+    }
+    return deposit;
   }
 
   private async getFamilyFinancialState(

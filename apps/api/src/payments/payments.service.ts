@@ -1764,38 +1764,7 @@ export class PaymentsService {
             userId,
             tenantId,
           );
-          // A holding-deposit invoice is the payment front door for the linked
-          // BOOKING deposit. It is only collected when the invoice is fully
-          // paid; a partial manual assignment remains an invoice payment and
-          // must never turn the whole deposit into cash-in.
           if (this.isInvoiceSettled(paidInvoice)) {
-            if (this.isBookingHoldInvoice(invoice)) {
-              const bookingDeposit = await this.prisma.deposit.findFirst({
-                where: {
-                  tenantId,
-                  type: { in: ['BOOKING', 'RESERVATION'] as any },
-                  status: { in: ['DRAFT', 'PENDING'] as any },
-                  deletedAt: null,
-                  OR: [
-                    ...(invoice?.contractId ? [{ contractId: invoice.contractId }] : []),
-                    ...(invoice?.rentalCycleId ? [{ rentalCycleId: invoice.rentalCycleId }] : []),
-                    ...(invoice?.contract?.roomId && invoice?.customerId
-                      ? [{ roomId: invoice.contract.roomId, customerId: invoice.customerId }]
-                      : []),
-                  ],
-                },
-                orderBy: { createdAt: 'desc' },
-                select: { id: true },
-              });
-              if (bookingDeposit) {
-                await this.depositsService.collect(
-                  bookingDeposit.id,
-                  `SePay invoice confirmation ${transactionId}`,
-                  userId,
-                  `sepay:invoice:${source.id}:${transactionId}`,
-                );
-              }
-            }
             await this.collectLinkedSecurityDepositFromPaidInvoice(
               tenantId,
               source.id,
@@ -3299,12 +3268,6 @@ export class PaymentsService {
             status: PaymentRequestStatus.CONFIRMED,
           },
         });
-        if (confirmedRequest?.sourceType === PaymentSourceType.INVOICE) {
-          await this.collectLinkedBookingDepositForInvoicePayment(
-            confirmedRequest,
-            confirmedRequest.providerTransactionId || transactionId,
-          );
-        }
       }
       return { success: true };
     }
@@ -3420,12 +3383,6 @@ export class PaymentsService {
         });
         return { success: true, status: 'NEEDS_REVIEW', duplicateKind: 'CONTENT_DUPLICATE' };
       }
-      if (request?.status === PaymentRequestStatus.CONFIRMED && request.sourceType === PaymentSourceType.INVOICE) {
-        await this.collectLinkedBookingDepositForInvoicePayment(
-          request,
-          request.providerTransactionId || transactionId,
-        );
-      }
       await this.markSePayWebhookLog(log.id, 'NEEDS_REVIEW', {
         tenantId: requestByCode?.tenantId || null,
       });
@@ -3500,7 +3457,6 @@ export class PaymentsService {
 
     let appliedAmount = 0;
     let shouldConfirmRequest = false;
-    let linkedInvoiceInput: any = undefined;
 
     if (request.sourceType === PaymentSourceType.INVOICE) {
       const existingPayment = await this.prisma.payment.findFirst({
@@ -3550,7 +3506,6 @@ export class PaymentsService {
           );
           appliedAmount = currentAmount;
           shouldConfirmRequest = true;
-          linkedInvoiceInput = { ...invoice, ...paidInvoice };
         }
       } else {
         appliedAmount = Number(existingPayment.amount || 0);
@@ -3615,21 +3570,6 @@ export class PaymentsService {
         },
         'SEPAY_WEBHOOK',
       );
-      // DepositCore verifies the persisted CONFIRMED request as its payment
-      // proof. The fresh webhook must therefore write the request before the
-      // linked booking-deposit collector is allowed to run.
-      if (request.sourceType === PaymentSourceType.INVOICE) {
-        await this.collectLinkedBookingDepositForInvoicePayment(
-          {
-            ...request,
-            status: PaymentRequestStatus.CONFIRMED,
-            providerTransactionId: transactionId,
-            paidAt: new Date(),
-          },
-          transactionId,
-          linkedInvoiceInput,
-        );
-      }
     }
 
     await this.markSePayWebhookLog(log.id, shouldConfirmRequest && appliedAmount >= providerAmount ? 'PROCESSED' : 'NEEDS_REVIEW', {
@@ -3641,117 +3581,6 @@ export class PaymentsService {
     });
 
     return { success: true };
-  }
-
-  private async collectLinkedBookingDepositForInvoicePayment(
-    request: any,
-    transactionId: string,
-    invoiceInput?: any,
-  ) {
-    try {
-      const tenantDb = (this.prisma as any).tx as any;
-      // A CLS extension can be partial in background jobs. Fall back to the
-      // real generated Prisma model rather than treating that as no Deposit
-      // model and silently losing a confirmed booking payment.
-      const db = tenantDb?.deposit?.findFirst ? tenantDb : (this.prisma as any);
-      const invoice =
-        invoiceInput ||
-        (await db.invoice?.findFirst?.({
-          where: {
-            id: request.sourceId,
-            tenantId: request.tenantId,
-            deletedAt: null,
-          },
-          select: {
-            period: true,
-            total: true,
-            paidAmount: true,
-            creditAmount: true,
-            status: true,
-            contractId: true,
-            customerId: true,
-            rentalCycleId: true,
-            contract: { select: { roomId: true } },
-          },
-        }));
-
-      if (!this.isBookingHoldInvoice(invoice)) return;
-      if (!this.isInvoiceSettled(invoice)) return;
-      if (!db.deposit?.findFirst) {
-        await this.logPaymentAudit(
-          request.tenantId,
-          'SePayBookingDepositSyncDeferred',
-          request.id,
-          { invoiceId: request.sourceId, transactionId },
-          { reason: 'DEPOSIT_MODEL_UNAVAILABLE_AT_RUNTIME' },
-          'SEPAY_WEBHOOK',
-        );
-        return;
-      }
-
-      const bookingDeposit = await db.deposit.findFirst({
-        where: {
-          tenantId: request.tenantId,
-          type: { in: ['BOOKING', 'RESERVATION'] as any },
-          status: { in: ['DRAFT', 'PENDING'] as any },
-          deletedAt: null,
-          OR: [
-            ...(invoice?.contractId ? [{ contractId: invoice.contractId }] : []),
-            ...(invoice?.rentalCycleId ? [{ rentalCycleId: invoice.rentalCycleId }] : []),
-            ...(invoice?.contract?.roomId && invoice?.customerId
-              ? [{ roomId: invoice.contract.roomId, customerId: invoice.customerId }]
-              : []),
-          ],
-        },
-        orderBy: { createdAt: 'desc' },
-        select: { id: true, rentalCycleId: true },
-      });
-
-      if (!bookingDeposit) return;
-
-      // Legacy booking deposits may have been created before the rental cycle
-      // was attached to the contract. Repair that link from the invoice scope
-      // before delegating to the serializable collector.
-      if (!bookingDeposit.rentalCycleId && invoice?.rentalCycleId && db.deposit?.update) {
-        await db.deposit.update({
-          where: { id: bookingDeposit.id },
-          data: { rentalCycleId: invoice.rentalCycleId },
-        });
-      }
-
-      await this.depositsService.collect(
-        bookingDeposit.id,
-        `SePay invoice confirmation ${transactionId}`,
-        'SEPAY_WEBHOOK',
-        `sepay:invoice:${request.sourceId}:${transactionId}`,
-        null,
-        {
-          suppressCustomerZaloConfirmation: true,
-          linkedInvoicePayment: true,
-          sourceInvoiceId: request.sourceId,
-          paymentProvider: 'SEPAY',
-          paymentRef: transactionId,
-          paymentRequestId: request.id,
-          skipHoldCreation: true,
-          skipRoomReservation: true,
-        },
-      );
-    } catch (error: any) {
-      // Invoice/payment confirmation is authoritative. A missing or temporarily
-      // unavailable deposit model must be repaired asynchronously, not turn a
-      // valid SePay webhook into HTTP 500 after the invoice was already paid.
-      await this.logPaymentAudit(
-        request.tenantId,
-        'SePayBookingDepositSyncDeferred',
-        request.id,
-        { invoiceId: request.sourceId, transactionId },
-        {
-          reason: 'BOOKING_DEPOSIT_SYNC_FAILED',
-          error: String(error?.message || error || 'unknown').slice(0, 500),
-        },
-        'SEPAY_WEBHOOK',
-      ).catch(() => undefined);
-    }
   }
 
   private async collectLinkedSecurityDepositFromPaidInvoice(
@@ -3846,10 +3675,6 @@ export class PaymentsService {
         'SEPAY_WEBHOOK',
       ).catch(() => undefined);
     }
-  }
-
-  private isBookingHoldInvoice(invoice: any) {
-    return String(invoice?.period || '').trim().toLowerCase() === 'cọc giữ phòng';
   }
 
   private isInvoiceSettled(invoice: any) {

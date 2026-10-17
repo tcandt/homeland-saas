@@ -175,6 +175,90 @@ describe('CommunicationService', () => {
     });
   });
 
+  it('reuses a workflow-created payment notification identified by legacy paymentId metadata', async () => {
+    const prisma = createPrismaMock();
+    const existing = {
+      id: 'workflow-payment-1',
+      tenantId: 'tenant-1',
+      userId: 'admin-1',
+      channel: NotificationChannel.IN_APP,
+      type: 'PAYMENT_RECEIVED',
+    };
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ lock: 'ok' }]),
+      notification: {
+        findFirst: vi.fn().mockResolvedValue(existing),
+        create: vi.fn(),
+      },
+    };
+    prisma.$transaction.mockImplementation(async (work: any) => work(tx));
+    const eventEmitter = { emit: vi.fn() } as any;
+    const service = new CommunicationService(prisma as any, eventEmitter);
+
+    const result = await service.dispatch({
+      tenantId: 'tenant-1',
+      userId: 'admin-1',
+      channel: NotificationChannel.IN_APP,
+      templateCode: 'PAYMENT_RECEIVED',
+      context: {
+        entityId: 'invoice-1',
+        paymentId: 'payment-1',
+        title: 'Received',
+        message: 'Payment received',
+      },
+    });
+
+    expect(result).toEqual({ notificationId: 'workflow-payment-1', queueIds: [] });
+    expect(tx.notification.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        tenantId: 'tenant-1',
+        userId: 'admin-1',
+        OR: [
+          { metadata: { path: ['entityId'], equals: 'payment-1' } },
+          { metadata: { path: ['paymentId'], equals: 'payment-1' } },
+        ],
+      }),
+    }));
+    expect(tx.$queryRaw.mock.calls[0][0].values).toEqual([
+      JSON.stringify(['tenant-1', 'admin-1', 'IN_APP', 'PAYMENT_RECEIVED', 'payment-1']),
+    ]);
+    expect(tx.notification.create).not.toHaveBeenCalled();
+    expect(prisma.notificationQueue.create).not.toHaveBeenCalled();
+    expect(eventEmitter.emit).not.toHaveBeenCalled();
+  });
+
+  it('reuses a controller-created payment notification with canonical entityId metadata', async () => {
+    const prisma = createPrismaMock();
+    const existing = {
+      id: 'controller-payment-1',
+      tenantId: 'tenant-1',
+      userId: 'admin-1',
+      channel: NotificationChannel.IN_APP,
+      type: 'PAYMENT_RECEIVED',
+    };
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ lock: 'ok' }]),
+      notification: {
+        findFirst: vi.fn().mockResolvedValue(existing),
+        create: vi.fn(),
+      },
+    };
+    prisma.$transaction.mockImplementation(async (work: any) => work(tx));
+    const service = new CommunicationService(prisma as any, { emit: vi.fn() } as any);
+
+    const result = await service.dispatch({
+      tenantId: 'tenant-1',
+      userId: 'admin-1',
+      channel: NotificationChannel.IN_APP,
+      templateCode: 'PAYMENT_RECEIVED',
+      context: { entityId: 'payment-1', title: 'Received', message: 'Payment received' },
+    });
+
+    expect(result).toEqual({ notificationId: 'controller-payment-1', queueIds: [] });
+    expect(tx.notification.create).not.toHaveBeenCalled();
+    expect(prisma.notificationQueue.create).not.toHaveBeenCalled();
+  });
+
   it('previews every catalog default with only its declared sample context', async () => {
     const prisma = createPrismaMock();
     const service = new CommunicationService(prisma as any);

@@ -1,4 +1,4 @@
-FROM node:22-alpine
+FROM node:22-alpine AS runtime-base
 
 # Install runtime/update tools:
 # - bash/netcat/openssl for API startup and Prisma
@@ -28,6 +28,8 @@ ENV PUPPETEER_SKIP_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 WORKDIR /app
+
+FROM runtime-base AS build
 
 # Copy root configurations and workspace definitions
 COPY package.json package-lock.json turbo.json ./
@@ -68,6 +70,20 @@ COPY scripts/update ./scripts/update
 COPY scripts/production-backup.js scripts/production-restore-check.js scripts/production-restore-drill.js scripts/postgres-cli.js scripts/production-fresh-reset.js scripts/check-mojibake.js ./scripts/
 COPY scripts/ci-bootstrap-database.js scripts/baseline-v2-inventory.js ./scripts/
 RUN chmod +x ./scripts/docker-api-entrypoint.sh ./scripts/update/*.sh
+
+# Copy only the pruned application tree into a fresh runtime stage. Global npm
+# remains available in the build stage, never in the running API/worker.
+FROM runtime-base AS runtime
+RUN rm -rf /usr/local/lib/node_modules/npm \
+    && rm -f /usr/local/bin/npm /usr/local/bin/npx \
+    && ! command -v npm \
+    && ! command -v npx
+COPY --from=build /app /app
+ENV PATH="/app/node_modules/.bin:${PATH}"
+RUN ! command -v npm \
+    && ! command -v npx \
+    && test ! -d /usr/local/lib/node_modules/npm \
+    && test ! -d /app/node_modules/npm
 
 # Build arguments for versioning
 ARG COMMIT_SHA

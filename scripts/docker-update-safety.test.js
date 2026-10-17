@@ -50,7 +50,7 @@ test('Docker updater retains rollback images, migrates before startup, checks he
   assert.match(script, /dangling image prune failed after a healthy deployment/);
   assert.equal((script.match(/docker image prune -f/g) || []).length, 2);
   assert.match(script, /compose build --pull --no-cache api web/);
-  assert.match(script, /run --rm --no-deps --entrypoint npx api/);
+  assert.match(script, /run --rm --no-deps --entrypoint node api\s*\\\s*\n\s*node_modules\/prisma\/build\/index\.js migrate deploy/);
   assert.match(script, /SYSTEM_UPDATE_MIGRATION_HISTORY unbaselined/);
   assert.match(script, /recovery_compose run --rm --no-deps --entrypoint node api/);
   assert.match(script, /Refusing the update before downtime/);
@@ -138,7 +138,7 @@ test('API image contains update runners and startup only applies reviewed migrat
   assert.match(dockerfile, /scripts\/production-backup\.js/);
   assert.match(dockerfile, /scripts\/production-restore-check\.js/);
   assert.match(dockerfile, /scripts\/check-mojibake\.js/);
-  assert.match(entrypoint, /prisma migrate deploy/);
+  assert.match(entrypoint, /node node_modules\/prisma\/build\/index\.js migrate deploy/);
   assert.doesNotMatch(entrypoint, /prisma\s+db\s+push/);
   assert.doesNotMatch(entrypoint, /migrate deploy[^\n]*\|\|\s*true/);
 });

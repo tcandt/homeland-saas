@@ -31,7 +31,7 @@ until docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T postgres 
 done
 
 echo "==> Resetting database schema and seeding fresh production data"
-docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" run --rm --no-deps --entrypoint sh api -lc 'npm run db:reset:prod'
+docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" run --rm --no-deps --entrypoint node api scripts/production-fresh-reset.js
 
 echo "==> Building and starting API and web"
 docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d --build api web

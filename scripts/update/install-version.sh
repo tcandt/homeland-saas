@@ -45,6 +45,14 @@ if [[ "$REPOSITORY" =~ ^https?://[^/@]+:[^/@]+@ ]]; then
   exit 2
 fi
 
+# Runtime API images intentionally have no package manager. Refuse source builds
+# before backup/clone/filesystem changes; a dedicated host/updater may still build.
+npm_bin="${SYSTEM_UPDATE_NPM_PATH:-npm}"
+if [[ "${SYSTEM_UPDATE_RUN_BUILD:-true}" != "false" ]] && ! command -v "$npm_bin" >/dev/null 2>&1; then
+  echo "Source builds require npm on a dedicated build host/updater; the API runtime cannot build releases. No update has started." >&2
+  exit 2
+fi
+
 step() {
   echo "SYSTEM_UPDATE_STEP $1 $2 $3"
 }
@@ -222,7 +230,6 @@ write_release_env_value "$release_path/.env" COMMIT_SHA "$source_commit"
 write_release_env_value "$release_path/.env" SYSTEM_UPDATE_ROOT "$UPDATE_ROOT"
 write_release_env_value "$release_path/.env" SYSTEM_UPDATE_BACKUP_OUTPUT_DIR "$backup_output_root"
 
-npm_bin="${SYSTEM_UPDATE_NPM_PATH:-npm}"
 if [[ "${SYSTEM_UPDATE_RUN_BUILD:-true}" != "false" ]]; then
   step BUILDING 56 "Installing dependencies from lockfile."
   "$npm_bin" ci --prefix "$release_path"

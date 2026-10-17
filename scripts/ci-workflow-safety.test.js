@@ -73,9 +73,10 @@ test('CI uses dedicated loopback-only services with no production env or volume 
 test('API image startup never pushes, resets, seeds, or starts a dev watcher', () => {
   const entrypoint = read('scripts/docker-api-entrypoint.sh');
   assert.doesNotMatch(entrypoint, /prisma\s+db\s+push|force-reset|accept-data-loss|prisma\s+db\s+seed|npm\s+run\s+dev/i);
-  assert.match(entrypoint, /prisma\s+migrate\s+deploy/);
+  assert.match(entrypoint, /node node_modules\/prisma\/build\/index\.js migrate deploy/);
   assert.match(entrypoint, /RUN_DB_MIGRATIONS:-false/);
-  assert.match(entrypoint, /npm\s+run\s+start:prod/);
+  assert.match(entrypoint, /cd apps\/api\s+exec node dist\/main/);
+  assert.doesNotMatch(entrypoint, /^\s*(?:exec\s+)?(?:npm|npx)\b/m);
 });
 
 test('CI browser acceptance binds fixture writes to its disposable database and disables background delivery', () => {
@@ -368,7 +369,7 @@ test('CI creates a validated reproducible SBOM while retaining the runtime audit
     assert.equal(scan.with['limit-severities-for-sarif'], 'true', 'SARIF must respect the blocking severity threshold');
     assert.equal(scan.with.scanners, 'vuln,secret', 'Both vulnerability and secret scans must remain enabled');
   }
-  assert.equal(scans[1].with['vuln-type'], 'os', 'Image scan must cover the OS layer; app libraries are covered by FS/audit gates');
+  assert.equal(scans[1].with['vuln-type'], 'os,library', 'Actual runtime image must gate OS and library vulnerabilities');
 });
 
 test('Hunonic mobile signing secrets stay outside source control', () => {

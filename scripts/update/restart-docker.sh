@@ -261,8 +261,8 @@ compose build --pull --no-cache api web
 
 log "Applying reviewed Prisma migrations in a one-off container before applications start."
 PUBLIC_PRODUCTION_ENV_FILE="$env_file" RUN_DB_MIGRATIONS=false \
-  "${COMPOSE[@]}" run --rm --no-deps --entrypoint npx api \
-  prisma migrate deploy --schema=packages/database/prisma/schema.prisma
+  "${COMPOSE[@]}" run --rm --no-deps --entrypoint node api \
+  node_modules/prisma/build/index.js migrate deploy --schema=packages/database/prisma/schema.prisma
 
 log "Removing stopped application containers and starting the updated release."
 compose rm -f "${stop_services[@]}"

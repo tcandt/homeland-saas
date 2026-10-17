@@ -4,10 +4,10 @@ const { spawnSync } = require('node:child_process');
 
 const schemaPath = join('packages', 'database', 'prisma', 'schema.prisma');
 const migrationsPath = join('packages', 'database', 'prisma', 'migrations');
-const npxCommand = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+const prismaCli = require.resolve('prisma/build/index.js');
 
 function runPrisma(args) {
-  const result = spawnSync(npxCommand, ['prisma', ...args], {
+  const result = spawnSync(process.execPath, [prismaCli, ...args], {
     env: { ...process.env, SEED_MODE: 'production' },
     stdio: 'inherit',
   });
@@ -33,5 +33,11 @@ for (const migrationName of migrationNames) {
   runPrisma(['migrate', 'resolve', '--schema', schemaPath, '--applied', migrationName]);
 }
 
-runPrisma(['db', 'seed', '--schema', schemaPath]);
+// Run the same seed directly instead of asking a package manager to find tsx.
+const seed = spawnSync(process.execPath, [require.resolve('tsx/cli'), join('packages', 'database', 'prisma', 'seed.ts')], {
+  env: { ...process.env, SEED_MODE: 'production' },
+  stdio: 'inherit',
+});
+if (seed.error) throw seed.error;
+if (seed.status !== 0) process.exit(seed.status ?? 1);
 console.log(`Fresh production database ready; baselined ${migrationNames.length} migrations.`);

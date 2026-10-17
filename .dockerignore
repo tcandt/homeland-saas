@@ -26,6 +26,8 @@ apps/web/.next
 **/test-results
 **/.auth
 .codex-backups
+**/.codex-backups
+**/.codex-update
 /backups
 /testing
 testing

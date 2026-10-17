@@ -47,14 +47,14 @@ test('disabled staging gate checks the current release against an approved finge
   assert.doesNotMatch(identity.run, /migrationCount == 18|canonicalFingerprint/);
 });
 
-test('owner-approved CI uses Node22 while API Node22 and Web Node20 Docker runtimes stay unchanged', () => {
+test('owner-approved CI, API and Web use Node22 without changing framework versions', () => {
   for (const [name, job] of Object.entries(workflowModel().jobs)) {
     for (const step of job.steps) {
       if (/actions\/setup-node@/.test(step.uses || '')) assert.equal(step.with['node-version'], '22', `Runtime mismatch: ${name}`);
     }
   }
   assert.match(read('Dockerfile.api'), /FROM node:22/);
-  assert.match(read('Dockerfile.web'), /FROM node:20-alpine AS base/);
+  assert.match(read('Dockerfile.web'), /FROM node:22-alpine AS base/);
 });
 
 test('CI uses dedicated loopback-only services with no production env or volume reference', () => {
@@ -361,7 +361,7 @@ test('CI creates a validated reproducible SBOM while retaining the runtime audit
   );
   assert.match(securityBlock, /node scripts\/runtime-audit-policy\.js security\/npm-audit\.json/);
   const scans = workflowModel().jobs['security-scan'].steps.filter((step) => /aquasecurity\/trivy-action@/.test(step.uses || ''));
-  assert.equal(scans.length, 2);
+  assert.equal(scans.length, 3);
   for (const scan of scans) {
     assert.match(scan.uses, /@[a-f0-9]{40}$/);
     assert.equal(scan.with['exit-code'], '1');
@@ -370,6 +370,14 @@ test('CI creates a validated reproducible SBOM while retaining the runtime audit
     assert.equal(scan.with.scanners, 'vuln,secret', 'Both vulnerability and secret scans must remain enabled');
   }
   assert.equal(scans[1].with['vuln-type'], 'os,library', 'Actual runtime image must gate OS and library vulnerabilities');
+  assert.equal(scans[2].with['image-ref'], 'homeland-web:test');
+  assert.equal(scans[2].with['vuln-type'], 'os,library');
+  assert.equal(scans[2].with.output, 'security/trivy-web-image.sarif');
+  const webBuild = workflowModel().jobs['security-scan'].steps.find(step => step.name === 'Build Web Runtime Image for Scan');
+  assert.match(webBuild.run, /docker build .*COMMIT_SHA=\$\{\{ github.sha \}\} .*Dockerfile\.web/);
+  const webVerify = workflowModel().jobs['security-scan'].steps.find(step => step.name === 'Verify production Web runtime image');
+  assert.equal(webVerify.env.VERIFY_DISPOSABLE_WEB_IMAGE, 'true');
+  assert.match(webVerify.run, /node scripts\/verify-web-runtime-image\.js homeland-web:test \$\{\{ github.sha \}\}/);
 });
 
 test('Hunonic mobile signing secrets stay outside source control', () => {

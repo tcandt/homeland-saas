@@ -87,6 +87,8 @@ jobs:
       - run: npm run test:preflight:prod
       - name: Verify npm-free API runtime tooling
         run: node --test scripts/api-runtime-tooling.test.js
+      - name: Verify production Web runtime tooling
+        run: node --test scripts/web-runtime-tooling.test.js
       - run: node --test scripts/ci-bootstrap-database.test.js scripts/nas-staging-compose.test.js scripts/runtime-audit-policy.test.js
       - run: npm run test
       - run: npm run test:release-repair --workspace=web
@@ -274,6 +276,23 @@ jobs:
           limit-severities-for-sarif: 'true'
           # Gate the actual merged runtime, including every application/CLI
           # library, rather than inferring image safety from the source lockfile.
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+      - name: Build Web Runtime Image for Scan
+        run: docker build --build-arg COMMIT_SHA=${{ github.sha }} -t homeland-web:test -f Dockerfile.web .
+      - name: Verify production Web runtime image
+        env:
+          VERIFY_DISPOSABLE_WEB_IMAGE: "true"
+        run: node scripts/verify-web-runtime-image.js homeland-web:test ${{ github.sha }}
+      - name: Trivy Web Image Scan
+        uses: aquasecurity/trivy-action@c03d123cb480c08c69b054af418ea5e69fe6e57e
+        with:
+          image-ref: 'homeland-web:test'
+          format: 'sarif'
+          output: 'security/trivy-web-image.sarif'
+          scanners: 'vuln,secret'
+          limit-severities-for-sarif: 'true'
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
           exit-code: '1'

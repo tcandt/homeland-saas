@@ -18,6 +18,15 @@ describe('WorkflowEngine', () => {
         findFirst: vi.fn(),
         create: vi.fn(),
       },
+      journalEntry: {
+        findFirst: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+      payment: { findFirst: vi.fn() },
+      receipt: { findFirst: vi.fn() },
+      deposit: { findFirst: vi.fn() },
+      depositOperation: { findFirst: vi.fn() },
+      depositLedgerEntry: { findFirst: vi.fn() },
       workflowExecution: {
         create: vi.fn(),
         findFirst: vi.fn(),
@@ -41,6 +50,7 @@ describe('WorkflowEngine', () => {
     };
     const journalEntryService = {
       createJournalEntry: vi.fn(),
+      isExactReplay: vi.fn(),
     };
     const documentsService = {
       generateDocument: vi.fn(),
@@ -416,6 +426,10 @@ describe('WorkflowEngine', () => {
     prisma.chartOfAccount.findFirst
       .mockResolvedValueOnce({ id: 'bank-account', code: '1100' })
       .mockResolvedValueOnce({ id: 'rental-revenue', code: '4000' });
+    prisma.payment.findFirst.mockResolvedValue({
+      id: 'payment-1', tenantId: 'tenant-1', invoiceId: 'invoice-1',
+      amount: 500000, status: 'CONFIRMED', paidAt: new Date('2026-10-17T03:04:05.000Z'),
+    });
     journalEntryService.createJournalEntry.mockRejectedValueOnce(new Error('Ledger unavailable'));
     prisma.user.findMany.mockResolvedValueOnce([
       { id: 'admin-1', roles: [{ role: { code: 'ADMIN' } }] },
@@ -432,8 +446,9 @@ describe('WorkflowEngine', () => {
       customerId: 'customer-1',
       amount: 500000,
       paymentAmount: 500000,
+      paymentId: 'payment-1',
       paymentProvider: 'SEPAY',
-      metadata: { code: 'INV-001' },
+      metadata: { code: 'INV-001', paymentJournalIdentity: 'PAYMENT_V1' },
     });
 
     expect(communicationService.dispatchDirect).toHaveBeenCalledWith(
@@ -469,6 +484,10 @@ describe('WorkflowEngine', () => {
     prisma.chartOfAccount.findFirst
       .mockResolvedValueOnce({ id: 'bank-account', code: '1100' })
       .mockResolvedValueOnce({ id: 'rental-revenue', code: '4000' });
+    prisma.payment.findFirst.mockResolvedValue({
+      id: 'payment-1', tenantId: 'tenant-1', invoiceId: 'invoice-1',
+      amount: 500000, status: 'CONFIRMED', paidAt: new Date('2026-10-17T03:04:05.000Z'),
+    });
     journalEntryService.createJournalEntry.mockRejectedValueOnce(new Error('Ledger unavailable'));
     prisma.user.findMany.mockResolvedValueOnce([
       { id: 'admin-1', roles: [{ role: { code: 'ADMIN' } }] },
@@ -485,8 +504,9 @@ describe('WorkflowEngine', () => {
       customerId: 'customer-1',
       amount: 500000,
       paymentAmount: 500000,
+      paymentId: 'payment-1',
       paymentProvider: 'SEPAY',
-      metadata: { code: 'INV-001' },
+      metadata: { code: 'INV-001', paymentJournalIdentity: 'PAYMENT_V1' },
       outboxEventId: 'outbox-1',
       outboxDelivery: true,
     })).rejects.toThrow('WORKFLOW_COMPLETED_WITH_ERRORS');
@@ -550,18 +570,258 @@ describe('WorkflowEngine', () => {
     );
   });
 
-  it('posts paid invoices to bank and rental revenue accounts', async () => {
+  it('posts each verified modern booking keep ledger entry from persisted evidence, not payload money', async () => {
+    const { engine, prisma, journalEntryService } = createEngine();
+    const createdAt = new Date('2026-10-17T04:05:06.000Z');
+    prisma.depositLedgerEntry.findFirst.mockResolvedValue({
+      id: 'ledger-keep-1', tenantId: 'tenant-1', depositId: 'booking-1', operationId: 'cancel-1',
+      type: 'KEEP', amount: 400_000, balanceEffect: -400_000, sourceType: 'DEPOSIT_CANCELLATION', sourceId: 'booking-1', createdAt,
+      operation: { id: 'cancel-1', tenantId: 'tenant-1', sourceDepositId: 'booking-1', type: 'CANCEL', status: 'COMPLETED', receiptId: null },
+      deposit: { id: 'booking-1', tenantId: 'tenant-1', type: 'BOOKING', contract: { termsSnapshot: { bookingCommand: { depositId: 'booking-1', invoiceId: 'invoice-1' } } } },
+    });
+    prisma.chartOfAccount.findFirst
+      .mockResolvedValueOnce({ id: 'deposit-liability', code: '1300' })
+      .mockResolvedValueOnce({ id: 'forfeiture-revenue', code: '4300' });
+
+    await (engine as any).executeStep('CREATE_JOURNAL_ENTRY', {
+      tenantId: 'tenant-1', sourceType: 'DEPOSIT', sourceId: 'booking-1', amount: 400_000,
+      metadata: {
+        bookingDispositionLedgerId: 'ledger-keep-1', bookingDispositionOperationId: 'cancel-1', bookingDispositionJournalMode: 'LEDGER_V1',
+      },
+    });
+
+    expect(journalEntryService.createJournalEntry).toHaveBeenCalledWith('tenant-1', expect.objectContaining({
+      code: 'JE-BC-5D0896BBE992C64CE7CB', sourceType: 'DEPOSIT', sourceId: 'booking-1', entryDate: createdAt, idempotent: true,
+      lines: [
+        expect.objectContaining({ accountId: 'deposit-liability', type: 'DEBIT', amount: 400_000 }),
+        expect.objectContaining({ accountId: 'forfeiture-revenue', type: 'CREDIT', amount: 400_000 }),
+      ],
+    }));
+
+    journalEntryService.createJournalEntry.mockClear();
+    await expect((engine as any).executeStep('CREATE_JOURNAL_ENTRY', {
+      tenantId: 'tenant-1', sourceType: 'DEPOSIT', sourceId: 'booking-other', amount: 1,
+      metadata: {
+        bookingDispositionLedgerId: 'ledger-keep-1', bookingDispositionOperationId: 'cancel-other', bookingDispositionJournalMode: 'LEDGER_V1',
+      },
+    })).rejects.toThrow('BOOKING_DISPOSITION_LEDGER_EVIDENCE_INVALID');
+    expect(journalEntryService.createJournalEntry).not.toHaveBeenCalled();
+  });
+
+  it('posts completed booking refunds only after the persisted completion ledger and parent cancellation agree', async () => {
+    const { engine, prisma, journalEntryService } = createEngine();
+    const createdAt = new Date('2026-10-17T04:06:07.000Z');
+    prisma.depositLedgerEntry.findFirst.mockResolvedValue({
+      id: 'ledger-refund-1', tenantId: 'tenant-1', depositId: 'booking-1', operationId: 'completion-1',
+      type: 'REFUND', amount: 400_000, balanceEffect: -400_000, sourceType: 'RECEIPT', sourceId: 'receipt-1', createdAt,
+      operation: { id: 'completion-1', tenantId: 'tenant-1', sourceDepositId: 'booking-1', type: 'COMPLETE_REFUND', status: 'COMPLETED', receiptId: 'receipt-1' },
+      deposit: { id: 'booking-1', tenantId: 'tenant-1', type: 'BOOKING', contract: { termsSnapshot: { bookingCommand: { depositId: 'booking-1', invoiceId: 'invoice-1' } } } },
+    });
+    prisma.receipt.findFirst.mockResolvedValue({ id: 'receipt-1', amount: 400_000, status: 'COMPLETED' });
+    prisma.depositOperation.findFirst.mockResolvedValue({ id: 'cancel-1' });
+    prisma.chartOfAccount.findFirst
+      .mockResolvedValueOnce({ id: 'deposit-liability', code: '1300' })
+      .mockResolvedValueOnce({ id: 'bank-account', code: '1100' });
+
+    await (engine as any).executeStep('CREATE_JOURNAL_ENTRY', {
+      tenantId: 'tenant-1', sourceType: 'DEPOSIT', sourceId: 'booking-1', amount: 400_000,
+      metadata: {
+        bookingDispositionLedgerId: 'ledger-refund-1', bookingDispositionOperationId: 'completion-1', bookingDispositionJournalMode: 'LEDGER_V1',
+      },
+    });
+
+    expect(journalEntryService.createJournalEntry).toHaveBeenCalledWith('tenant-1', expect.objectContaining({
+      sourceType: 'DEPOSIT', sourceId: 'booking-1', entryDate: createdAt,
+      lines: [
+        expect.objectContaining({ accountId: 'deposit-liability', type: 'DEBIT', amount: 400_000 }),
+        expect.objectContaining({ accountId: 'bank-account', type: 'CREDIT', amount: 400_000 }),
+      ],
+    }));
+  });
+
+  it('rejects an invalid booking disposition ledger without posting a journal', async () => {
+    const { engine, prisma, journalEntryService } = createEngine();
+    prisma.depositLedgerEntry.findFirst.mockResolvedValue({
+      id: 'ledger-invalid-1', tenantId: 'tenant-1', depositId: 'booking-1', type: 'REFUND', amount: 400_000,
+      balanceEffect: -400_000, sourceType: 'RECEIPT', sourceId: 'receipt-1', createdAt: new Date(),
+      operation: { id: 'cancel-1', tenantId: 'tenant-1', sourceDepositId: 'booking-1', type: 'CANCEL', status: 'PENDING', receiptId: 'receipt-1' },
+      deposit: { id: 'booking-1', tenantId: 'tenant-1', type: 'BOOKING', contract: { termsSnapshot: { bookingCommand: { depositId: 'booking-1', invoiceId: 'invoice-1' } } } },
+    });
+
+    await expect((engine as any).executeStep('CREATE_JOURNAL_ENTRY', {
+      tenantId: 'tenant-1', sourceType: 'DEPOSIT', sourceId: 'booking-1', amount: 400_000,
+      metadata: {
+        bookingDispositionLedgerId: 'ledger-invalid-1', bookingDispositionOperationId: 'cancel-1', bookingDispositionJournalMode: 'LEDGER_V1',
+      },
+    })).rejects.toThrow('BOOKING_DISPOSITION_LEDGER_EVIDENCE_INVALID');
+    expect(journalEntryService.createJournalEntry).not.toHaveBeenCalled();
+  });
+
+  it('suppresses legacy refund journaling only after verifying modern booking ownership', async () => {
+    const { engine, prisma, journalEntryService } = createEngine();
+    prisma.deposit.findFirst.mockResolvedValue({
+      id: 'booking-1', contract: { termsSnapshot: { bookingCommand: { depositId: 'booking-1', invoiceId: 'invoice-1' } } },
+    });
+    prisma.depositOperation.findFirst.mockResolvedValue({ id: 'completion-1', type: 'COMPLETE_REFUND', status: 'COMPLETED' });
+
+    await (engine as any).executeStep('CREATE_JOURNAL_ENTRY', {
+      tenantId: 'tenant-1', sourceType: 'DEPOSIT', sourceId: 'booking-1', amount: 400_000,
+      metadata: { bookingDispositionJournalMode: 'LEDGER_V1', operationId: 'completion-1' },
+    });
+
+    expect(journalEntryService.createJournalEntry).not.toHaveBeenCalled();
+  });
+
+  it('suppresses a pending modern booking deduction secondary event after receipt and allocations verify', async () => {
+    const { engine, prisma, journalEntryService } = createEngine();
+    prisma.deposit.findFirst.mockResolvedValue({
+      id: 'booking-1', contract: { termsSnapshot: { bookingCommand: { depositId: 'booking-1', invoiceId: 'invoice-1' } } },
+    });
+    prisma.depositOperation.findFirst.mockResolvedValue({
+      id: 'cancel-pending-1', type: 'CANCEL', status: 'PENDING', receiptId: 'receipt-pending-1',
+      result: { refundAmount: 300_000, keepAmount: 100_000, deductAmount: 200_000, pending: true, refundStatus: 'PENDING' },
+    });
+    prisma.receipt.findFirst.mockResolvedValue({ id: 'receipt-pending-1', amount: 300_000, status: 'PENDING' });
+
+    await (engine as any).executeStep('CREATE_JOURNAL_ENTRY', {
+      tenantId: 'tenant-1', sourceType: 'DEPOSIT', sourceId: 'booking-1', amount: 200_000,
+      metadata: { bookingDispositionJournalMode: 'LEDGER_V1', operationId: 'cancel-pending-1' },
+    });
+
+    expect(journalEntryService.createJournalEntry).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['KEEP', 100_000, 100_000, 200_000],
+    ['DEDUCT', 200_000, 100_000, 200_000],
+  ])('posts pending booking cancellation %s only with matching allocation and pending receipt', async (type, amount, keepAmount, deductAmount) => {
+    const { engine, prisma, journalEntryService } = createEngine();
+    prisma.depositLedgerEntry.findFirst.mockResolvedValue({
+      id: `ledger-${type.toLowerCase()}-pending`, tenantId: 'tenant-1', depositId: 'booking-1', operationId: 'cancel-pending-1',
+      type, amount, balanceEffect: -amount, sourceType: 'DEPOSIT_CANCELLATION', sourceId: 'booking-1', createdAt: new Date('2026-10-17T04:07:08.000Z'),
+      operation: {
+        id: 'cancel-pending-1', tenantId: 'tenant-1', sourceDepositId: 'booking-1', type: 'CANCEL', status: 'PENDING', receiptId: 'receipt-pending-1',
+        result: { refundAmount: 300_000, keepAmount, deductAmount, pending: true, refundStatus: 'PENDING' },
+      },
+      deposit: { id: 'booking-1', tenantId: 'tenant-1', type: 'BOOKING', contract: { termsSnapshot: { bookingCommand: { depositId: 'booking-1', invoiceId: 'invoice-1' } } } },
+    });
+    prisma.receipt.findFirst.mockResolvedValue({ id: 'receipt-pending-1', amount: 300_000, status: 'PENDING' });
+    prisma.chartOfAccount.findFirst
+      .mockResolvedValueOnce({ id: 'deposit-liability', code: '1300' })
+      .mockResolvedValueOnce({ id: 'forfeiture-revenue', code: '4300' });
+
+    await (engine as any).executeStep('CREATE_JOURNAL_ENTRY', {
+      tenantId: 'tenant-1', sourceType: 'DEPOSIT', sourceId: 'booking-1', amount,
+      metadata: {
+        bookingDispositionLedgerId: `ledger-${type.toLowerCase()}-pending`, bookingDispositionOperationId: 'cancel-pending-1', bookingDispositionJournalMode: 'LEDGER_V1',
+      },
+    });
+
+    expect(journalEntryService.createJournalEntry).toHaveBeenCalledWith('tenant-1', expect.objectContaining({
+      sourceType: 'DEPOSIT', sourceId: 'booking-1',
+      lines: [
+        expect.objectContaining({ accountId: 'deposit-liability', type: 'DEBIT', amount }),
+        expect.objectContaining({ accountId: 'forfeiture-revenue', type: 'CREDIT', amount }),
+      ],
+    }));
+  });
+
+  it('fails closed for a flagged legacy event when modern booking ownership is not verified', async () => {
+    const { engine, journalEntryService } = createEngine();
+
+    await expect((engine as any).executeStep('CREATE_JOURNAL_ENTRY', {
+      tenantId: 'tenant-1', sourceType: 'DEPOSIT', sourceId: 'booking-unknown', amount: 400_000,
+      metadata: { bookingDispositionJournalMode: 'LEDGER_V1', operationId: 'operation-unknown' },
+    })).rejects.toThrow('BOOKING_DISPOSITION_EVENT_EVIDENCE_INVALID');
+    expect(journalEntryService.createJournalEntry).not.toHaveBeenCalled();
+  });
+
+  it('retains payment-id duplicate suppression for non-invoice events', async () => {
+    const { engine, prisma, journalEntryService } = createEngine();
+    prisma.journalEntry.findFirst.mockResolvedValue({ id: 'journal-deposit-existing' });
+
+    await (engine as any).executeStep('CREATE_JOURNAL_ENTRY', {
+      tenantId: 'tenant-1', sourceType: 'DEPOSIT', sourceId: 'deposit-1', amount: 100000,
+      paymentId: 'payment-deposit-1', metadata: { code: 'DEP-001' },
+    });
+
+    expect(prisma.journalEntry.findFirst).toHaveBeenCalledWith({
+      where: { tenantId: 'tenant-1', sourceType: 'DEPOSIT', sourceId: 'payment-deposit-1' },
+      select: { id: true },
+    });
+    expect(journalEntryService.createJournalEntry).not.toHaveBeenCalled();
+  });
+
+  it('posts a booking-hold installment from its immutable payment evidence', async () => {
+    const { engine, prisma, journalEntryService } = createEngine();
+    prisma.chartOfAccount.findFirst
+      .mockResolvedValueOnce({ id: 'bank-account', code: '1100' })
+      .mockResolvedValueOnce({ id: 'deposit-liability', code: '1300' });
+
+    await (engine as any).executeStep('CREATE_JOURNAL_ENTRY', {
+      tenantId: 'tenant-1',
+      sourceType: 'DEPOSIT',
+      sourceId: 'deposit-booking-1',
+      amount: 400000,
+      paymentId: 'payment-booking-400',
+      paidAt: '2026-09-29T03:04:05.000Z',
+      metadata: {
+        code: 'DEP-BOOKING-001',
+        bookingInvoiceInstallment: true,
+        linkedInvoicePayment: true,
+      },
+    });
+
+    expect(journalEntryService.createJournalEntry).toHaveBeenCalledWith(
+      'tenant-1',
+      expect.objectContaining({
+        code: 'JE-BH-ABFF269104C19CEABE2E',
+        sourceType: 'PAYMENT',
+        sourceId: 'payment-booking-400',
+        entryDate: new Date('2026-09-29T03:04:05.000Z'),
+        idempotent: true,
+        lines: [
+          expect.objectContaining({ accountId: 'bank-account', type: 'DEBIT', amount: 400000 }),
+          expect.objectContaining({ accountId: 'deposit-liability', type: 'CREDIT', amount: 400000 }),
+        ],
+      }),
+    );
+    expect(prisma.journalEntry.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('rejects a booking-hold installment without persisted payment time', async () => {
+    const { engine, prisma, journalEntryService } = createEngine();
+
+    await expect((engine as any).executeStep('CREATE_JOURNAL_ENTRY', {
+      tenantId: 'tenant-1',
+      sourceType: 'DEPOSIT',
+      amount: 400000,
+      paymentId: 'payment-booking-400',
+      metadata: { bookingInvoiceInstallment: true, linkedInvoicePayment: true },
+    })).rejects.toThrow('BOOKING_HOLD_INSTALLMENT_JOURNAL_EVIDENCE_INVALID');
+
+    expect(prisma.chartOfAccount.findFirst).not.toHaveBeenCalled();
+    expect(journalEntryService.createJournalEntry).not.toHaveBeenCalled();
+  });
+
+  it('posts a normal invoice increment from persisted payment evidence', async () => {
     const { engine, prisma, journalEntryService } = createEngine();
     prisma.chartOfAccount.findFirst
       .mockResolvedValueOnce({ id: 'bank-account', code: '1100' })
       .mockResolvedValueOnce({ id: 'rental-revenue', code: '4000' });
+    prisma.payment.findFirst.mockResolvedValue({
+      id: 'payment-invoice-500', tenantId: 'tenant-1', invoiceId: 'invoice-1',
+      amount: 500000, status: 'CONFIRMED', paidAt: new Date('2026-10-17T03:04:05.000Z'),
+    });
 
     await (engine as any).executeStep('CREATE_JOURNAL_ENTRY', {
       tenantId: 'tenant-1',
       sourceType: 'INVOICE',
       sourceId: 'invoice-1',
-      amount: 500000,
-      metadata: { code: 'INV-001' },
+      amount: 750000,
+      paymentId: 'payment-invoice-500',
+      paymentAmount: 500000,
+      metadata: { code: 'INV-001', paymentJournalIdentity: 'PAYMENT_V1' },
     });
 
     expect(prisma.chartOfAccount.findFirst).toHaveBeenNthCalledWith(2, {
@@ -570,14 +830,116 @@ describe('WorkflowEngine', () => {
     expect(journalEntryService.createJournalEntry).toHaveBeenCalledWith(
       'tenant-1',
       expect.objectContaining({
+        code: expect.stringMatching(/^JE-IP-[A-F0-9]{20}$/),
         sourceType: 'INVOICE',
         sourceId: 'invoice-1',
+        entryDate: new Date('2026-10-17T03:04:05.000Z'),
+        idempotent: true,
         lines: [
           expect.objectContaining({ accountId: 'bank-account', type: 'DEBIT', amount: 500000 }),
           expect.objectContaining({ accountId: 'rental-revenue', type: 'CREDIT', amount: 500000 }),
         ],
       }),
     );
+  });
+
+  it('creates a deterministic journal for a legacy payment event only when no candidate exists', async () => {
+    const { engine, prisma, journalEntryService } = createEngine();
+    prisma.chartOfAccount.findFirst
+      .mockResolvedValueOnce({ id: 'bank-account', code: '1100' })
+      .mockResolvedValueOnce({ id: 'rental-revenue', code: '4000' });
+    prisma.payment.findFirst.mockResolvedValue({
+      id: 'payment-legacy-1', tenantId: 'tenant-1', invoiceId: 'invoice-legacy-1',
+      amount: 400000, status: 'CONFIRMED', paidAt: new Date('2026-10-17T03:04:05.000Z'),
+    });
+
+    await (engine as any).executeStep('CREATE_JOURNAL_ENTRY', {
+      tenantId: 'tenant-1', sourceType: 'INVOICE', sourceId: 'invoice-legacy-1', amount: 400000,
+      paymentId: 'payment-legacy-1', paymentAmount: 400000, metadata: { code: 'INV-LEGACY-1' },
+    });
+
+    expect(prisma.journalEntry.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { tenantId: 'tenant-1', sourceType: 'INVOICE', sourceId: 'invoice-legacy-1' },
+    }));
+    expect(journalEntryService.createJournalEntry).toHaveBeenCalledWith('tenant-1', expect.objectContaining({
+      sourceId: 'invoice-legacy-1', sourceType: 'INVOICE', idempotent: true,
+    }));
+  });
+
+  it('replays exactly one proven legacy journal and rejects ambiguous or mismatched candidates', async () => {
+    const { engine, prisma, journalEntryService } = createEngine();
+    prisma.chartOfAccount.findFirst.mockResolvedValue({ id: 'bank-account', code: '1100' });
+    prisma.payment.findFirst.mockResolvedValue({
+      id: 'payment-legacy-2', tenantId: 'tenant-1', invoiceId: 'invoice-legacy-2',
+      amount: 400000, status: 'CONFIRMED', paidAt: new Date('2026-10-17T03:04:05.000Z'),
+    });
+    const payload = {
+      tenantId: 'tenant-1', sourceType: 'INVOICE', sourceId: 'invoice-legacy-2', amount: 400000,
+      paymentId: 'payment-legacy-2', paymentAmount: 400000, metadata: { code: 'INV-LEGACY-2' },
+    };
+    prisma.journalEntry.findMany.mockResolvedValue([{ id: 'legacy-exact-1', lines: [] }]);
+    journalEntryService.isExactReplay.mockReturnValue(true);
+
+    await expect((engine as any).executeStep('CREATE_JOURNAL_ENTRY', payload)).resolves.toBeUndefined();
+    expect(journalEntryService.createJournalEntry).not.toHaveBeenCalled();
+
+    prisma.journalEntry.findMany.mockResolvedValue([{ id: 'legacy-1', lines: [] }, { id: 'legacy-2', lines: [] }]);
+    await expect((engine as any).executeStep('CREATE_JOURNAL_ENTRY', payload))
+      .rejects.toThrow('LEGACY_PAYMENT_JOURNAL_REVIEW_REQUIRED');
+
+    prisma.journalEntry.findMany.mockResolvedValue([{ id: 'legacy-mismatch', lines: [] }]);
+    journalEntryService.isExactReplay.mockReturnValue(false);
+    await expect((engine as any).executeStep('CREATE_JOURNAL_ENTRY', payload))
+      .rejects.toThrow('LEGACY_PAYMENT_JOURNAL_REVIEW_REQUIRED');
+  });
+
+  it('keeps one invoice source while creating distinct deterministic journals for two payments', async () => {
+    const { engine, prisma, journalEntryService } = createEngine();
+    prisma.chartOfAccount.findFirst
+      .mockResolvedValueOnce({ id: 'bank-account', code: '1100' })
+      .mockResolvedValueOnce({ id: 'rental-revenue', code: '4000' })
+      .mockResolvedValueOnce({ id: 'bank-account', code: '1100' })
+      .mockResolvedValueOnce({ id: 'rental-revenue', code: '4000' });
+    prisma.payment.findFirst
+      .mockResolvedValueOnce({ id: 'payment-1', tenantId: 'tenant-1', invoiceId: 'invoice-shared-1', amount: 400000, status: 'CONFIRMED', paidAt: new Date('2026-10-17T03:04:05.000Z') })
+      .mockResolvedValueOnce({ id: 'payment-2', tenantId: 'tenant-1', invoiceId: 'invoice-shared-1', amount: 600000, status: 'CONFIRMED', paidAt: new Date('2026-10-17T03:05:05.000Z') });
+
+    for (const [paymentId, paymentAmount] of [['payment-1', 400000], ['payment-2', 600000]] as const) {
+      await (engine as any).executeStep('CREATE_JOURNAL_ENTRY', {
+        tenantId: 'tenant-1', sourceType: 'INVOICE', sourceId: 'invoice-shared-1', amount: paymentAmount,
+        paymentId, paymentAmount, metadata: { code: 'INV-SHARED-1', paymentJournalIdentity: 'PAYMENT_V1' },
+      });
+    }
+
+    expect(journalEntryService.createJournalEntry).toHaveBeenCalledTimes(2);
+    expect(journalEntryService.createJournalEntry.mock.calls.map(([, entry]: any[]) => entry.sourceId)).toEqual(['invoice-shared-1', 'invoice-shared-1']);
+    expect(journalEntryService.createJournalEntry.mock.calls[0][1].code)
+      .not.toBe(journalEntryService.createJournalEntry.mock.calls[1][1].code);
+  });
+
+  it('reuses the deterministic invoice-payment identity after a post-journal retry', async () => {
+    const { engine, prisma, journalEntryService } = createEngine();
+    prisma.chartOfAccount.findFirst
+      .mockResolvedValueOnce({ id: 'bank-account', code: '1100' })
+      .mockResolvedValueOnce({ id: 'rental-revenue', code: '4000' })
+      .mockResolvedValueOnce({ id: 'bank-account', code: '1100' })
+      .mockResolvedValueOnce({ id: 'rental-revenue', code: '4000' });
+    prisma.payment.findFirst.mockResolvedValue({
+      id: 'payment-retry-1', tenantId: 'tenant-1', invoiceId: 'invoice-retry-1',
+      amount: 500000, status: 'CONFIRMED', paidAt: new Date('2026-10-17T03:04:05.000Z'),
+    });
+    const payload = {
+      tenantId: 'tenant-1', sourceType: 'INVOICE', sourceId: 'invoice-retry-1', amount: 500000,
+      paymentId: 'payment-retry-1', paymentAmount: 500000,
+      metadata: { code: 'INV-RETRY-1', paymentJournalIdentity: 'PAYMENT_V1' },
+    };
+
+    await (engine as any).executeStep('CREATE_JOURNAL_ENTRY', payload);
+    await (engine as any).executeStep('CREATE_JOURNAL_ENTRY', payload);
+
+    expect(journalEntryService.createJournalEntry).toHaveBeenCalledTimes(2);
+    expect(journalEntryService.createJournalEntry.mock.calls[0][1].code)
+      .toBe(journalEntryService.createJournalEntry.mock.calls[1][1].code);
   });
 
   it('does not post booking-hold deposit invoices as rental revenue', async () => {

@@ -10,6 +10,20 @@ export interface DepositResponse {
   status: string;
   amount: number;
   availableBalance?: number;
+  bookingInvoice?: {
+    id: string;
+    paidAmount: number;
+    remainingAmount: number;
+    status: string;
+  } | null;
+  bookingHold?: {
+    status: string;
+    expiresAt: string | null;
+    isActive: boolean;
+    requiresRecovery: boolean;
+    fundedInvalidAggregate: boolean;
+    validPartialActive: boolean;
+  } | null;
   pendingOperationId?: string | null;
   expiredAt: string | null;
   note: string | null;

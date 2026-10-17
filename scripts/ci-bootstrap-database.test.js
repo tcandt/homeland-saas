@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
-const { assertBaselineV2Artifact, assertHistoricalManifest, assertDisposableLocalDatabase, assertNasStagingDatabase, validateMigrationInventory, historicalManifest, supplementalManifest, reviewedMigrations, validateNasReleaseHistory, bootstrapNasStaging, assertNasSeedCompleted, assertNasSeedRuntime } = require('./ci-bootstrap-database');
+const { assertBaselineV2Artifact, assertHistoricalManifest, assertDisposableLocalDatabase, assertNasStagingDatabase, validateMigrationInventory, historicalManifest, supplementalManifest, reviewedMigrations, nasLegacySeedFingerprint, nasReleaseFingerprint, validateNasReleaseHistory, bootstrapNasStaging, assertNasSeedCompleted, assertNasSeedRuntime } = require('./ci-bootstrap-database');
 
 const root = path.resolve(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
@@ -91,11 +91,11 @@ test('existing BASELINE-V2 path is audit-only and cannot resolve or apply baseli
 });
 
 test('NAS release audit rejects partial, failed, duplicated, unknown or changed migration history', () => {
-  const expected = Array.from({ length: 35 }, (_, i) => ({ name: `migration_${String(i).padStart(2, '0')}`, sha256: 'a'.repeat(64) }));
+  const expected = Array.from({ length: 36 }, (_, i) => ({ name: `migration_${String(i).padStart(2, '0')}`, sha256: 'a'.repeat(64) }));
   const rows = expected.map(({ name, sha256 }) => ({ migration_name: name, checksum: sha256, finished_at: new Date(), rolled_back_at: null }));
   assert.doesNotThrow(() => validateNasReleaseHistory(rows, expected));
   assert.doesNotThrow(() => validateNasReleaseHistory([...rows, { rolled_back_at: new Date() }], expected));
-  for (const altered of [rows.slice(0, 18), rows.slice(0, 22), [...rows, rows[0]], rows.map((row, i) => i === 0 ? { ...row, checksum: 'b'.repeat(64) } : row), rows.map((row, i) => i === 0 ? { ...row, finished_at: null } : row), rows.map((row, i) => i === 0 ? { ...row, migration_name: 'unknown' } : row)]) {
+  for (const altered of [rows.slice(0, 35), rows.slice(0, 18), rows.slice(0, 22), [...rows, rows[0]], rows.map((row, i) => i === 0 ? { ...row, checksum: 'b'.repeat(64) } : row), rows.map((row, i) => i === 0 ? { ...row, finished_at: null } : row), rows.map((row, i) => i === 0 ? { ...row, migration_name: 'unknown' } : row)]) {
     assert.throws(() => validateNasReleaseHistory(altered, expected), /drift/);
   }
 });
@@ -154,18 +154,32 @@ test('NAS seed failure cannot write completion marker and a partial seed cannot 
   assert.deepEqual(calls, ['audit', 'verifySeedCompleted']);
 });
 
-test('NAS seed completion marker must match the initialized tenant, entity and pinned schema', async () => {
+test('NAS seed completion marker accepts known 35 proof only after audited schema/history 36', async () => {
   const marker = {
     tenantId: 'synthetic-tenant', entity: 'NasStagingBootstrap', entityId: 'homeland_staging', action: 'CREATE',
-    after: { seedCompleted: true, schemaFingerprint: '4174b76eac14c8e3800a382d13e757c0bfd291c02d68c737863eebf6b6c8581d' },
+    after: { seedCompleted: true, schemaFingerprint: nasLegacySeedFingerprint },
   };
   const prisma = {
     auditLog: { findUnique: async () => marker },
     tenantOrg: { findUnique: async () => ({ id: 'synthetic-tenant' }) },
   };
-  await assertNasSeedCompleted(prisma);
+  const audited36 = { migrationCount: 36, schemaFingerprint: nasReleaseFingerprint };
+  await assertNasSeedCompleted(prisma, audited36);
+  prisma.auditLog.findUnique = async () => ({ ...marker, after: { seedCompleted: true, schemaFingerprint: nasReleaseFingerprint } });
+  await assertNasSeedCompleted(prisma, audited36);
+  prisma.auditLog.findUnique = async () => marker;
   for (const altered of [null, { ...marker, tenantId: 'other' }, { ...marker, action: 'UPDATE' }, { ...marker, entity: 'Other' }, { ...marker, entityId: 'production' }, { ...marker, after: {} }, { ...marker, after: { ...marker.after, schemaFingerprint: 'wrong' } }]) {
     prisma.auditLog.findUnique = async () => altered;
-    await assert.rejects(assertNasSeedCompleted(prisma), /seed completion is unverified/);
+    await assert.rejects(assertNasSeedCompleted(prisma, audited36), /seed completion is unverified/);
   }
+  await assert.rejects(assertNasSeedCompleted(prisma, { migrationCount: 35, schemaFingerprint: nasLegacySeedFingerprint }), /audited release identity/);
+});
+
+test('booking cancellation migration is transactional and binds its single item to the canonical service payload', () => {
+  const sql = read('packages/database/prisma/migrations/20261017100000_booking_hold_cancel_adjustment_scope/migration.sql');
+  assert.match(sql, /^BEGIN;\r?\n/);
+  assert.match(sql, /\r?\nCOMMIT;\r?\n?$/);
+  assert.match(sql, /NEW\."type" <> 'OTHER'/);
+  assert.match(sql, /NEW\."description" IS DISTINCT FROM 'Internal closure of unpaid booking hold balance'/);
+  assert.match(sql, /NEW\."servicePeriod" IS DISTINCT FROM COALESCE\(parent_invoice\."period", 'BOOKING_HOLD'\)/);
 });

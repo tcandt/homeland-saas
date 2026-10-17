@@ -100,4 +100,44 @@ describe('JournalEntryService', () => {
     await expect(service.reverseJournalEntry('tenant-1', 'journal-1')).rejects.toBeInstanceOf(BadRequestException);
     expect(prisma.journalEntry.create).not.toHaveBeenCalled();
   });
+
+  it('replays only an identical deterministic invoice-payment journal on the tenant-code unique key', async () => {
+    const { service, prisma } = createService();
+    const entryDate = new Date('2026-09-29T03:04:05.000Z');
+    const existing = {
+      id: 'journal-invoice-1', tenantId: 'tenant-1', code: 'JE-IP-001',
+      sourceType: 'INVOICE', sourceId: 'invoice-1', status: 'POSTED', entryDate,
+      lines: [
+        { accountId: 'bank-1100', costCenterId: null, type: 'DEBIT', amount: 400000 },
+        { accountId: 'deposit-1300', costCenterId: null, type: 'CREDIT', amount: 400000 },
+      ],
+    };
+    prisma.journalEntry.create.mockRejectedValue({ code: 'P2002', meta: { target: ['tenantId', 'code'] } });
+    prisma.journalEntry.findFirst.mockResolvedValue(existing);
+
+    await expect(service.createJournalEntry('tenant-1', {
+      code: 'JE-IP-001', sourceType: 'INVOICE', sourceId: 'invoice-1', entryDate,
+      status: 'POSTED', idempotent: true,
+      lines: [
+        { accountId: 'bank-1100', type: 'DEBIT', amount: 400000 },
+        { accountId: 'deposit-1300', type: 'CREDIT', amount: 400000 },
+      ],
+    })).resolves.toBe(existing);
+  });
+
+  it('does not replay an unrelated unique collision', async () => {
+    const { service, prisma } = createService();
+    const collision = { code: 'P2002', meta: { target: ['tenantId', 'sourceId'] } };
+    prisma.journalEntry.create.mockRejectedValue(collision);
+
+    await expect(service.createJournalEntry('tenant-1', {
+      code: 'JE-BH-001', sourceType: 'PAYMENT', sourceId: 'payment-1',
+      status: 'POSTED', idempotent: true,
+      lines: [
+        { accountId: 'bank-1100', type: 'DEBIT', amount: 400000 },
+        { accountId: 'deposit-1300', type: 'CREDIT', amount: 400000 },
+      ],
+    })).rejects.toBe(collision);
+    expect(prisma.journalEntry.findFirst).not.toHaveBeenCalled();
+  });
 });

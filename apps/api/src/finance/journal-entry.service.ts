@@ -13,6 +13,7 @@ export class JournalEntryService {
     description?: string;
     entryDate?: Date;
     status?: any; // e.g., 'POSTED' | 'DRAFT'
+    idempotent?: boolean;
     lines: { accountId: string; costCenterId?: string; type: any; amount: number; description?: string }[];
   }) {
     const status = data.status || 'POSTED';
@@ -30,32 +31,84 @@ export class JournalEntryService {
       throw new BadRequestException('FINANCE_JOURNAL_NOT_BALANCED');
     }
 
-    // 2. Create the entry
-    return this.prisma.journalEntry.create({
-      data: {
-        tenantId,
-        code: data.code,
-        sourceType: data.sourceType,
-        sourceId: data.sourceId,
-        description: data.description,
-        entryDate: data.entryDate || new Date(),
-        status: status,
-        postedAt: status === 'POSTED' ? new Date() : null,
-        lines: {
-          create: data.lines.map(line => ({
-            tenantId,
-            accountId: line.accountId,
-            costCenterId: line.costCenterId,
-            type: line.type,
-            amount: line.amount,
-            description: line.description,
-          }))
-        }
-      },
-      include: {
-        lines: true
+    // The nested write is atomic. Only explicitly opted-in callers may replay
+    // a unique-code collision, and then only when the immutable financial
+    // identity is exactly the same.
+    const entryDate = data.entryDate || new Date();
+    try {
+      return await this.prisma.journalEntry.create({
+        data: {
+          tenantId,
+          code: data.code,
+          sourceType: data.sourceType,
+          sourceId: data.sourceId,
+          description: data.description,
+          entryDate,
+          status: status,
+          postedAt: status === 'POSTED' ? new Date() : null,
+          lines: {
+            create: data.lines.map(line => ({
+              tenantId,
+              accountId: line.accountId,
+              costCenterId: line.costCenterId,
+              type: line.type,
+              amount: line.amount,
+              description: line.description,
+            })),
+          },
+        },
+        include: { lines: true },
+      });
+    } catch (error: any) {
+      const journalCodeCollision = this.isJournalCodeUniqueViolation(error?.meta?.target);
+      if (!data.idempotent || error?.code !== 'P2002' || !journalCodeCollision) throw error;
+      const existing = await this.prisma.journalEntry.findFirst({
+        where: { tenantId, code: data.code },
+        include: { lines: true },
+      });
+      if (!existing || !this.isCanonicalReplay(existing, tenantId, data, status, entryDate)) {
+        throw new BadRequestException('FINANCE_JOURNAL_IDEMPOTENCY_CONFLICT');
       }
-    });
+      return existing;
+    }
+  }
+
+  private isJournalCodeUniqueViolation(target: unknown) {
+    if (Array.isArray(target)) {
+      const fields = target.map((field) => String(field).toLowerCase()).sort();
+      return fields.length === 2 && fields[0] === 'code' && fields[1] === 'tenantid';
+    }
+    const constraint = String(target || '').toLowerCase();
+    return constraint === 'journalentry_tenantid_code_key' || constraint === 'journalentry_tenantid_code';
+  }
+
+  private isCanonicalReplay(existing: any, tenantId: string, data: any, status: string, entryDate: Date) {
+    if (
+      existing.tenantId !== tenantId ||
+      existing.sourceType !== data.sourceType ||
+      existing.sourceId !== data.sourceId ||
+      existing.status !== status ||
+      new Date(existing.entryDate).getTime() !== new Date(entryDate).getTime()
+    ) return false;
+    const canonicalLines = (lines: any[]) => lines
+      .map((line) => ({
+        accountId: String(line.accountId),
+        costCenterId: line.costCenterId || null,
+        type: String(line.type),
+        amount: Number(line.amount),
+      }))
+      .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+    return JSON.stringify(canonicalLines(existing.lines || [])) === JSON.stringify(canonicalLines(data.lines || []));
+  }
+
+  isExactReplay(existing: any, tenantId: string, data: any) {
+    return this.isCanonicalReplay(
+      existing,
+      tenantId,
+      data,
+      data.status || 'POSTED',
+      data.entryDate || new Date(),
+    );
   }
 
   async reverseJournalEntry(tenantId: string, journalEntryId: string, userId?: string, reason?: string) {

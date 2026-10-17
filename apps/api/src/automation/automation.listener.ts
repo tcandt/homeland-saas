@@ -19,6 +19,11 @@ export class AutomationListener {
     await this.processEvent('deposit.created', payload);
   }
 
+  @OnEvent('deposit.booking_disposition')
+  async handleBookingDisposition(payload: DomainEventPayload) {
+    await this.processEvent('deposit.booking_disposition', payload);
+  }
+
   @OnEvent('invoice.issued')
   async handleInvoiceIssued(payload: DomainEventPayload) {
     await this.processEvent('invoice.issued', payload);
@@ -93,6 +98,7 @@ export class AutomationListener {
     // We only process specific events to avoid infinite loops for now
     const supportedEvents = [
       'deposit.created',
+      'deposit.booking_disposition',
       'deposit.collected',
       'deposit.refunded',
       'deposit.refund_requested',

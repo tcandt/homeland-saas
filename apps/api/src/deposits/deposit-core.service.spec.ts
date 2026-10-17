@@ -25,13 +25,21 @@ describe('DepositCoreService', () => {
       },
       depositLedgerEntry: {
         aggregate: vi.fn().mockResolvedValue({ _sum: { balanceEffect: 0 } }),
+        count: vi.fn().mockResolvedValue(0),
         findFirst: vi.fn().mockResolvedValue(null),
         findMany: vi.fn().mockResolvedValue([]),
         create: vi.fn().mockResolvedValue({ id: 'ledger-1' }),
         createMany: vi.fn().mockResolvedValue({ count: 2 }),
       },
       paymentRequest: { findFirst: vi.fn().mockResolvedValue(null) },
-      invoice: { findFirst: vi.fn().mockResolvedValue(null) },
+      payment: { count: vi.fn().mockResolvedValue(0) },
+      paymentAllocation: { count: vi.fn().mockResolvedValue(0) },
+      invoice: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        count: vi.fn().mockResolvedValue(0),
+        create: vi.fn().mockResolvedValue({ id: 'adjustment-1' }),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
       roomHold: {
         updateMany: vi.fn().mockResolvedValue({ count: 0 }),
         update: vi.fn().mockResolvedValue({}),
@@ -193,6 +201,195 @@ describe('DepositCoreService', () => {
     expect(tx.depositLedgerEntry.create).not.toHaveBeenCalled();
   });
 
+  it('requires the persisted invoice payment timestamp for a booking installment', async () => {
+    const { tx, service } = createHarness();
+    const paidAt = new Date('2026-09-29T03:04:05.000Z');
+    const markedDeposit = {
+      ...booking,
+      contractId: 'booking-contract-1',
+      contract: {
+        id: 'booking-contract-1', tenantId: 'tenant-1', customerId: 'customer-1',
+        rentalCycleId: 'cycle-1', roomId: 'room-1',
+        termsSnapshot: { bookingCommand: { depositId: booking.id, invoiceId: 'booking-invoice-1' } },
+      },
+    };
+    tx.invoice.findFirst.mockResolvedValue({
+      id: 'booking-invoice-1', billingKind: 'BOOKING_HOLD', period: 'Cọc giữ phòng',
+      total: 2_000_000, paidAmount: 400_000, creditAmount: 0, status: 'PARTIALLY_PAID',
+      contractId: 'booking-contract-1', customerId: 'customer-1', rentalCycleId: 'cycle-1',
+      contract: markedDeposit.contract,
+      payments: [{ id: 'payment-400', invoiceId: 'booking-invoice-1', amount: 400_000, paidAt }],
+    });
+    const context = {
+      linkedInvoicePayment: true, bookingInvoiceInstallment: true,
+      sourceInvoiceId: 'booking-invoice-1', paymentId: 'payment-400',
+      paymentAmount: 400_000, priorInvoicePaidAmount: 0,
+    };
+
+    await expect((service as any).assertBookingHoldInvoiceSettlement(
+      tx, 'tenant-1', markedDeposit, 400_000, context,
+    )).rejects.toThrow('BOOKING_HOLD_INVOICE_SETTLEMENT_SCOPE_INVALID');
+
+    await expect((service as any).assertBookingHoldInvoiceSettlement(
+      tx, 'tenant-1', markedDeposit, 400_000, { ...context, paidAt: paidAt.toISOString() },
+    )).resolves.toBeUndefined();
+  });
+
+  it('fails closed when cancellation re-read points to an invoice other than the locked marker', async () => {
+    const { tx, service } = createHarness();
+    const markedDeposit = {
+      ...booking,
+      contractId: 'booking-contract-1',
+      contract: { termsSnapshot: { bookingCommand: { depositId: booking.id, invoiceId: 'invoice-after-lock' } } },
+    };
+
+    await expect((service as any).lockAndValidateBookingCancellationInvoice(
+      tx, 'tenant-1', markedDeposit, 400_000, 'invoice-locked-first',
+    )).rejects.toThrow('BOOKING_HOLD_INVOICE_MARKER_INVALID');
+    await expect((service as any).lockAndValidateBookingCancellationInvoice(
+      tx, 'tenant-1', { ...markedDeposit, contract: { termsSnapshot: {} } }, 400_000, 'invoice-locked-first',
+    )).rejects.toThrow('BOOKING_HOLD_INVOICE_MARKER_INVALID');
+    expect(tx.invoice.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('rejects booking cancellation when the invoice family already has a non-draft adjustment', async () => {
+    const { tx, service } = createHarness();
+    const contract = {
+      id: 'booking-contract-1', tenantId: 'tenant-1', customerId: 'customer-1',
+      rentalCycleId: 'cycle-1', roomId: 'room-1',
+      termsSnapshot: { bookingCommand: { depositId: booking.id, invoiceId: 'booking-invoice-1' } },
+    };
+    const markedDeposit = { ...booking, contractId: contract.id, contract };
+    tx.invoice.findFirst.mockResolvedValue({
+      id: 'booking-invoice-1', billingKind: 'BOOKING_HOLD', adjustmentOfInvoiceId: null,
+      total: 2_000_000, paidAmount: 400_000, creditAmount: 0, status: 'PARTIALLY_PAID',
+      contractId: contract.id, customerId: 'customer-1', rentalCycleId: 'cycle-1', contract,
+    });
+    tx.invoice.count.mockResolvedValue(1);
+
+    await expect((service as any).lockAndValidateBookingCancellationInvoice(
+      tx, 'tenant-1', markedDeposit, 400_000, 'booking-invoice-1',
+    )).rejects.toThrow('BOOKING_HOLD_INVOICE_SETTLEMENT_SCOPE_INVALID');
+  });
+
+  it('preserves a fully paid booking invoice history when cancellation needs no credit adjustment', async () => {
+    const { tx, service } = createHarness();
+    const invoice = {
+      id: 'booking-invoice-1', total: 2_000_000, paidAmount: 2_000_000, creditAmount: 0,
+      contractId: 'booking-contract-1', rentalCycleId: 'cycle-1', customerId: 'customer-1',
+      period: 'Cọc giữ phòng', usagePeriod: null,
+    };
+    tx.invoice.findFirst.mockResolvedValue(null);
+
+    await (service as any).closeModernBookingInvoiceForCancellation(
+      tx, 'tenant-1', booking, invoice,
+      { idempotencyKey: 'cancel-booking-paid-1', requestHash: 'hash', input: { reason: 'Khách hủy' } },
+      'user-1',
+    );
+
+    expect(tx.invoice.create).not.toHaveBeenCalled();
+    expect(tx.invoice.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('cancels a marked zero-funded booking through the core command and closes its invoice family', async () => {
+    const { tx, service } = createHarness();
+    const contract = {
+      id: 'booking-contract-1', status: 'DRAFT', tenantId: 'tenant-1', customerId: 'customer-1',
+      rentalCycleId: 'cycle-1', roomId: 'room-1',
+      termsSnapshot: { bookingCommand: { depositId: booking.id, invoiceId: 'booking-invoice-1' } },
+    };
+    const markedDeposit = { ...booking, contractId: contract.id, contract };
+    const invoice = {
+      id: 'booking-invoice-1', billingKind: 'BOOKING_HOLD', adjustmentOfInvoiceId: null,
+      total: 2_000_000, paidAmount: 0, creditAmount: 0, status: 'ISSUED',
+      contractId: contract.id, customerId: 'customer-1', rentalCycleId: 'cycle-1',
+      period: 'Cọc giữ phòng', usagePeriod: null, dueDate: new Date('2026-10-01T00:00:00.000Z'), contract,
+    };
+    tx.deposit.findFirst.mockResolvedValue(markedDeposit);
+    tx.invoice.findFirst
+      .mockResolvedValueOnce(invoice)
+      .mockResolvedValueOnce(null);
+
+    await expect(service.cancel('tenant-1', booking.id, {
+      idempotencyKey: 'cancel-zero-funded-booking-1',
+      reason: 'Khách đổi kế hoạch',
+      refundAmount: 0,
+      keepAmount: 0,
+      deductAmount: 0,
+    }, 'user-1')).resolves.toMatchObject({
+      depositId: booking.id,
+      refundAmount: 0,
+      keepAmount: 0,
+      deductAmount: 0,
+      pending: false,
+      bookingContractCancelled: true,
+    });
+
+    expect(tx.depositLedgerEntry.createMany).not.toHaveBeenCalled();
+    expect(tx.invoice.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        adjustmentOfInvoiceId: invoice.id,
+        billingKind: 'CREDIT_ADJUSTMENT',
+        total: 2_000_000,
+        status: 'DRAFT',
+        items: {
+          create: [expect.objectContaining({
+            type: 'OTHER',
+            description: 'Internal closure of unpaid booking hold balance',
+            servicePeriod: invoice.period,
+          })],
+        },
+      }),
+    }));
+    expect(tx.invoice.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        id: 'adjustment-1',
+        status: 'DRAFT',
+        adjustmentOfInvoiceId: invoice.id,
+      }),
+      data: { status: 'ISSUED' },
+    }));
+    expect(tx.roomHold.updateMany).toHaveBeenCalled();
+    expect(tx.rentalCycle.updateMany).toHaveBeenCalled();
+    expect(tx.contract.updateMany).toHaveBeenCalled();
+  });
+
+  it.each([
+    ['confirmed payment', (tx: any) => tx.payment.count.mockResolvedValue(1)],
+    ['payment allocation', (tx: any) => tx.paymentAllocation.count.mockResolvedValue(1)],
+    ['positive CASH_IN', (tx: any) => tx.depositLedgerEntry.count.mockResolvedValue(1)],
+  ])('rejects zero-funded cancellation with %s history', async (_case, corrupt) => {
+    const { tx, service } = createHarness();
+    const invoice = { id: 'booking-invoice-1', total: 2_000_000, paidAmount: 0, creditAmount: 0, status: 'ISSUED' };
+    corrupt(tx);
+
+    await expect((service as any).assertZeroFundedModernBookingCancellation(
+      tx, 'tenant-1', booking, invoice,
+      { refundAmount: 0, keepAmount: 0, deductAmount: 0 },
+    )).rejects.toThrow('BOOKING_HOLD_ZERO_FUNDED_CANCELLATION_INVALID');
+  });
+
+  it('uses the persisted ledger id as the booking disposition outbox identity', async () => {
+    const { tx, service } = createHarness();
+
+    await (service as any).enqueueBookingDispositionOutbox(
+      tx, 'tenant-1', 'cancel-1', 'ledger-keep-1', 'booking-1', 400_000,
+    );
+    await (service as any).enqueueBookingDispositionOutbox(
+      tx, 'tenant-1', 'cancel-1', 'ledger-zero-1', 'booking-1', 0,
+    );
+
+    expect(tx.outboxEvent.create).toHaveBeenCalledTimes(1);
+    expect(tx.outboxEvent.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        aggregateType: 'DepositLedgerEntry',
+        aggregateId: 'ledger-keep-1',
+        eventName: 'deposit.booking_disposition',
+        idempotencyKey: 'deposit-booking-disposition:ledger-keep-1',
+      }),
+    }));
+  });
+
   it.each([
     ['missing invoiceId', { depositId: booking.id }],
     ['wrong depositId', { depositId: 'booking-deposit-other', invoiceId: 'booking-invoice-1' }],
@@ -215,7 +412,7 @@ describe('DepositCoreService', () => {
     expect(tx.depositLedgerEntry.create).not.toHaveBeenCalled();
   });
 
-  it('reconciles a settled booking invoice without reviving an expired room hold', async () => {
+  it('rejects markerless booking invoice reconciliation rather than stranding invoice cash', async () => {
     const { tx, service } = createHarness();
     tx.deposit.findFirst.mockResolvedValue({ ...booking, expiredAt: new Date('2026-09-22T00:00:00.000Z') });
     tx.paymentRequest.findFirst.mockResolvedValue({
@@ -237,11 +434,11 @@ describe('DepositCoreService', () => {
         skipHoldCreation: true,
         skipRoomReservation: true,
       },
-    }, 'PAYMENT_RECONCILIATION')).resolves.toMatchObject({ status: DepositStatus.PAID, holdId: null });
+    }, 'PAYMENT_RECONCILIATION')).rejects.toThrow('BOOKING_HOLD_INVOICE_MARKER_INVALID');
 
     expect(tx.roomHold.create).not.toHaveBeenCalled();
     expect(tx.rentalCycle.updateMany).not.toHaveBeenCalled();
-    expect(tx.depositLedgerEntry.create).toHaveBeenCalledTimes(1);
+    expect(tx.depositLedgerEntry.create).not.toHaveBeenCalled();
   });
 
   it('rejects reconciliation when invoice status is PAID but numeric balances remain unpaid', async () => {
@@ -266,7 +463,7 @@ describe('DepositCoreService', () => {
         skipHoldCreation: true,
         skipRoomReservation: true,
       },
-    }, 'PAYMENT_RECONCILIATION')).rejects.toThrow('DEPOSIT_RECONCILIATION_SCOPE_INVALID');
+    }, 'PAYMENT_RECONCILIATION')).rejects.toThrow('BOOKING_HOLD_INVOICE_MARKER_INVALID');
 
     expect(tx.depositLedgerEntry.create).not.toHaveBeenCalled();
   });

@@ -37,6 +37,9 @@ describe('DepositsService', () => {
         depositOperation: {
           findFirst: vi.fn(),
         },
+        depositLedgerEntry: {
+          findFirst: vi.fn(),
+        },
         $transaction: vi.fn((callback) => callback(prisma.tx)),
         $queryRaw: vi.fn().mockResolvedValue([{ id: 'rental' }]),
         contract: { findFirst: vi.fn() },
@@ -212,6 +215,192 @@ describe('DepositsService', () => {
     );
   });
 
+  it('requires recovery for a fully funded booking hold that has expired', async () => {
+    const depositCoreService = { getBalance: vi.fn().mockResolvedValue(1_000_000) };
+    const { service, repository, prisma } = createService(depositCoreService);
+    repository.findById.mockResolvedValue({
+      id: 'booking-1', tenantId: 'tenant-1', code: 'DEP-BOOKING-1', type: 'BOOKING',
+      amount: 1_000_000, status: DepositStatus.PAID, contractId: 'contract-1',
+      customerId: 'customer-1', rentalCycleId: 'cycle-1',
+      contract: { termsSnapshot: { bookingCommand: { depositId: 'booking-1', invoiceId: 'invoice-1' } } },
+    });
+    prisma.invoice = {
+      findFirst: vi.fn().mockResolvedValue({
+        id: 'invoice-1', total: 1_000_000, paidAmount: 1_000_000, creditAmount: 0, status: 'PAID',
+      }),
+      findMany: vi.fn().mockResolvedValue([]),
+    };
+    prisma.roomHold = { findFirst: vi.fn().mockResolvedValue({ status: 'ACTIVE', expiresAt: new Date('2026-09-01T00:00:00.000Z') }) };
+
+    await expect(service.getDetail('booking-1')).resolves.toMatchObject({
+      bookingHold: { fundedInvalidAggregate: false, validPartialActive: false, requiresRecovery: true },
+    });
+  });
+
+  it('flags NAS-style booking invoice cash that is absent from the ledger, while retaining a valid active partial hold', async () => {
+    const depositCoreService = { getBalance: vi.fn() };
+    const { service, repository, prisma } = createService(depositCoreService);
+    const deposit = {
+      id: 'booking-1', tenantId: 'tenant-1', code: 'DEP-BOOKING-1', type: 'BOOKING',
+      amount: 1_000_000, status: DepositStatus.PENDING, contractId: 'contract-1',
+      customerId: 'customer-1', rentalCycleId: 'cycle-1',
+      contract: { termsSnapshot: { bookingCommand: { depositId: 'booking-1', invoiceId: 'invoice-1' } } },
+    };
+    repository.findById.mockResolvedValue(deposit);
+    prisma.invoice = {
+      findFirst: vi.fn()
+        .mockResolvedValueOnce({ id: 'invoice-1', total: 1_000_000, paidAmount: 1_000_000, creditAmount: 0, status: 'PAID' })
+        .mockResolvedValueOnce({ id: 'invoice-1', total: 1_000_000, paidAmount: 400_000, creditAmount: 0, status: 'PARTIALLY_PAID' }),
+      findMany: vi.fn().mockResolvedValue([]),
+    };
+    prisma.roomHold = { findFirst: vi.fn().mockResolvedValue({ status: 'ACTIVE', expiresAt: new Date('2099-09-01T00:00:00.000Z') }) };
+    depositCoreService.getBalance.mockResolvedValueOnce(0).mockResolvedValueOnce(400_000);
+
+    await expect(service.getDetail('booking-1')).resolves.toMatchObject({
+      bookingHold: { fundedInvalidAggregate: true, validPartialActive: false, requiresRecovery: true },
+    });
+    await expect(service.getDetail('booking-1')).resolves.toMatchObject({
+      bookingHold: { fundedInvalidAggregate: false, validPartialActive: true, requiresRecovery: false },
+    });
+  });
+
+  it('accepts terminal booking disposition only with a completed cancellation or conversion operation', async () => {
+    const depositCoreService = { getBalance: vi.fn().mockResolvedValue(0) };
+    const { service, repository, prisma } = createService(depositCoreService);
+    const deposit = {
+      id: 'booking-terminal-1', tenantId: 'tenant-1', type: 'BOOKING',
+      amount: 1_000_000, status: DepositStatus.CANCELLED, contractId: 'contract-1',
+      customerId: 'customer-1', rentalCycleId: 'cycle-1',
+      contract: { termsSnapshot: { bookingCommand: { depositId: 'booking-terminal-1', invoiceId: 'invoice-1' } } },
+    };
+    repository.findById.mockResolvedValue(deposit);
+    prisma.invoice = {
+      findFirst: vi.fn().mockResolvedValue({
+        id: 'invoice-1', total: 1_000_000, paidAmount: 1_000_000, creditAmount: 0, status: 'PAID',
+      }),
+      findMany: vi.fn().mockResolvedValue([]),
+    };
+    prisma.tx.depositOperation.findFirst.mockResolvedValue({
+      id: 'operation-cancel-1', type: 'CANCEL', result: { refundAmount: 0, keepAmount: 1_000_000, deductAmount: 0 }, receiptId: null,
+    });
+
+    await expect(service.getDetail('booking-terminal-1')).resolves.toMatchObject({
+      bookingHold: { fundedInvalidAggregate: false, requiresRecovery: false },
+    });
+    expect(prisma.tx.depositOperation.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ type: { in: ['CANCEL', 'CONVERT_TO_SECURITY'] } }),
+    }));
+
+    prisma.tx.depositOperation.findFirst.mockResolvedValue(null);
+    await expect(service.getDetail('booking-terminal-1')).resolves.toMatchObject({
+      bookingHold: { fundedInvalidAggregate: true, requiresRecovery: true },
+    });
+
+    prisma.tx.depositOperation.findFirst.mockResolvedValue({ id: 'operation-convert-1', type: 'CONVERT_TO_SECURITY' });
+    prisma.invoice.findFirst.mockResolvedValue({
+      id: 'invoice-1', total: 999_999, paidAmount: 1_000_000, creditAmount: 0, status: 'PAID',
+    });
+    await expect(service.getDetail('booking-terminal-1')).resolves.toMatchObject({
+      bookingHold: { fundedInvalidAggregate: true, requiresRecovery: true },
+    });
+  });
+
+  it('accepts a partially funded completed cancellation only with canonical closure and conserved allocations', async () => {
+    const depositCoreService = { getBalance: vi.fn().mockResolvedValue(0) };
+    const { service, repository, prisma } = createService(depositCoreService);
+    repository.findById.mockResolvedValue({
+      id: 'booking-partial-cancel-1', tenantId: 'tenant-1', code: 'DEP-PARTIAL-1', type: 'BOOKING',
+      amount: 1_000_000, status: DepositStatus.CANCELLED, contractId: 'contract-1', customerId: 'customer-1', rentalCycleId: 'cycle-1',
+      contract: { termsSnapshot: { bookingCommand: { depositId: 'booking-partial-cancel-1', invoiceId: 'invoice-1' } } },
+    });
+    prisma.invoice = {
+      findFirst: vi.fn().mockResolvedValue({ id: 'invoice-1', total: 1_000_000, paidAmount: 400_000, creditAmount: 0, status: 'PARTIALLY_PAID' }),
+      findMany: vi.fn().mockResolvedValue([{
+        id: 'adjustment-1', adjustmentOfInvoiceId: 'invoice-1', billingKind: 'CREDIT_ADJUSTMENT', total: 600_000,
+        paidAmount: 0, creditAmount: 0, status: 'ISSUED',
+      }]),
+    };
+    const completed = {
+      id: 'cancel-1', type: 'CANCEL', receiptId: null,
+      result: { refundAmount: 0, keepAmount: 150_000, deductAmount: 250_000 },
+    };
+    prisma.tx.depositOperation.findFirst.mockImplementation(async ({ where }: any) =>
+      where.status === 'COMPLETED' ? completed : null,
+    );
+
+    await expect(service.getDetail('booking-partial-cancel-1')).resolves.toMatchObject({
+      bookingInvoice: { remainingAmount: 0 },
+      bookingHold: { fundedInvalidAggregate: false, requiresRecovery: false },
+    });
+
+    completed.result.deductAmount = 249_999;
+    await expect(service.getDetail('booking-partial-cancel-1')).resolves.toMatchObject({
+      bookingHold: { fundedInvalidAggregate: true, requiresRecovery: true },
+    });
+  });
+
+  it('keeps a fully evidenced pending booking refund out of recovery until completion', async () => {
+    const depositCoreService = { getBalance: vi.fn().mockResolvedValue(400_000) };
+    const { service, repository, prisma } = createService(depositCoreService);
+    repository.findById.mockResolvedValue({
+      id: 'booking-pending-refund-1', tenantId: 'tenant-1', code: 'DEP-PENDING-1', type: 'BOOKING',
+      amount: 1_000_000, status: DepositStatus.CANCELLED, contractId: 'contract-1', customerId: 'customer-1', rentalCycleId: 'cycle-1',
+      contract: { termsSnapshot: { bookingCommand: { depositId: 'booking-pending-refund-1', invoiceId: 'invoice-1' } } },
+    });
+    prisma.invoice = {
+      findFirst: vi.fn().mockResolvedValue({ id: 'invoice-1', total: 1_000_000, paidAmount: 400_000, creditAmount: 0, status: 'PARTIALLY_PAID' }),
+      findMany: vi.fn().mockResolvedValue([{
+        id: 'adjustment-1', adjustmentOfInvoiceId: 'invoice-1', billingKind: 'CREDIT_ADJUSTMENT', total: 600_000,
+        paidAmount: 0, creditAmount: 0, status: 'ISSUED',
+      }]),
+    };
+    const pending = {
+      id: 'cancel-pending-1', type: 'CANCEL', receiptId: 'receipt-pending-1',
+      result: { refundAmount: 400_000, keepAmount: 0, deductAmount: 0 },
+    };
+    prisma.tx.depositOperation.findFirst.mockImplementation(async ({ where }: any) =>
+      where.status === 'PENDING' || !where.status ? pending : null,
+    );
+    prisma.receipt.findFirst.mockResolvedValue({ id: 'receipt-pending-1', amount: 400_000, status: 'PENDING' });
+
+    await expect(service.getDetail('booking-pending-refund-1')).resolves.toMatchObject({
+      pendingOperationId: 'cancel-pending-1',
+      bookingHold: { fundedInvalidAggregate: false, requiresRecovery: false },
+    });
+  });
+
+  it('accepts a completed pending-refund ledger only when its completion operation and receipt agree', async () => {
+    const depositCoreService = { getBalance: vi.fn().mockResolvedValue(0) };
+    const { service, repository, prisma } = createService(depositCoreService);
+    repository.findById.mockResolvedValue({
+      id: 'booking-completed-refund-1', tenantId: 'tenant-1', code: 'DEP-COMPLETE-1', type: 'BOOKING',
+      amount: 1_000_000, status: DepositStatus.CANCELLED, contractId: 'contract-1', customerId: 'customer-1', rentalCycleId: 'cycle-1',
+      contract: { termsSnapshot: { bookingCommand: { depositId: 'booking-completed-refund-1', invoiceId: 'invoice-1' } } },
+    });
+    prisma.invoice = {
+      findFirst: vi.fn().mockResolvedValue({ id: 'invoice-1', total: 1_000_000, paidAmount: 400_000, creditAmount: 0, status: 'PARTIALLY_PAID' }),
+      findMany: vi.fn().mockResolvedValue([{
+        id: 'adjustment-1', adjustmentOfInvoiceId: 'invoice-1', billingKind: 'CREDIT_ADJUSTMENT', total: 600_000,
+        paidAmount: 0, creditAmount: 0, status: 'ISSUED',
+      }]),
+    };
+    const cancelled = {
+      id: 'cancel-completed-1', type: 'CANCEL', receiptId: 'receipt-completed-1',
+      result: { refundAmount: 400_000, keepAmount: 0, deductAmount: 0 },
+    };
+    prisma.tx.depositOperation.findFirst.mockImplementation(async ({ where }: any) => {
+      if (where.type === 'COMPLETE_REFUND') return { id: 'completion-1' };
+      if (where.status === 'COMPLETED' || !where.status) return cancelled;
+      return null;
+    });
+    prisma.receipt.findFirst.mockResolvedValue({ id: 'receipt-completed-1', amount: 400_000, status: 'COMPLETED' });
+    prisma.tx.depositLedgerEntry.findFirst.mockResolvedValue({ operationId: 'completion-1' });
+
+    await expect(service.getDetail('booking-completed-refund-1')).resolves.toMatchObject({
+      bookingHold: { fundedInvalidAggregate: false, requiresRecovery: false },
+    });
+  });
+
   it('blocks cancelling paid deposits without an explicit resolution action', async () => {
     const { service, repository } = createService();
     repository.findById.mockResolvedValue({
@@ -222,6 +411,39 @@ describe('DepositsService', () => {
 
     await expect(service.cancel('deposit-1', 'Khach huy', 'user-1')).rejects.toBeInstanceOf(BadRequestException);
     expect(repository.update).not.toHaveBeenCalled();
+  });
+
+  it('routes every marked modern pending booking cancellation through the core command', async () => {
+    const depositCoreService = { getBalance: vi.fn().mockResolvedValue(400_000) };
+    const { service, repository, prisma } = createService(depositCoreService);
+    const deposit = {
+      id: 'booking-pending-1', tenantId: 'tenant-1', type: 'BOOKING', amount: 1_000_000,
+      status: DepositStatus.PENDING, contractId: 'contract-1', customerId: 'customer-1', rentalCycleId: 'cycle-1',
+      contract: { termsSnapshot: { bookingCommand: { depositId: 'booking-pending-1', invoiceId: 'invoice-1' } } },
+    };
+    repository.findById.mockResolvedValue(deposit);
+
+    await expect(service.cancel('booking-pending-1', 'Khach huy', 'user-1'))
+      .rejects.toThrow('BOOKING_HOLD_FUNDED_CANCELLATION_REQUIRES_CORE_COMMAND');
+    expect(repository.update).not.toHaveBeenCalled();
+    expect(prisma.tx.deposit.update).not.toHaveBeenCalled();
+
+    depositCoreService.getBalance.mockResolvedValue(0);
+    prisma.invoice = { findFirst: vi.fn().mockResolvedValue({
+      id: 'invoice-1', total: 1_000_000, paidAmount: 1_000_000, creditAmount: 0, status: 'PAID',
+    }) };
+    await expect(service.cancel('booking-pending-1', 'Khach huy', 'user-1'))
+      .rejects.toThrow('BOOKING_HOLD_FUNDED_CANCELLATION_REQUIRES_CORE_COMMAND');
+    expect(repository.update).not.toHaveBeenCalled();
+    expect(prisma.tx.deposit.update).not.toHaveBeenCalled();
+
+    prisma.invoice.findFirst.mockResolvedValue({
+      id: 'invoice-1', total: 1_000_000, paidAmount: 0, creditAmount: 0, status: 'ISSUED',
+    });
+    await expect(service.cancel('booking-pending-1', 'Khach huy', 'user-1'))
+      .rejects.toThrow('BOOKING_HOLD_FUNDED_CANCELLATION_REQUIRES_CORE_COMMAND');
+    expect(repository.update).not.toHaveBeenCalled();
+    expect(prisma.tx.deposit.update).not.toHaveBeenCalled();
   });
 
   it('publishes a deposit.created event when creating a deposit', async () => {

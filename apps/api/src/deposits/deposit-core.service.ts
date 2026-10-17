@@ -38,6 +38,12 @@ export interface CollectDepositCommand {
     sourceInvoiceId?: string | null;
     paymentProvider?: string | null;
     paymentRef?: string | null;
+    /** Persisted invoice payment evidence for one modern booking installment. */
+    bookingInvoiceInstallment?: boolean;
+    paymentId?: string | null;
+    paymentAmount?: number | null;
+    paidAt?: string | Date | null;
+    priorInvoicePaidAmount?: number | null;
     /** Internal reconciliation marker; never accepted from public DTOs. */
     paymentRequestId?: string | null;
     skipHoldCreation?: boolean;
@@ -429,8 +435,15 @@ export class DepositCoreService {
         throw new BadRequestException('DEPOSIT_AMOUNT_INVALID');
       }
       const currentBalance = await this.getBalanceInTransaction(tx, tenantId, deposit.id);
-      const collectionAmount = this.toMoney(this.toMoney(deposit.amount) - currentBalance);
+      const bookingInstallment = Boolean(command.input.notificationContext?.bookingInvoiceInstallment);
+      const requestedInstallmentAmount = this.toMoney(command.input.notificationContext?.paymentAmount || 0);
+      const collectionAmount = bookingInstallment
+        ? requestedInstallmentAmount
+        : this.toMoney(this.toMoney(deposit.amount) - currentBalance);
       if (collectionAmount <= 0) throw new ConflictException('DEPOSIT_ALREADY_FUNDED');
+      if (this.toMoney(currentBalance + collectionAmount) > this.toMoney(deposit.amount)) {
+        throw new ConflictException('BOOKING_HOLD_INVOICE_SETTLEMENT_SCOPE_INVALID');
+      }
 
       const entry = getCombinedEntryInvoice(deposit.contract);
       if (entry?.securityDepositId === deposit.id) {
@@ -491,7 +504,9 @@ export class DepositCoreService {
         );
       }
       const hold = isBookingDeposit && !command.input.notificationContext?.skipHoldCreation
-        ? await this.ensureActiveHold(tx, tenantId, deposit, command.input.holdExpiresAt, userId, command.idempotencyKey)
+        ? (bookingInstallment
+          ? await this.requireActiveBookingHoldForInstallment(tx, tenantId, deposit)
+          : await this.ensureActiveHold(tx, tenantId, deposit, command.input.holdExpiresAt, userId, command.idempotencyKey))
         : null;
 
       await tx.depositLedgerEntry.create({
@@ -505,16 +520,26 @@ export class DepositCoreService {
           amount: collectionAmount,
           balanceEffect: collectionAmount,
           idempotencyKey: `${command.idempotencyKey}:cash-in`,
-          sourceType: 'DEPOSIT_COLLECTION',
-          sourceId: deposit.id,
-          metadata: { note: command.input.note || null },
+          sourceType: bookingInstallment ? 'INVOICE_PAYMENT' : 'DEPOSIT_COLLECTION',
+          sourceId: bookingInstallment ? String(command.input.notificationContext?.paymentId) : deposit.id,
+          metadata: {
+            note: command.input.note || null,
+            ...(bookingInstallment ? {
+              bookingInvoiceInstallment: true,
+              linkedInvoicePayment: true,
+              invoiceId: command.input.notificationContext?.sourceInvoiceId || null,
+              paymentId: command.input.notificationContext?.paymentId || null,
+              paymentAmount: collectionAmount,
+            } : {}),
+          },
           createdBy: userId,
         },
       });
 
+      const becomesFullyFunded = this.toMoney(currentBalance + collectionAmount) === this.toMoney(deposit.amount);
       const changed = await tx.deposit.updateMany({
         where: { id: deposit.id, tenantId, status: { in: [DepositStatus.DRAFT, DepositStatus.PENDING] } },
-        data: { status: DepositStatus.PAID, note: command.input.note || deposit.note },
+        data: { status: becomesFullyFunded ? DepositStatus.PAID : DepositStatus.PENDING, note: command.input.note || deposit.note },
       });
       if (changed.count !== 1) throw new ConflictException('DEPOSIT_CONCURRENT_UPDATE');
 
@@ -532,7 +557,7 @@ export class DepositCoreService {
         collectedAmount: collectionAmount,
         balance: this.toMoney(currentBalance + collectionAmount),
         holdId: hold?.id || null,
-        status: DepositStatus.PAID,
+        status: becomesFullyFunded ? DepositStatus.PAID : DepositStatus.PENDING,
       };
       await this.enqueueOutbox(tx, tenantId, operation.id, 'deposit.collected', {
         tenantId,
@@ -555,7 +580,9 @@ export class DepositCoreService {
         paidAmount: this.toMoney(currentBalance + collectionAmount),
         paymentProvider: command.input.notificationContext?.paymentProvider || null,
         paymentRef: command.input.notificationContext?.paymentRef || null,
-        paidAt: new Date().toISOString(),
+        paidAt: command.input.notificationContext?.paidAt
+          ? new Date(command.input.notificationContext.paidAt).toISOString()
+          : new Date().toISOString(),
         moveInDate: deposit.contract?.startDate
           ? new Date(deposit.contract.startDate).toISOString()
           : deposit.contract?.firstPaymentDate
@@ -576,6 +603,8 @@ export class DepositCoreService {
           suppressCustomerZaloConfirmation: Boolean(command.input.notificationContext?.suppressCustomerZaloConfirmation),
           linkedInvoicePayment: Boolean(command.input.notificationContext?.linkedInvoicePayment),
           sourceInvoiceId: command.input.notificationContext?.sourceInvoiceId || null,
+          bookingInvoiceInstallment: bookingInstallment,
+          paymentId: command.input.notificationContext?.paymentId || null,
         },
       });
       await this.completeOperation(tx, tenantId, operation.id, response);
@@ -771,7 +800,25 @@ export class DepositCoreService {
       typeof termsSnapshot === 'object' &&
       Object.prototype.hasOwnProperty.call(termsSnapshot, 'bookingCommand'),
     );
-    if (!hasBookingMarker) return;
+    if (!hasBookingMarker) {
+      // A true pre-invoice legacy hold remains collectible.  Once an invoice
+      // exists, however, accepting a direct collection would strand cash
+      // outside its invoice allocation and is therefore forbidden.
+      const legacyInvoice = await tx.invoice.findFirst({
+        where: {
+          tenantId,
+          deletedAt: null,
+          billingKind: 'BOOKING_HOLD',
+          OR: [
+            ...(deposit.contractId ? [{ contractId: deposit.contractId }] : []),
+            ...(deposit.rentalCycleId ? [{ rentalCycleId: deposit.rentalCycleId }] : []),
+          ],
+        },
+        select: { id: true },
+      });
+      if (legacyInvoice) throw new ConflictException('BOOKING_HOLD_INVOICE_MARKER_INVALID');
+      return;
+    }
     const marker = termsSnapshot.bookingCommand;
     if (!marker || typeof marker !== 'object') {
       throw new ConflictException('BOOKING_HOLD_INVOICE_MARKER_INVALID');
@@ -783,22 +830,42 @@ export class DepositCoreService {
     if (!context?.linkedInvoicePayment || context.sourceInvoiceId !== linkedInvoiceId) {
       throw new ConflictException('BOOKING_HOLD_PAY_THROUGH_LINKED_INVOICE');
     }
+    if (!context.bookingInvoiceInstallment) {
+      throw new ConflictException('BOOKING_HOLD_INVOICE_SETTLEMENT_SCOPE_INVALID');
+    }
+    const paymentId = String(context.paymentId || '').trim();
+    const paymentAmount = this.toMoney(context.paymentAmount || 0);
+    const priorInvoicePaidAmount = this.toMoney(context.priorInvoicePaidAmount || 0);
+    const paidAt = context.paidAt ? new Date(context.paidAt) : null;
+    if (
+      !paymentId ||
+      paymentAmount <= 0 ||
+      paymentAmount !== this.toMoney(collectionAmount) ||
+      !paidAt ||
+      Number.isNaN(paidAt.getTime())
+    ) {
+      throw new ConflictException('BOOKING_HOLD_INVOICE_SETTLEMENT_SCOPE_INVALID');
+    }
     const invoice = await tx.invoice.findFirst({
       where: { id: linkedInvoiceId, tenantId, deletedAt: null },
       select: {
         id: true, billingKind: true, period: true, total: true, paidAmount: true,
         creditAmount: true, status: true, contractId: true, customerId: true,
         rentalCycleId: true,
+        payments: {
+          where: { id: paymentId, tenantId, status: 'CONFIRMED', deletedAt: null },
+          select: { id: true, invoiceId: true, amount: true, paidAt: true },
+        },
         contract: { select: { id: true, tenantId: true, customerId: true, rentalCycleId: true, roomId: true, termsSnapshot: true } },
       },
     });
     const invoiceMarker = invoice?.contract?.termsSnapshot?.bookingCommand;
-    const isFullyCashPaid = Number(invoice?.paidAmount || 0) === Number(invoice?.total || 0) &&
-      Number(invoice?.creditAmount || 0) === 0;
+    const persistedPayment = invoice?.payments?.[0];
+    const newInvoicePaidAmount = this.toMoney(invoice?.paidAmount || 0);
     if (
       invoice?.billingKind !== 'BOOKING_HOLD' ||
-      invoice?.status !== 'PAID' ||
-      !isFullyCashPaid ||
+      !['PARTIALLY_PAID', 'PAID'].includes(String(invoice?.status || '')) ||
+      this.toMoney(invoice?.creditAmount || 0) !== 0 ||
       invoice?.contractId !== deposit.contractId ||
       invoice?.customerId !== deposit.customerId ||
       invoice?.rentalCycleId !== deposit.rentalCycleId ||
@@ -810,10 +877,38 @@ export class DepositCoreService {
       invoiceMarker?.invoiceId !== invoice.id ||
       invoiceMarker?.depositId !== deposit.id ||
       this.toMoney(invoice.total) !== this.toMoney(deposit.amount) ||
-      this.toMoney(collectionAmount) !== this.toMoney(invoice.total)
+      !persistedPayment ||
+      persistedPayment.invoiceId !== invoice.id ||
+      this.toMoney(persistedPayment.amount) !== paymentAmount ||
+      !persistedPayment.paidAt ||
+      new Date(persistedPayment.paidAt).getTime() !== paidAt.getTime() ||
+      newInvoicePaidAmount !== this.toMoney(priorInvoicePaidAmount + paymentAmount) ||
+      this.toMoney(collectionAmount) !== paymentAmount
     ) {
       throw new ConflictException('BOOKING_HOLD_INVOICE_SETTLEMENT_SCOPE_INVALID');
     }
+  }
+
+  private async requireActiveBookingHoldForInstallment(
+    tx: TransactionClient,
+    tenantId: string,
+    deposit: any,
+  ) {
+    // PostgreSQL evaluates the expiry and locks the existing row. A payment
+    // never recreates or recovers a hold after it has lapsed.
+    const rows = await tx.$queryRaw(
+      Prisma.sql`SELECT "id", "expiresAt" FROM "RoomHold"
+        WHERE "tenantId" = ${tenantId}
+          AND "depositId" = ${deposit.id}
+          AND "rentalCycleId" = ${deposit.rentalCycleId}
+          AND "roomId" = ${deposit.roomId}
+          AND "status" = 'ACTIVE'
+          AND "expiresAt" > clock_timestamp()
+        ORDER BY "createdAt" DESC
+        LIMIT 1 FOR UPDATE`,
+    ) as Array<{ id: string; expiresAt: Date }>;
+    if (!rows?.length) throw new ConflictException('BOOKING_HOLD_NOT_ACTIVE_FOR_PAYMENT');
+    return rows[0];
   }
 
   /**
@@ -1031,6 +1126,17 @@ export class DepositCoreService {
       await this.lockCommand(tx, tenantId, command.idempotencyKey);
       const replay = await this.getReplay(tx, tenantId, command.idempotencyKey, command.requestHash);
       if (replay) return replay;
+
+      // The invoice is locked first for modern booking holds. Payment follows
+      // the same order (invoice -> deposit -> hold), avoiding a cancel/pay
+      // deadlock while both commands re-read the marker under their locks.
+      const cancelTarget = await tx.deposit.findFirst({
+        where: { id: depositId, tenantId, deletedAt: null },
+        select: { contract: { select: { termsSnapshot: true } }, type: true },
+      });
+      const cancelMarker = (cancelTarget?.contract?.termsSnapshot as any)?.bookingCommand;
+      const cancelInvoiceId = String(cancelMarker?.depositId === depositId ? cancelMarker?.invoiceId || '' : '').trim();
+      if (cancelInvoiceId) await this.lockInvoiceForBookingCancellation(tx, tenantId, cancelInvoiceId);
       await this.lockDeposit(tx, tenantId, depositId);
 
       const deposit = await tx.deposit.findFirst({
@@ -1038,19 +1144,50 @@ export class DepositCoreService {
         include: {
           customer: { select: { fullName: true } },
           room: { select: { code: true, building: { select: { name: true, code: true } } } },
-          contract: { select: { id: true, status: true } },
+          contract: { select: { id: true, status: true, termsSnapshot: true } },
         },
       });
       if (!deposit) throw new BadRequestException('DEPOSIT_NOT_FOUND');
       if (!deposit.rentalCycleId) throw new BadRequestException('DEPOSIT_RENTAL_CYCLE_REQUIRED');
-      if (deposit.status !== DepositStatus.PAID) throw new BadRequestException('DEPOSIT_SOURCE_MUST_BE_PAID');
+      const availableBalance = await this.getBalanceInTransaction(tx, tenantId, deposit.id);
+      const modernBookingInvoice = await this.lockAndValidateBookingCancellationInvoice(
+        tx,
+        tenantId,
+        deposit,
+        availableBalance,
+        cancelInvoiceId || null,
+      );
+      const isPartialModernBooking = Boolean(
+        modernBookingInvoice &&
+        deposit.status === DepositStatus.PENDING &&
+        availableBalance > 0,
+      );
+      const isZeroFundedModernBooking = Boolean(
+        modernBookingInvoice &&
+        deposit.status === DepositStatus.PENDING &&
+        availableBalance === 0,
+      );
+      if (deposit.status !== DepositStatus.PAID && !isPartialModernBooking && !isZeroFundedModernBooking) {
+        throw new BadRequestException('DEPOSIT_SOURCE_MUST_BE_PAID');
+      }
       assertBookingHoldCanBeCancelled({
         depositType: String(deposit.type),
         contractStatus: deposit.contract?.status || null,
       });
 
-      const availableBalance = await this.getBalanceInTransaction(tx, tenantId, deposit.id);
-      const plan = buildDepositCancellationPlan({ availableBalance, ...command.input });
+      if (isZeroFundedModernBooking) {
+        await this.assertZeroFundedModernBookingCancellation(
+          tx,
+          tenantId,
+          deposit,
+          modernBookingInvoice,
+          command.input,
+        );
+      }
+
+      const plan = isZeroFundedModernBooking
+        ? { refundAmount: 0, keepAmount: 0, deductAmount: 0, remainingBalance: 0 }
+        : buildDepositCancellationPlan({ availableBalance, ...command.input });
       const operation = await tx.depositOperation.create({
         data: {
           tenantId,
@@ -1091,7 +1228,23 @@ export class DepositCoreService {
           entries.push(this.ledgerData(tenantId, deposit, operation.id, DepositLedgerEntryType.REFUND, plan.refundAmount, -plan.refundAmount, `${command.idempotencyKey}:refund`, 'RECEIPT', receipt.id, userId));
         }
       }
-      if (entries.length > 0) await tx.depositLedgerEntry.createMany({ data: entries });
+      if (entries.length > 0) {
+        if (modernBookingInvoice) {
+          for (const entry of entries) {
+            const persistedEntry = await tx.depositLedgerEntry.create({ data: entry });
+            await this.enqueueBookingDispositionOutbox(
+              tx,
+              tenantId,
+              operation.id,
+              persistedEntry.id,
+              deposit.id,
+              entry.amount,
+            );
+          }
+        } else {
+          await tx.depositLedgerEntry.createMany({ data: entries });
+        }
+      }
 
       const isPendingRefund = plan.refundAmount > 0 && refundStatus === ReceiptStatus.PENDING;
       await tx.deposit.update({
@@ -1101,6 +1254,16 @@ export class DepositCoreService {
           note: command.input.reason,
         },
       });
+      if (modernBookingInvoice) {
+        await this.closeModernBookingInvoiceForCancellation(
+          tx,
+          tenantId,
+          deposit,
+          modernBookingInvoice,
+          command,
+          userId,
+        );
+      }
       await tx.roomHold.updateMany({
         where: { tenantId, depositId: deposit.id, rentalCycleId: deposit.rentalCycleId, status: RoomHoldStatus.ACTIVE },
         data: {
@@ -1187,6 +1350,7 @@ export class DepositCoreService {
             : cancellationEvent.replace(/\./g, '_').toUpperCase(),
           reason: command.input.reason,
           policyVersion: DEPOSIT_POLICY_VERSION,
+          ...(modernBookingInvoice ? { bookingDispositionJournalMode: 'LEDGER_V1' } : {}),
         },
       });
       if (plan.deductAmount > 0) {
@@ -1210,6 +1374,7 @@ export class DepositCoreService {
             eventKind: 'DEPOSIT_DEDUCTED',
             deductAmount: plan.deductAmount,
             suppressAdminNotification: true,
+            ...(modernBookingInvoice ? { bookingDispositionJournalMode: 'LEDGER_V1' } : {}),
           },
         });
       }
@@ -1926,7 +2091,7 @@ export class DepositCoreService {
         data: { status: ReceiptStatus.COMPLETED },
       });
       if (completedReceipt.count !== 1) throw new ConflictException('DEPOSIT_REFUND_CONCURRENT_UPDATE');
-      await tx.depositLedgerEntry.create({
+      const refundLedgerEntry = await tx.depositLedgerEntry.create({
         data: {
           tenantId,
           rentalCycleId: pending.rentalCycleId,
@@ -1942,6 +2107,32 @@ export class DepositCoreService {
           createdBy: userId,
         },
       });
+
+      const bookingRefundDeposit = await tx.deposit.findFirst({
+        where: {
+          id: pending.sourceDepositId,
+          tenantId,
+          type: { in: [DepositType.BOOKING, DepositType.RESERVATION] },
+          deletedAt: null,
+        },
+        select: { id: true, contract: { select: { termsSnapshot: true } } },
+      });
+      const bookingRefundMarker = (bookingRefundDeposit?.contract?.termsSnapshot as any)?.bookingCommand;
+      const isModernBookingRefund = Boolean(
+        bookingRefundMarker &&
+        typeof bookingRefundMarker === 'object' &&
+        bookingRefundMarker.depositId === pending.sourceDepositId,
+      );
+      if (isModernBookingRefund) {
+        await this.enqueueBookingDispositionOutbox(
+          tx,
+          tenantId,
+          completion.id,
+          refundLedgerEntry.id,
+          pending.sourceDepositId,
+          this.toMoney(receipt.amount),
+        );
+      }
 
       const response = {
         operationId: completion.id,
@@ -1959,7 +2150,10 @@ export class DepositCoreService {
         sourceType: 'DEPOSIT',
         amount: this.toMoney(receipt.amount),
         occurredAt: new Date().toISOString(),
-        metadata: response,
+        metadata: {
+          ...response,
+          ...(isModernBookingRefund ? { bookingDispositionJournalMode: 'LEDGER_V1' } : {}),
+        },
       });
       await this.completeOperation(tx, tenantId, completion.id, response);
       await this.completeOperation(tx, tenantId, pending.id, {
@@ -2010,6 +2204,248 @@ export class DepositCoreService {
         createdBy: userId,
       },
     });
+  }
+
+  private async lockInvoiceForBookingCancellation(
+    tx: TransactionClient,
+    tenantId: string,
+    invoiceId: string,
+  ) {
+    const rows = await tx.$queryRaw(
+      Prisma.sql`SELECT "id" FROM "Invoice" WHERE "tenantId" = ${tenantId} AND "id" = ${invoiceId} AND "deletedAt" IS NULL FOR UPDATE`,
+    ) as Array<{ id: string }>;
+    if (!rows?.length) throw new ConflictException('BOOKING_HOLD_INVOICE_SETTLEMENT_SCOPE_INVALID');
+  }
+
+  private async lockAndValidateBookingCancellationInvoice(
+    tx: TransactionClient,
+    tenantId: string,
+    deposit: any,
+    availableBalance: number,
+    lockedInvoiceId: string | null,
+  ) {
+    if (![DepositType.BOOKING, DepositType.RESERVATION].includes(deposit.type)) return null;
+    const marker = (deposit.contract?.termsSnapshot as any)?.bookingCommand;
+    const hasMarker = Boolean(
+      deposit.contract?.termsSnapshot &&
+      typeof deposit.contract.termsSnapshot === 'object' &&
+      Object.prototype.hasOwnProperty.call(deposit.contract.termsSnapshot, 'bookingCommand'),
+    );
+    if (!hasMarker) {
+      if (lockedInvoiceId) {
+        throw new ConflictException('BOOKING_HOLD_INVOICE_MARKER_INVALID');
+      }
+      return null;
+    }
+    const invoiceId = String(marker?.invoiceId || '').trim();
+    if (
+      !marker ||
+      typeof marker !== 'object' ||
+      !invoiceId ||
+      invoiceId !== lockedInvoiceId ||
+      marker.depositId !== deposit.id
+    ) {
+      throw new ConflictException('BOOKING_HOLD_INVOICE_MARKER_INVALID');
+    }
+    const invoice = await tx.invoice.findFirst({
+      where: { id: invoiceId, tenantId, deletedAt: null },
+      select: {
+        id: true, tenantId: true, contractId: true, rentalCycleId: true, customerId: true,
+        total: true, paidAmount: true, creditAmount: true, status: true, billingKind: true,
+        adjustmentOfInvoiceId: true, dueDate: true, period: true, usagePeriod: true,
+        contract: { select: { id: true, tenantId: true, customerId: true, rentalCycleId: true, roomId: true, termsSnapshot: true } },
+      },
+    });
+    const invoiceMarker = (invoice?.contract?.termsSnapshot as any)?.bookingCommand;
+    const existingAdjustmentCount = invoice
+      ? await tx.invoice.count({
+          where: {
+            tenantId,
+            deletedAt: null,
+            adjustmentOfInvoiceId: invoice.id,
+            status: { not: 'DRAFT' as any },
+          },
+        })
+      : 0;
+    if (
+      !invoice ||
+      invoice.billingKind !== 'BOOKING_HOLD' ||
+      invoice.adjustmentOfInvoiceId ||
+      !['ISSUED', 'PARTIALLY_PAID', 'PAID', 'OVERDUE'].includes(String(invoice.status)) ||
+      this.toMoney(invoice.creditAmount || 0) !== 0 ||
+      invoice.contractId !== deposit.contractId ||
+      invoice.rentalCycleId !== deposit.rentalCycleId ||
+      invoice.customerId !== deposit.customerId ||
+      invoice.contract?.tenantId !== tenantId ||
+      invoice.contract?.roomId !== deposit.roomId ||
+      invoiceMarker?.invoiceId !== invoice.id ||
+      invoiceMarker?.depositId !== deposit.id ||
+      existingAdjustmentCount > 0 ||
+      this.toMoney(invoice.total) !== this.toMoney(deposit.amount) ||
+      this.toMoney(invoice.paidAmount) !== this.toMoney(availableBalance)
+    ) {
+      throw new ConflictException('BOOKING_HOLD_INVOICE_SETTLEMENT_SCOPE_INVALID');
+    }
+    // Lock every hold row only after invoice and deposit; expiry itself is a
+    // release-only operation and never reverses the money already collected.
+    await tx.$queryRaw(
+      Prisma.sql`SELECT "id" FROM "RoomHold" WHERE "tenantId" = ${tenantId} AND "depositId" = ${deposit.id} AND "rentalCycleId" = ${deposit.rentalCycleId} FOR UPDATE`,
+    );
+    return invoice;
+  }
+
+  private async closeModernBookingInvoiceForCancellation(
+    tx: TransactionClient,
+    tenantId: string,
+    deposit: any,
+    invoice: any,
+    command: { idempotencyKey: string; requestHash: string; input: CancelDepositCommand },
+    userId: string,
+  ) {
+    const unpaidRemaining = this.toMoney(Number(invoice.total) - Number(invoice.paidAmount) - Number(invoice.creditAmount || 0));
+    const adjustmentKey = `booking-cancel:${deposit.id}`;
+    const adjustmentHash = createHash('sha256')
+      .update(`${tenantId}:${invoice.id}:${deposit.id}:${unpaidRemaining}`)
+      .digest('hex');
+    const existingAdjustmentCount = await tx.invoice.count({
+      where: {
+        tenantId,
+        deletedAt: null,
+        adjustmentOfInvoiceId: invoice.id,
+        status: { not: 'DRAFT' as any },
+      },
+    });
+    if (existingAdjustmentCount > 0) {
+      throw new ConflictException('BOOKING_HOLD_CANCELLATION_ADJUSTMENT_CONFLICT');
+    }
+    let adjustment: any = await tx.invoice.findFirst({
+      where: { tenantId, adjustmentIdempotencyKey: adjustmentKey, deletedAt: null },
+      select: { id: true, adjustmentOfInvoiceId: true, billingKind: true, total: true, status: true, adjustmentRequestHash: true },
+    });
+    if (adjustment) {
+      if (
+        adjustment.adjustmentOfInvoiceId !== invoice.id ||
+        adjustment.billingKind !== 'CREDIT_ADJUSTMENT' ||
+        this.toMoney(adjustment.total) !== unpaidRemaining ||
+        adjustment.adjustmentRequestHash !== adjustmentHash
+      ) {
+        throw new ConflictException('BOOKING_HOLD_CANCELLATION_ADJUSTMENT_CONFLICT');
+      }
+    } else if (unpaidRemaining > 0) {
+      const code = `ADJ-CANCEL-${createHash('sha256').update(`${tenantId}:${adjustmentKey}`).digest('hex').slice(0, 12).toUpperCase()}`;
+      adjustment = await tx.invoice.create({
+        data: {
+          tenantId,
+          contractId: invoice.contractId,
+          rentalCycleId: invoice.rentalCycleId,
+          customerId: invoice.customerId,
+          code,
+          period: invoice.period,
+          usagePeriod: invoice.usagePeriod,
+          dueDate: invoice.dueDate,
+          subtotal: unpaidRemaining,
+          discount: 0,
+          total: unpaidRemaining,
+          paidAmount: 0,
+          creditAmount: 0,
+          billingKind: 'CREDIT_ADJUSTMENT',
+          adjustmentOfInvoiceId: invoice.id,
+          adjustmentReason: `Booking hold cancellation: ${command.input.reason}`,
+          adjustmentCreatedBy: userId,
+          adjustmentRequestHash: adjustmentHash,
+          adjustmentIdempotencyKey: adjustmentKey,
+          // Item insertion is only legal while an adjustment is a draft.
+          // The forward DB guard verifies the canonical booking scope again
+          // when this exact record transitions to ISSUED below.
+          status: 'DRAFT',
+          items: {
+            create: [{
+              tenantId,
+              type: 'OTHER',
+              description: 'Internal closure of unpaid booking hold balance',
+              servicePeriod: invoice.period || 'BOOKING_HOLD',
+              quantity: 1,
+              unitPrice: unpaidRemaining,
+              amount: unpaidRemaining,
+            }],
+          },
+        },
+      });
+      const issued = await tx.invoice.updateMany({
+        where: {
+          id: adjustment.id,
+          tenantId,
+          deletedAt: null,
+          status: 'DRAFT' as any,
+          adjustmentOfInvoiceId: invoice.id,
+          adjustmentIdempotencyKey: adjustmentKey,
+          adjustmentRequestHash: adjustmentHash,
+        },
+        data: { status: 'ISSUED' as any },
+      });
+      if (issued.count !== 1) throw new ConflictException('BOOKING_HOLD_CANCELLATION_ADJUSTMENT_CONFLICT');
+      adjustment = { ...adjustment, status: 'ISSUED' };
+      await tx.auditLog.create({
+        data: {
+          tenantId, userId, module: 'DepositsCore', entity: 'InvoiceAdjustment', entityId: adjustment.id, action: 'CREATE',
+          after: { baseInvoiceId: invoice.id, depositId: deposit.id, type: 'CREDIT_ADJUSTMENT', total: unpaidRemaining, internalBookingCancellation: true },
+        },
+      });
+      await tx.outboxEvent.create({
+        data: {
+          tenantId, aggregateType: 'Invoice', aggregateId: adjustment.id,
+          eventName: 'invoice.booking_hold.cancelled',
+          payload: { tenantId, invoiceId: invoice.id, adjustmentInvoiceId: adjustment.id, depositId: deposit.id, unpaidRemaining, internalBookingCancellation: true },
+          idempotencyKey: `booking-cancel-adjustment:${deposit.id}`,
+        },
+      });
+    }
+    const promiseModel = (tx as any).paymentPromise;
+    if (promiseModel?.updateMany) {
+      await promiseModel.updateMany({
+        where: { tenantId, invoiceId: invoice.id, status: { in: ['PENDING', 'OVERDUE'] as any } },
+        data: { status: 'CANCELLED' as any, resolvedAt: new Date() },
+      });
+    }
+  }
+
+  private async assertZeroFundedModernBookingCancellation(
+    tx: TransactionClient,
+    tenantId: string,
+    deposit: any,
+    invoice: any,
+    input: CancelDepositCommand,
+  ) {
+    const requestedAmounts = [input.refundAmount, input.keepAmount, input.deductAmount]
+      .map((value) => this.toMoney(value || 0));
+    if (
+      this.toMoney(invoice.total) <= 0 ||
+      this.toMoney(invoice.paidAmount) !== 0 ||
+      this.toMoney(invoice.creditAmount || 0) !== 0 ||
+      !['ISSUED', 'OVERDUE'].includes(String(invoice.status)) ||
+      requestedAmounts.some((value) => value !== 0)
+    ) {
+      throw new ConflictException('BOOKING_HOLD_ZERO_FUNDED_CANCELLATION_INVALID');
+    }
+    const [confirmedPayments, allocations, positiveCashIn] = await Promise.all([
+      tx.payment.count({
+        where: { tenantId, invoiceId: invoice.id, status: 'CONFIRMED', deletedAt: null },
+      }),
+      tx.paymentAllocation.count({
+        where: { tenantId, invoiceId: invoice.id },
+      }),
+      tx.depositLedgerEntry.count({
+        where: {
+          tenantId,
+          depositId: deposit.id,
+          type: DepositLedgerEntryType.CASH_IN,
+          balanceEffect: { gt: 0 },
+        },
+      }),
+    ]);
+    if (confirmedPayments > 0 || allocations > 0 || positiveCashIn > 0) {
+      throw new ConflictException('BOOKING_HOLD_ZERO_FUNDED_CANCELLATION_INVALID');
+    }
   }
 
   private async resolveSecurityDeposit(tx: TransactionClient, tenantId: string, booking: any, operationId: string, securityDepositId: string | null | undefined, contractId: string | null, requiredAmount: number) {
@@ -2246,6 +2682,37 @@ export class DepositCoreService {
         eventName,
         payload,
         idempotencyKey: `deposit-operation:${operationId}:${eventName}`,
+      },
+    });
+  }
+
+  private async enqueueBookingDispositionOutbox(
+    tx: TransactionClient,
+    tenantId: string,
+    operationId: string,
+    ledgerId: string,
+    depositId: string,
+    amount: number,
+  ) {
+    if (this.toMoney(amount) <= 0) return;
+    await tx.outboxEvent.create({
+      data: {
+        tenantId,
+        aggregateType: 'DepositLedgerEntry',
+        aggregateId: ledgerId,
+        eventName: 'deposit.booking_disposition',
+        payload: {
+          tenantId,
+          sourceType: 'DEPOSIT',
+          sourceId: depositId,
+          amount: this.toMoney(amount),
+          metadata: {
+            bookingDispositionLedgerId: ledgerId,
+            bookingDispositionOperationId: operationId,
+            bookingDispositionJournalMode: 'LEDGER_V1',
+          },
+        },
+        idempotencyKey: `deposit-booking-disposition:${ledgerId}`,
       },
     });
   }

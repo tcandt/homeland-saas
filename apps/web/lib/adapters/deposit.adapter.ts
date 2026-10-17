@@ -7,6 +7,8 @@ export interface UI_Deposit {
   status: string;
   amount: number;
   availableBalance?: number;
+  bookingInvoice?: DepositResponse["bookingInvoice"];
+  bookingHold?: DepositResponse["bookingHold"];
   sepayPendingReviewAmount?: number;
   reconciliationError?: string | null;
   pendingOperationId?: string | null;
@@ -59,6 +61,8 @@ export const depositAdapter = {
       status: apiDeposit.status,
       amount: Number(apiDeposit.amount) || 0,
       availableBalance: Number.isFinite(availableBalance) ? availableBalance : undefined,
+      bookingInvoice: apiDeposit.bookingInvoice || null,
+      bookingHold: apiDeposit.bookingHold || null,
       sepayPendingReviewAmount: Number(apiDeposit.sepayPendingReviewAmount || 0),
       reconciliationError: apiDeposit.reconciliationError || null,
       pendingOperationId: apiDeposit.pendingOperationId ?? apiDeposit.refundSummary?.operationId ?? null,

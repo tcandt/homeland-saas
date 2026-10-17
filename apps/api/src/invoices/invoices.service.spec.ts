@@ -27,6 +27,7 @@ describe("InvoicesService", () => {
           findFirst: vi.fn(),
           findFirstOrThrow: vi.fn(),
           findMany: vi.fn(),
+          count: vi.fn().mockResolvedValue(0),
           findUniqueOrThrow: vi.fn(),
           update: vi.fn(),
           updateMany: vi.fn().mockResolvedValue({ count: 1 }),
@@ -38,6 +39,7 @@ describe("InvoicesService", () => {
           create: vi.fn(),
           findMany: vi.fn().mockResolvedValue([]),
         },
+        depositLedgerEntry: { aggregate: vi.fn().mockResolvedValue({ _sum: { balanceEffect: 0 } }) },
         contract: { findFirst: vi.fn() },
         customer: { findFirst: vi.fn() },
         room: { findFirst: vi.fn() },
@@ -151,6 +153,33 @@ describe("InvoicesService", () => {
     it("requires a tenant before reading financial documents", async () => {
       await expect(service.listDepositBillingDocuments("", 1, 20)).rejects.toThrow("TENANT_REQUIRED");
     });
+  });
+
+  it('projects credit-adjusted family totals only for booking-hold roots', async () => {
+    const bookingRoot = {
+      id: 'booking-root', billingKind: 'BOOKING_HOLD', adjustmentOfInvoiceId: null,
+      total: 1_000_000, paidAmount: 400_000, creditAmount: 0, status: 'PARTIALLY_PAID',
+    };
+    const ordinaryInvoice = {
+      id: 'ordinary-root', billingKind: 'ENTRY', adjustmentOfInvoiceId: null,
+      total: 1_000_000, paidAmount: 0, creditAmount: 0, status: 'ISSUED',
+    };
+    repository.paginate.mockResolvedValue({ data: [bookingRoot, ordinaryInvoice], meta: { total: 2 } });
+    prisma.tx.invoice.findMany.mockResolvedValue([
+      { adjustmentOfInvoiceId: 'booking-root', billingKind: 'CREDIT_ADJUSTMENT', total: 600_000 },
+    ]);
+    prisma.paymentRequest = { findMany: vi.fn().mockResolvedValue([]) };
+
+    const result: any = await service.listInvoices(
+      1, 20, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, 'tenant-1',
+    );
+
+    expect(prisma.tx.invoice.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ adjustmentOfInvoiceId: { in: ['booking-root'] } }),
+    }));
+    expect(result.data[0].familyTotals).toMatchObject({ adjustedTotal: 400_000, remainingAmount: 0 });
+    expect(result.data[1].familyTotals).toBeUndefined();
   });
 
   describe("payment promises", () => {
@@ -662,6 +691,7 @@ describe("InvoicesService", () => {
           id: invoice.id,
           adjustmentOfInvoiceId: invoice.adjustmentOfInvoiceId || null,
         })
+        .mockResolvedValueOnce(invoice)
         .mockResolvedValueOnce(invoice);
       prisma.tx.invoice.findMany.mockResolvedValue([
         {
@@ -730,6 +760,7 @@ describe("InvoicesService", () => {
         tenantId: "tenant-1",
         customerId: "customer-1",
         rentalCycleId: "booking-cycle-1",
+        status: "DRAFT",
         termsSnapshot: {
           bookingCommand: { depositId: "booking-deposit-1", invoiceId: "booking-invoice-1" },
         },
@@ -823,26 +854,31 @@ describe("InvoicesService", () => {
       expect(collectInTransaction).not.toHaveBeenCalled();
     });
 
-    it("collects the exact booking deposit once after 400k then 600k cash payments", async () => {
+    it("funds the booking deposit once for each confirmed 400k then 600k cash payment", async () => {
       const collectInTransaction = vi.fn().mockResolvedValue({ depositId: "booking-deposit-1" });
       (service as any).depositCoreService = { collectInTransaction };
-      prisma.tx.deposit = { findFirst: vi.fn().mockResolvedValue({ id: "booking-deposit-1", amount: 1_000_000 }) };
+      prisma.tx.deposit = { findFirst: vi.fn().mockResolvedValue({ id: "booking-deposit-1", amount: 1_000_000, status: "PENDING", roomId: "room-1" }) };
       prisma.tx.payment.create.mockResolvedValue({ id: "booking-payment-1", paidAt: new Date("2026-09-29") });
 
       mockPaymentTarget(bookingHoldInvoice());
       await expect(service.pay("booking-invoice-1", 400_000, "MANUAL", "booking-cash-400", "user-1", "tenant-1"))
         .resolves.toMatchObject({ status: InvoiceStatus.PARTIALLY_PAID, paidAmount: 400_000 });
-      expect(collectInTransaction).not.toHaveBeenCalled();
+      expect(collectInTransaction).toHaveBeenCalledWith(
+        prisma.tx, "tenant-1", "booking-deposit-1",
+        expect.objectContaining({ notificationContext: expect.objectContaining({ paymentAmount: 400_000, priorInvoicePaidAmount: 0, bookingInvoiceInstallment: true }) }),
+        "user-1",
+      );
 
       mockPaymentTarget(bookingHoldInvoice(InvoiceStatus.PARTIALLY_PAID, 400_000));
+      prisma.tx.depositLedgerEntry.aggregate.mockResolvedValueOnce({ _sum: { balanceEffect: 400_000 } });
       await expect(service.pay("booking-invoice-1", 600_000, "MANUAL", "booking-cash-600", "user-1", "tenant-1"))
         .resolves.toMatchObject({ status: InvoiceStatus.PAID, paidAmount: 1_000_000 });
-      expect(collectInTransaction).toHaveBeenCalledTimes(1);
+      expect(collectInTransaction).toHaveBeenCalledTimes(2);
       expect(collectInTransaction).toHaveBeenCalledWith(
         prisma.tx,
         "tenant-1",
         "booking-deposit-1",
-        expect.objectContaining({ idempotencyKey: "booking-invoice:booking-invoice-1:deposit-funding" }),
+        expect.objectContaining({ notificationContext: expect.objectContaining({ paymentAmount: 600_000, priorInvoicePaidAmount: 400_000, bookingInvoiceInstallment: true }) }),
         "user-1",
       );
     });
@@ -855,7 +891,7 @@ describe("InvoicesService", () => {
 
       await expect(service.pay(invoice.id, 1_000_000, "MANUAL", "booking-mismatch-1", "user-1", "tenant-1"))
         .rejects.toThrow("BOOKING_HOLD_INVOICE_SETTLEMENT_SCOPE_INVALID");
-      expect(prisma.tx.deposit.findFirst).toHaveBeenCalledWith({
+      expect(prisma.tx.deposit.findFirst).toHaveBeenCalledWith(expect.objectContaining({
         where: expect.objectContaining({
           id: "booking-deposit-1",
           tenantId: "tenant-1",
@@ -863,8 +899,32 @@ describe("InvoicesService", () => {
           customerId: "customer-1",
           rentalCycleId: "booking-cycle-1",
         }),
-        select: { id: true, amount: true },
+        select: expect.objectContaining({ id: true, amount: true }),
+      }));
+      expect(prisma.tx.payment.create).not.toHaveBeenCalled();
+    });
+
+    it("rejects a modern booking installment for a draft deposit or active contract", async () => {
+      const invoice = bookingHoldInvoice();
+      mockPaymentTarget(invoice);
+      prisma.tx.deposit = { findFirst: vi.fn().mockResolvedValue({
+        id: "booking-deposit-1", amount: 1_000_000, status: "DRAFT", roomId: "room-1",
+      }) };
+      (service as any).depositCoreService = { collectInTransaction: vi.fn() };
+
+      await expect(service.pay(invoice.id, 400_000, "MANUAL", "booking-draft-deposit", "user-1", "tenant-1"))
+        .rejects.toThrow("BOOKING_HOLD_INVOICE_SETTLEMENT_SCOPE_INVALID");
+      expect(prisma.tx.payment.create).not.toHaveBeenCalled();
+
+      const activeInvoice = bookingHoldInvoice();
+      activeInvoice.contract.status = "ACTIVE";
+      prisma.tx.invoice.findFirst.mockReset();
+      mockPaymentTarget(activeInvoice);
+      prisma.tx.deposit.findFirst.mockResolvedValue({
+        id: "booking-deposit-1", amount: 1_000_000, status: "PENDING", roomId: "room-1",
       });
+      await expect(service.pay(activeInvoice.id, 400_000, "MANUAL", "booking-active-contract", "user-1", "tenant-1"))
+        .rejects.toThrow("BOOKING_HOLD_INVOICE_SETTLEMENT_SCOPE_INVALID");
       expect(prisma.tx.payment.create).not.toHaveBeenCalled();
     });
 
@@ -882,7 +942,7 @@ describe("InvoicesService", () => {
     it("propagates booking cash-in failure so the payment transaction rolls back", async () => {
       const invoice = bookingHoldInvoice();
       mockPaymentTarget(invoice);
-      prisma.tx.deposit = { findFirst: vi.fn().mockResolvedValue({ id: "booking-deposit-1", amount: 1_000_000 }) };
+      prisma.tx.deposit = { findFirst: vi.fn().mockResolvedValue({ id: "booking-deposit-1", amount: 1_000_000, status: "PENDING", roomId: "room-1" }) };
       const collectInTransaction = vi.fn().mockRejectedValue(new ConflictException("BOOKING_HOLD_INVOICE_SETTLEMENT_SCOPE_INVALID"));
       (service as any).depositCoreService = { collectInTransaction };
       prisma.tx.payment.create.mockResolvedValue({ id: "booking-payment-fail", paidAt: new Date("2026-09-29") });
@@ -964,6 +1024,9 @@ describe("InvoicesService", () => {
         expect.objectContaining({
           data: expect.objectContaining({
             eventName: "invoice.payment.recorded",
+            payload: expect.objectContaining({
+              metadata: expect.objectContaining({ paymentJournalIdentity: "PAYMENT_V1" }),
+            }),
           }),
         }),
       );
@@ -997,6 +1060,7 @@ describe("InvoicesService", () => {
       );
 
       expect(result.status).toBe(InvoiceStatus.PAID);
+      expect(result).not.toHaveProperty("paymentJournalIdentity");
       expect(prisma.tx.outboxEvent.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
@@ -1004,6 +1068,7 @@ describe("InvoicesService", () => {
             payload: expect.objectContaining({
               sourceId: "inv-1",
               amount: 100,
+              metadata: expect.objectContaining({ paymentJournalIdentity: "PAYMENT_V1" }),
             }),
           }),
         }),

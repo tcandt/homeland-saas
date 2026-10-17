@@ -310,6 +310,33 @@ export class InvoicesService extends BaseCrudService<Invoice> {
         );
     const invoiceIds = result.data.map((invoice: any) => invoice.id);
     if (invoiceIds.length > 0) {
+      const bookingHoldRootIds = result.data
+        .filter((invoice: any) =>
+          String(invoice.billingKind || '').toUpperCase() === 'BOOKING_HOLD' &&
+          !invoice.adjustmentOfInvoiceId,
+        )
+        .map((invoice: any) => invoice.id);
+      const adjustments = tenantId
+        && bookingHoldRootIds.length > 0
+        ? await this.prisma.tx.invoice.findMany({
+            where: {
+              tenantId,
+              deletedAt: null,
+              adjustmentOfInvoiceId: { in: bookingHoldRootIds },
+              status: { not: InvoiceStatus.DRAFT },
+            },
+            select: { adjustmentOfInvoiceId: true, billingKind: true, total: true },
+          })
+        : [];
+      const adjustmentsByRoot = new Map<string, { debit: number; credit: number }>();
+      for (const adjustment of adjustments) {
+        const rootId = String(adjustment.adjustmentOfInvoiceId || '');
+        if (!rootId) continue;
+        const totals = adjustmentsByRoot.get(rootId) || { debit: 0, credit: 0 };
+        if (adjustment.billingKind === 'DEBIT_ADJUSTMENT') totals.debit += Number(adjustment.total || 0);
+        if (adjustment.billingKind === 'CREDIT_ADJUSTMENT') totals.credit += Number(adjustment.total || 0);
+        adjustmentsByRoot.set(rootId, totals);
+      }
       const requests = await this.prisma.paymentRequest.findMany({
         where: {
           tenantId,
@@ -394,6 +421,20 @@ export class InvoicesService extends BaseCrudService<Invoice> {
         requestsByInvoice.set(request.sourceId, list);
       }
       for (const invoice of result.data as any[]) {
+        const isBookingHoldRoot = bookingHoldRootIds.includes(invoice.id);
+        const adjustmentTotals = adjustmentsByRoot.get(invoice.id) || { debit: 0, credit: 0 };
+        const adjustedTotal = this.toMoney(Number(invoice.total || 0) + adjustmentTotals.debit - adjustmentTotals.credit);
+        if (isBookingHoldRoot) {
+          invoice.familyTotals = {
+            rootInvoiceId: invoice.id,
+            baseTotal: this.toMoney(invoice.total || 0),
+            debitAdjustmentTotal: this.toMoney(adjustmentTotals.debit),
+            creditAdjustmentTotal: this.toMoney(adjustmentTotals.credit),
+            adjustedTotal,
+            remainingAmount: this.toMoney(Math.max(0, adjustedTotal - Number(invoice.paidAmount || 0))),
+            closureByAdjustment: adjustmentTotals.credit > 0,
+          };
+        }
         const paymentRequests = requestsByInvoice.get(invoice.id) || [];
         invoice.paymentRequests = paymentRequests;
         const pendingReviewReceivedAmount = paymentRequests.reduce(
@@ -1335,16 +1376,17 @@ export class InvoicesService extends BaseCrudService<Invoice> {
         newPaidAmount + creditAmount >= Number(invoice.total)
           ? InvoiceStatus.PAID
           : InvoiceStatus.PARTIALLY_PAID;
-      const bookingDeposit =
-        newStatus === InvoiceStatus.PAID && this.isBookingHoldInvoice(invoice)
-          ? await this.resolveBookingHoldDepositForCashSettlement(
-              tx,
-              tenantId,
-              invoice,
-              newPaidAmount,
-              creditAmount,
-            )
-          : null;
+      const bookingDeposit = this.isBookingHoldInvoice(invoice)
+        ? await this.resolveBookingHoldDepositForInvoicePayment(
+            tx,
+            tenantId,
+            invoice,
+            rootInvoiceId,
+            this.toMoney(invoice.paidAmount),
+            amount,
+            creditAmount,
+          )
+        : null;
       const claimed = await tx.invoice.updateMany({
         where: {
           id,
@@ -1401,13 +1443,18 @@ export class InvoicesService extends BaseCrudService<Invoice> {
       if (bookingDeposit) {
         if (!this.depositCoreService) throw new ConflictException("DEPOSIT_CORE_UNAVAILABLE");
         await this.depositCoreService.collectInTransaction(tx, tenantId, bookingDeposit.id, {
-          idempotencyKey: `booking-invoice:${id}:deposit-funding`,
+          idempotencyKey: `booking-invoice:${id}:${payment.id}`,
           notificationContext: {
             linkedInvoicePayment: true,
             sourceInvoiceId: id,
             suppressCustomerZaloConfirmation: true,
             paymentProvider: normalizedProvider,
             paymentRef: normalizedProviderRef,
+            bookingInvoiceInstallment: true,
+            paymentId: payment.id,
+            paymentAmount: amount,
+            paidAt: payment.paidAt,
+            priorInvoicePaidAmount: this.toMoney(invoice.paidAmount),
           },
         }, userId);
       }
@@ -1769,6 +1816,7 @@ export class InvoicesService extends BaseCrudService<Invoice> {
         grossTotal: Number(result.total),
         creditAmount,
         paymentStatus: status,
+        paymentJournalIdentity: 'PAYMENT_V1',
         billingKind: invoice.billingKind || null,
         bookingHoldDepositInvoice: this.isBookingHoldInvoice(invoice),
         roomRentalType: invoice.contract?.room?.rentalType || null,
@@ -1825,11 +1873,17 @@ export class InvoicesService extends BaseCrudService<Invoice> {
     return period === "cọc giữ phòng" || billingKind === "BOOKING_HOLD" || billingKind === "BOOKING_DEPOSIT";
   }
 
-  private async resolveBookingHoldDepositForCashSettlement(
+  private isBookingHoldPreActiveContract(contract: any) {
+    return ['DRAFT', 'PENDING_APPROVAL', 'APPROVED'].includes(String(contract?.status || ''));
+  }
+
+  private async resolveBookingHoldDepositForInvoicePayment(
     tx: InvoiceTransactionClient,
     tenantId: string,
     invoice: any,
-    paidAmount: number,
+    rootInvoiceId: string,
+    priorPaidAmount: number,
+    paymentAmount: number,
     creditAmount: number,
   ) {
     const contract = invoice.contract;
@@ -1841,13 +1895,23 @@ export class InvoicesService extends BaseCrudService<Invoice> {
       contract.id !== invoice.contractId ||
       contract.customerId !== invoice.customerId ||
       contract.rentalCycleId !== invoice.rentalCycleId ||
+      !this.isBookingHoldPreActiveContract(contract) ||
+      rootInvoiceId !== invoice.id ||
       marker?.invoiceId !== invoice.id ||
       !depositId ||
       creditAmount !== 0 ||
-      this.toMoney(paidAmount) !== this.toMoney(invoice.total)
+      this.toMoney(paymentAmount) <= 0 ||
+      this.toMoney(priorPaidAmount + paymentAmount) > this.toMoney(invoice.total)
     ) {
       throw new ConflictException("BOOKING_HOLD_INVOICE_SETTLEMENT_SCOPE_INVALID");
     }
+    const adjustmentCount = await tx.invoice.count({
+      where: { tenantId, deletedAt: null, adjustmentOfInvoiceId: invoice.id },
+    });
+    if (adjustmentCount > 0) {
+      throw new ConflictException("BOOKING_HOLD_INVOICE_SETTLEMENT_SCOPE_INVALID");
+    }
+    await this.lockDepositForBookingInvoice(tx, tenantId, depositId);
     const deposit = await (tx as any).deposit?.findFirst?.({
       where: {
         id: depositId,
@@ -1858,12 +1922,80 @@ export class InvoicesService extends BaseCrudService<Invoice> {
         type: { in: ["BOOKING", "RESERVATION"] as any },
         deletedAt: null,
       },
-      select: { id: true, amount: true },
+      select: { id: true, amount: true, status: true, roomId: true },
     });
-    if (!deposit || this.toMoney(deposit.amount) !== this.toMoney(invoice.total)) {
+    if (
+      !deposit ||
+      String(deposit.status || "") !== "PENDING" ||
+      this.toMoney(deposit.amount) !== this.toMoney(invoice.total)
+    ) {
+      throw new ConflictException("BOOKING_HOLD_INVOICE_SETTLEMENT_SCOPE_INVALID");
+    }
+    const ledger = await (tx as any).depositLedgerEntry.aggregate({
+      where: { tenantId, depositId },
+      _sum: { balanceEffect: true },
+    });
+    if (this.toMoney(ledger?._sum?.balanceEffect || 0) !== this.toMoney(priorPaidAmount)) {
+      throw new ConflictException("BOOKING_HOLD_INVOICE_SETTLEMENT_SCOPE_INVALID");
+    }
+    await this.lockActiveBookingHoldForPayment(
+      tx,
+      tenantId,
+      depositId,
+      invoice.rentalCycleId,
+      deposit.roomId,
+    );
+    const lockedInvoice = await tx.invoice.findFirst({
+      where: { id: invoice.id, tenantId, deletedAt: null },
+      select: {
+        id: true, paidAmount: true, total: true, creditAmount: true, status: true,
+        contract: { select: { termsSnapshot: true } },
+      },
+    });
+    const lockedMarker = (lockedInvoice?.contract?.termsSnapshot as any)?.bookingCommand;
+    if (
+      !lockedInvoice ||
+      lockedMarker?.invoiceId !== invoice.id ||
+      lockedMarker?.depositId !== depositId ||
+      this.toMoney(lockedInvoice.total) !== this.toMoney(invoice.total) ||
+      this.toMoney(lockedInvoice.paidAmount) !== this.toMoney(priorPaidAmount) ||
+      this.toMoney(lockedInvoice.creditAmount || 0) !== 0 ||
+      !['ISSUED', 'PARTIALLY_PAID', 'OVERDUE'].includes(String(lockedInvoice.status))
+    ) {
       throw new ConflictException("BOOKING_HOLD_INVOICE_SETTLEMENT_SCOPE_INVALID");
     }
     return deposit;
+  }
+
+  private async lockDepositForBookingInvoice(
+    tx: InvoiceTransactionClient,
+    tenantId: string,
+    depositId: string,
+  ) {
+    const rows = (await tx.$queryRaw(
+      Prisma.sql`SELECT "id" FROM "Deposit" WHERE "tenantId" = ${tenantId} AND "id" = ${depositId} AND "deletedAt" IS NULL FOR UPDATE`,
+    )) as Array<{ id: string }>;
+    if (!rows?.length) throw new ConflictException("BOOKING_HOLD_INVOICE_SETTLEMENT_SCOPE_INVALID");
+  }
+
+  private async lockActiveBookingHoldForPayment(
+    tx: InvoiceTransactionClient,
+    tenantId: string,
+    depositId: string,
+    rentalCycleId: string | null | undefined,
+    roomId: string,
+  ) {
+    const rows = (await tx.$queryRaw(
+      Prisma.sql`SELECT "id" FROM "RoomHold"
+        WHERE "tenantId" = ${tenantId}
+          AND "depositId" = ${depositId}
+          AND "rentalCycleId" = ${rentalCycleId || ''}
+          AND "roomId" = ${roomId}
+          AND "status" = 'ACTIVE'
+          AND "expiresAt" > clock_timestamp()
+        ORDER BY "createdAt" DESC LIMIT 1 FOR UPDATE`,
+    )) as Array<{ id: string }>;
+    if (!rows?.length) throw new ConflictException("BOOKING_HOLD_NOT_ACTIVE_FOR_PAYMENT");
   }
 
   private async getFamilyFinancialState(

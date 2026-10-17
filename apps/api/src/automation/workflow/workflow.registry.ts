@@ -2,6 +2,23 @@ import { WorkflowDefinition } from '../automation.types';
 
 export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
   {
+    name: 'deposit.booking_disposition.workflow',
+    description: 'Post one verified modern booking disposition ledger entry',
+    triggerEvent: 'deposit.booking_disposition',
+    steps: [
+      {
+        name: 'Create Journal Entry',
+        type: 'CREATE_JOURNAL_ENTRY',
+        order: 1,
+      },
+      {
+        name: 'Invalidate Finance Cache',
+        type: 'INVALIDATE_FINANCE_CACHE',
+        order: 2,
+      },
+    ],
+  },
+  {
     name: 'deposit.created.workflow',
     description: 'Process a newly created deposit',
     triggerEvent: 'deposit.created',

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { apiClient } from "../../lib/api/client";
 import { depositsApi } from "../../lib/api/deposits.api";
 import { contractsApi } from "../../lib/api/contracts.api";
-import { buildCancelDepositPayload } from "../../lib/mutations/deposits.mutations";
+import { buildCancelDepositPayload, getDepositCancellationRoute } from "../../lib/mutations/deposits.mutations";
 
 describe("CORE-04/05: deposit command contracts and money invariants", () => {
   beforeEach(() => {
@@ -10,6 +10,26 @@ describe("CORE-04/05: deposit command contracts and money invariants", () => {
   });
 
   describe("cancel allocation conservation", () => {
+    it("routes modern booking cancellations through CORE even when the ledger balance is zero", () => {
+      expect(getDepositCancellationRoute({ isPaid: false, isModernBooking: true })).toBe("CORE");
+      expect(getDepositCancellationRoute({ isPaid: false, isModernBooking: false })).toBe("LEGACY_UNPAID");
+    });
+
+    it("builds the exact zero-ledger CORE cancellation allocation", () => {
+      expect(buildCancelDepositPayload({
+        reason: "Hết hạn giữ phòng",
+        availableBalance: 0,
+        refundAmount: 0,
+        keepAmount: 0,
+        deductAmount: 0,
+      })).toEqual({
+        reason: "Hết hạn giữ phòng",
+        refundAmount: 0,
+        keepAmount: 0,
+        deductAmount: 0,
+        refundStatus: undefined,
+      });
+    });
     it("builds the production payload when allocations equal the ledger balance", () => {
       expect(
         buildCancelDepositPayload({

@@ -56,6 +56,13 @@ export class HealthController {
               AND finished_at IS NOT NULL
               AND rolled_back_at IS NULL
           )
+          AND EXISTS (
+            SELECT 1
+            FROM "_prisma_migrations"
+            WHERE migration_name = '20261017100000_booking_hold_cancel_adjustment_scope'
+              AND finished_at IS NOT NULL
+              AND rolled_back_at IS NULL
+          )
           AND NOT EXISTS (
             SELECT 1 FROM "_prisma_migrations"
             WHERE finished_at IS NULL AND rolled_back_at IS NULL

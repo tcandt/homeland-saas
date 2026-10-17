@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   X,
   CheckCircle2,
@@ -38,6 +39,7 @@ import {
   useConvertContractMutation,
   useCancelDepositMutation,
   useCancelUnpaidDepositMutation,
+  getDepositCancellationRoute,
 } from "../../lib/mutations/deposits.mutations";
 import { useDepositDetailQuery } from "../../lib/queries/deposits.queries";
 import { useToast } from "../ui/ToastContext";
@@ -50,7 +52,7 @@ import { Badge } from "../ui/Badge";
 import DepositQrModal from "./DepositQrModal";
 import { getTenantAvatar } from "../tenants/TenantDetailDrawer";
 import { RefundProofUploader } from "../common/RefundProofUploader";
-import { getBookingHoldState, getBookingRecoveryErrorMessage } from "@/lib/contracts/booking-conversion";
+import { getBookingHoldState, getBookingInvoiceCashPresentation, getBookingRecoveryErrorMessage } from "@/lib/contracts/booking-conversion";
 
 const currencyFormatter = new Intl.NumberFormat("vi-VN");
 const timelineStepTitleClass =
@@ -95,6 +97,7 @@ export default function OperationsDepositDrawer({
   onClose: () => void;
   onOpenContract?: (contract: { id: string }) => void;
 }) {
+  const router = useRouter();
   const { showToast } = useToast();
   const detailQuery = useDepositDetailQuery(deposit?.id ?? null);
   const detailDeposit = detailQuery.data?.data || deposit;
@@ -166,7 +169,8 @@ export default function OperationsDepositDrawer({
   const refundPending = !!refundSummary?.pending;
   const availableBalance = detailDeposit.availableBalance;
   const hasAuthoritativeBalance = Number.isFinite(availableBalance);
-  const coreDataUnavailable = detailQuery.isError || (detailQuery.isSuccess && !hasAuthoritativeBalance);
+  const hasAuthoritativeLedger = detailQuery.isSuccess && hasAuthoritativeBalance;
+  const coreDataUnavailable = !hasAuthoritativeLedger;
   const pendingOperationUnavailable = refundPending && !detailDeposit.pendingOperationId;
 
   const hasContractLink = Boolean(
@@ -176,6 +180,9 @@ export default function OperationsDepositDrawer({
   // Only allow standalone refund for room booking/holding deposits
   const isBookingDeposit =
     detailDeposit.type === "BOOKING" || detailDeposit.type === "RESERVATION";
+  const bookingInvoice = detailDeposit.bookingInvoice;
+  const isModernBooking = isBookingDeposit && Boolean(bookingInvoice?.id);
+  const bookingCash = getBookingInvoiceCashPresentation(bookingInvoice, amount);
   const isContractDeposit = !isBookingDeposit && hasContractLink;
   const avatarUrl = getTenantAvatar(
     (detailDeposit as any).customerAvatar || (detailDeposit as any).avatar,
@@ -184,12 +191,7 @@ export default function OperationsDepositDrawer({
   );
   const canRefundDirectly = !hasContractLink && isPaid;
 
-  const wasEverCollected =
-    isPaid ||
-    Boolean((detailDeposit as any).paidAt) ||
-    (hasAuthoritativeBalance && Number(availableBalance) > 0) ||
-    isRefunded ||
-    (isBookingDeposit && isConverted);
+  const hasInvoicePaidAmount = isModernBooking && Number.isFinite(Number(bookingInvoice?.paidAmount));
   const pendingReviewReceivedAmount = Math.max(
     0,
     Number(
@@ -201,14 +203,30 @@ export default function OperationsDepositDrawer({
   );
   const paymentRequestStatus = String(detailDeposit.paymentRequest?.status || "").toUpperCase();
   const paymentConfirmed = paymentRequestStatus === "CONFIRMED";
-  const receivedAmount = wasEverCollected
-    ? amount
-    : Math.min(amount, paymentConfirmed ? Number(detailDeposit.paymentRequest?.amount || 0) : pendingReviewReceivedAmount);
+  const receivedAmount = hasInvoicePaidAmount
+    ? bookingCash.paidAmount
+    : isPaid || Boolean((detailDeposit as any).paidAt) || isRefunded || isConverted
+      ? amount
+      : 0;
   const receivedAmountStr = formatCurrency(receivedAmount);
-  const hasPendingReviewReceived = !wasEverCollected && receivedAmount > 0;
+  const wasEverCollected = receivedAmount > 0;
+  const hasPendingReviewReceived = !wasEverCollected && pendingReviewReceivedAmount > 0;
   const awaitingReconciliation = paymentConfirmed && isDraft;
   const bookingHold = getBookingHoldState(detailDeposit);
   const bookingHoldReady = isConverted || bookingHold.isActive;
+  const requiresCoreCancellation = getDepositCancellationRoute({ isPaid, isModernBooking }) === "CORE";
+  const canConvertBooking = Boolean(
+    isModernBooking &&
+    hasAuthoritativeLedger &&
+    bookingInvoice &&
+    bookingCash.remainingAmount === 0 &&
+    bookingHold.isActive &&
+    !bookingHold.requiresRecovery &&
+    !bookingHold.fundedInvalidAggregate &&
+    !bookingHold.validPartialActive,
+  );
+  const canDirectCollect = hasAuthoritativeLedger && isDraft && !awaitingReconciliation && !isModernBooking &&
+    !bookingHold.requiresRecovery && !bookingHold.fundedInvalidAggregate;
   const paymentRequestCreated = Boolean(detailDeposit.paymentRequest?.id);
   const canShowVietQr = !isPaid && !isRefunded && !isCancelled && !isConverted && !paymentConfirmed;
 
@@ -292,6 +310,14 @@ export default function OperationsDepositDrawer({
 
   // --- Handlers ---
   const handleCollect = () => {
+    if (isModernBooking) {
+      showToast("Cọc giữ phòng này được thu qua hóa đơn liên kết; không xác nhận thu trực tiếp.", "error");
+      return;
+    }
+    if (bookingHold.requiresRecovery || bookingHold.fundedInvalidAggregate) {
+      showToast("Hồ sơ giữ phòng cần CORE kiểm tra trước khi có thể thu tiền.", "error");
+      return;
+    }
     if (paymentConfirmed) {
       showToast("Thanh toán đã xác nhận. Hệ thống đang tự động đồng bộ cọc; không thu lại tiền.", "error");
       return;
@@ -320,7 +346,7 @@ export default function OperationsDepositDrawer({
   };
 
   const openRefundModal = () => {
-    if (!hasAuthoritativeBalance || availableBalance === undefined) {
+    if (!hasAuthoritativeLedger || availableBalance === undefined) {
       showToast("Chưa tải được số dư cọc từ sổ ledger. Không thể hoàn tiền.", "error");
       return;
     }
@@ -381,7 +407,7 @@ export default function OperationsDepositDrawer({
   };
 
   const openCancelModal = () => {
-    if (isPaid && (!hasAuthoritativeBalance || availableBalance === undefined)) {
+    if (!detailQuery.isSuccess || (requiresCoreCancellation && (!hasAuthoritativeLedger || availableBalance === undefined))) {
       showToast("Chưa tải được số dư cọc từ sổ ledger. Không thể xử lý cọc.", "error");
       return;
     }
@@ -389,7 +415,7 @@ export default function OperationsDepositDrawer({
     setActionIdempotencyKey(createIdempotencyKey("cancel"));
     setCancelReason("");
     setCancelRefundAmount("");
-    setCancelKeepAmount(isPaid ? String(availableBalance) : "");
+    setCancelKeepAmount(requiresCoreCancellation ? String(availableBalance) : "");
     setCancelDeductAmount("");
     setCancelReceiptStatus("COMPLETED");
     setCancelAttachmentUrls([]);
@@ -403,7 +429,7 @@ export default function OperationsDepositDrawer({
       return;
     }
 
-    if (!isPaid) {
+    if (!requiresCoreCancellation) {
       cancelUnpaidMutation.mutate(
         {
           id: detailDeposit.id,
@@ -430,7 +456,7 @@ export default function OperationsDepositDrawer({
     const parsedKeep = Number(cancelKeepAmount) || 0;
     const parsedDeduct = Number(cancelDeductAmount) || 0;
     const totalAllocated = parsedRefund + parsedKeep + parsedDeduct;
-    if (!hasAuthoritativeBalance || availableBalance === undefined) {
+    if (!hasAuthoritativeLedger || availableBalance === undefined) {
       showToast("Chưa tải được số dư cọc từ sổ ledger. Không thể xử lý cọc.", "error");
       return;
     }
@@ -479,7 +505,7 @@ export default function OperationsDepositDrawer({
   };
 
   const openConvertModal = () => {
-    if (!hasAuthoritativeBalance || availableBalance === undefined) {
+    if (!canConvertBooking || availableBalance === undefined) {
       showToast("Chưa tải được số dư cọc từ sổ ledger. Không thể lên hợp đồng.", "error");
       return;
     }
@@ -490,7 +516,7 @@ export default function OperationsDepositDrawer({
   };
 
   const submitConvert = () => {
-    if (!hasAuthoritativeBalance || availableBalance === undefined) {
+    if (!canConvertBooking || availableBalance === undefined) {
       showToast("Chưa tải được số dư cọc từ sổ ledger. Không thể lên hợp đồng.", "error");
       return;
     }
@@ -525,6 +551,12 @@ export default function OperationsDepositDrawer({
         },
       },
     );
+  };
+
+  const openBookingInvoice = () => {
+    if (!bookingInvoice?.id) return;
+    onClose();
+    router.push("/invoices");
   };
 
   const continueWithBookingContract = () => {
@@ -648,7 +680,7 @@ export default function OperationsDepositDrawer({
                 <Button
                   data-testid="deposit-action-cancel"
                   onClick={openCancelModal}
-                  disabled={cancelMutation.isPending || cancelUnpaidMutation.isPending}
+                  disabled={cancelMutation.isPending || cancelUnpaidMutation.isPending || !detailQuery.isSuccess || (requiresCoreCancellation && !hasAuthoritativeLedger)}
                   variant="ghost"
                   size="sm"
                   className="h-9 rounded-xl text-rose-500 hover:bg-rose-500/10 hover:text-rose-600 font-bold text-xs cursor-pointer"
@@ -661,7 +693,7 @@ export default function OperationsDepositDrawer({
                 <Button
                   data-testid="deposit-action-cancel"
                   onClick={openCancelModal}
-                  disabled={cancelMutation.isPending || detailQuery.isLoading || !hasAuthoritativeBalance}
+                  disabled={cancelMutation.isPending || !hasAuthoritativeLedger}
                   variant="ghost"
                   size="sm"
                   className="h-9 rounded-xl text-rose-500 hover:bg-rose-500/10 hover:text-rose-600 font-bold text-xs cursor-pointer"
@@ -687,7 +719,7 @@ export default function OperationsDepositDrawer({
                 <Button
                   data-testid="deposit-action-refund"
                   onClick={openRefundModal}
-                  disabled={refundMutation.isPending || detailQuery.isLoading || !hasAuthoritativeBalance}
+                  disabled={refundMutation.isPending || !hasAuthoritativeLedger}
                   variant="outline"
                   size="sm"
                   className="h-9 rounded-xl border-amber-500/30 text-amber-600 hover:bg-amber-500/10 font-bold text-xs cursor-pointer"
@@ -709,8 +741,19 @@ export default function OperationsDepositDrawer({
                 </Button>
               )}
 
-              {/* Nút Thu tiền cọc */}
-              {isDraft && !awaitingReconciliation && (
+              {isModernBooking && isDraft && bookingInvoice?.id && (
+                <Button
+                  data-testid="deposit-action-open-booking-invoice"
+                  onClick={openBookingInvoice}
+                  size="sm"
+                  className="h-9 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm cursor-pointer"
+                >
+                  <Receipt size={14} className="mr-1.5" /> Mở hóa đơn cọc
+                </Button>
+              )}
+
+              {/* Legacy deposits without a linked invoice retain their direct collection flow. */}
+              {canDirectCollect && (
                 <Button
                   data-testid="deposit-action-collect"
                   onClick={handleCollect}
@@ -727,12 +770,12 @@ export default function OperationsDepositDrawer({
                 </Button>
               )}
 
-              {/* Nút Lên hợp đồng (cho cọc giữ chỗ đã thu tiền) */}
-              {isPaid && !hasContractLink && (
+              {/* Only CORE-confirmed, fully funded active booking holds can convert. */}
+              {isPaid && !hasContractLink && canConvertBooking && (
                 <Button
                   data-testid="deposit-action-convert"
                   onClick={openConvertModal}
-                  disabled={convertMutation.isPending || detailQuery.isLoading || !hasAuthoritativeBalance}
+                  disabled={convertMutation.isPending || !canConvertBooking}
                   variant="primary"
                   size="sm"
                   className="h-9 rounded-xl font-bold text-xs shadow-sm cursor-pointer"
@@ -774,6 +817,12 @@ export default function OperationsDepositDrawer({
               </span>
             </div>
           )}
+          {isModernBooking && (bookingHold.requiresRecovery || bookingHold.fundedInvalidAggregate) && (
+            <div role="alert" className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs font-semibold leading-relaxed text-amber-800 dark:text-amber-300">
+              <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+              <span>Hồ sơ giữ phòng cần CORE kiểm tra trước khi thu thêm hoặc chuyển sang hợp đồng. Có thể hủy theo phân bổ ledger nếu cần.</span>
+            </div>
+          )}
           {/* 4 KPI STAT BOXES (CLEAN, NO DUPLICATE GIANT HERO CARD) */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
             <div className="bg-surface/50 border border-border/70 rounded-2xl p-3 shadow-2xs">
@@ -789,13 +838,22 @@ export default function OperationsDepositDrawer({
                 Đã thu
               </span>
               <span
-                className={`text-sm sm:text-base font-black mt-0.5 block font-mono ${wasEverCollected || hasPendingReviewReceived ? "text-emerald-600 dark:text-emerald-400" : "text-muted"}`}
+                className={`text-sm sm:text-base font-black mt-0.5 block font-mono ${wasEverCollected ? "text-emerald-600 dark:text-emerald-400" : "text-muted"}`}
               >
-                {wasEverCollected || hasPendingReviewReceived ? receivedAmountStr : "0đ"}
+                {wasEverCollected ? receivedAmountStr : "0đ"}
               </span>
               {hasPendingReviewReceived && (
                 <span className="mt-0.5 block text-[9px] font-black uppercase tracking-tight text-amber-600">
-                  Chờ xử lý
+                  Chờ đối soát: {formatCurrency(pendingReviewReceivedAmount)}
+                </span>
+              )}
+              {isModernBooking && bookingInvoice && (
+                <span className="mt-0.5 block text-[9px] font-bold text-muted">
+                  {bookingCash.isSettled
+                    ? bookingCash.settledByCreditOrAdjustment
+                      ? "Đã tất toán bằng điều chỉnh, không phải thu đủ tiền mặt"
+                      : "Đã tất toán hóa đơn"
+                    : `Còn phải thu: ${formatCurrency(bookingCash.remainingAmount)}`}
                 </span>
               )}
             </div>
@@ -1919,7 +1977,7 @@ export default function OperationsDepositDrawer({
             />
           </div>
 
-          {isPaid && (
+          {requiresCoreCancellation && (
             <>
               <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-border">
                 <div className="flex justify-between items-center mb-3 pb-2 border-b border-border">

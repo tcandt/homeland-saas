@@ -108,6 +108,11 @@ export interface CancelDepositVariables {
 
 const toMoney = (value: number) => Math.round(value * 100) / 100;
 
+/** Modern booking deposits always use the auditable CORE cancellation command. */
+export function getDepositCancellationRoute(input: { isPaid: boolean; isModernBooking: boolean }) {
+  return input.isPaid || input.isModernBooking ? 'CORE' : 'LEGACY_UNPAID';
+}
+
 export function buildCancelDepositPayload({
   availableBalance,
   refundAmount,

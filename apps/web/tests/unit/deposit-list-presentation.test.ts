@@ -20,6 +20,16 @@ const toDeposit = (overrides: Record<string, unknown> = {}) => depositAdapter.to
 });
 
 describe('deposit list presentation', () => {
+  it('keeps authoritative booking invoice and hold projections through the adapter', () => {
+    const deposit = toDeposit({
+      type: 'BOOKING', status: 'PENDING', amount: 1_000_000, availableBalance: 400_000,
+      bookingInvoice: { id: 'invoice-booking-1', paidAmount: 400_000, remainingAmount: 600_000, status: 'PARTIALLY_PAID' },
+      bookingHold: { status: 'ACTIVE', isActive: true, expiresAt: '2099-01-01T00:00:00.000Z', requiresRecovery: false, fundedInvalidAggregate: false, validPartialActive: true },
+    });
+    expect(deposit.bookingInvoice).toMatchObject({ paidAmount: 400_000, remainingAmount: 600_000 });
+    expect(deposit.bookingHold).toMatchObject({ isActive: true, validPartialActive: true });
+  });
+
   it.each(['BOOKING', 'RESERVATION'])('labels converted %s deposits without changing the stored status', (type) => {
     const deposit = toDeposit({ type, status: 'CONVERTED_TO_CONTRACT' });
     expect(getDepositStatusLabel(deposit)).toBe('Đã chuyển đổi');

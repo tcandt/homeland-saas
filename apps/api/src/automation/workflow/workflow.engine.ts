@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import { AccountType, Prisma, SettingScope } from '@prisma/client';
 import { PrismaService } from '../../prisma.service';
 import { WORKFLOW_REGISTRY } from './workflow.registry';
@@ -395,10 +396,24 @@ export class WorkflowEngine {
   }
 
   private async createJournalEntryFromPaymentEvent(payload: any) {
+    const bookingDispositionLedgerId = String(payload?.metadata?.bookingDispositionLedgerId || '').trim();
+    if (bookingDispositionLedgerId) {
+      await this.createModernBookingDispositionJournal(payload, bookingDispositionLedgerId);
+      return;
+    }
+    if (payload?.metadata?.bookingDispositionJournalMode === 'LEDGER_V1') {
+      if (await this.isVerifiedModernBookingDispositionEvent(payload)) return;
+      throw new Error('BOOKING_DISPOSITION_EVENT_EVIDENCE_INVALID');
+    }
     if (!payload.amount) return;
     const accountingAmount = Number(payload.paymentAmount ?? payload.amount);
-    if (payload.paymentId) {
-      const existing = await this.prisma.journalEntry?.findFirst({
+    const sourceType = String(payload.sourceType || '').toUpperCase();
+    if (
+      payload.paymentId &&
+      sourceType !== 'INVOICE' &&
+      !this.isBookingHoldDepositInstallment(payload)
+    ) {
+      const existing = await this.prisma.journalEntry.findFirst({
         where: {
           tenantId: payload.tenantId,
           sourceType: payload.sourceType,
@@ -550,6 +565,37 @@ export class WorkflowEngine {
       return;
     }
 
+    if (this.isBookingHoldDepositInstallment(payload)) {
+      const paymentId = String(payload.paymentId || payload.metadata?.paymentId || '').trim();
+      const paidAt = new Date(payload.paidAt);
+      if (!paymentId || !payload.paidAt || Number.isNaN(paidAt.getTime())) {
+        throw new Error('BOOKING_HOLD_INSTALLMENT_JOURNAL_EVIDENCE_INVALID');
+      }
+      const bankAccount = await this.resolveChartOfAccount(payload.tenantId, '1100', 'Bank', AccountType.ASSET);
+      const depositLiability = await this.resolveChartOfAccount(payload.tenantId, '1300', 'Deposits Held', AccountType.LIABILITY);
+      if (!bankAccount || !depositLiability) throw new Error('Required Chart of Accounts not found');
+      const digest = createHash('sha256').update(`${payload.tenantId}:${paymentId}`).digest('hex').slice(0, 20).toUpperCase();
+      await this.journalEntryService.createJournalEntry(payload.tenantId, {
+        code: `JE-BH-${digest}`,
+        sourceType: 'PAYMENT',
+        sourceId: paymentId,
+        description: `Booking hold installment ${payload.metadata?.code || paymentId}`,
+        entryDate: paidAt,
+        status: 'POSTED',
+        idempotent: true,
+        lines: [
+          { accountId: bankAccount.id, type: 'DEBIT', amount: accountingAmount, description: 'Booking hold cash received' },
+          { accountId: depositLiability.id, type: 'CREDIT', amount: accountingAmount, description: 'Booking hold deposit liability' },
+        ],
+      });
+      return;
+    }
+
+    if (sourceType === 'INVOICE') {
+      await this.createNormalInvoicePaymentJournal(payload);
+      return;
+    }
+
     const bankAccount = await this.resolveChartOfAccount(payload.tenantId, '1100', 'Bank', AccountType.ASSET);
     const offsetAccountCode = payload.sourceType === 'INVOICE' ? '4000' : '1300';
     const offsetAccount = await this.resolveChartOfAccount(
@@ -616,6 +662,285 @@ export class WorkflowEngine {
       billingKind === 'BOOKING_HOLD' ||
       billingKind === 'BOOKING_DEPOSIT'
     );
+  }
+
+  private isBookingHoldDepositInstallment(payload: any) {
+    return String(payload?.sourceType || '').toUpperCase() === 'DEPOSIT' &&
+      payload?.metadata?.bookingInvoiceInstallment === true &&
+      payload?.metadata?.linkedInvoicePayment === true;
+  }
+
+  private async createModernBookingDispositionJournal(payload: any, ledgerId: string) {
+    const tenantId = String(payload?.tenantId || '').trim();
+    if (!tenantId || payload?.metadata?.bookingDispositionJournalMode !== 'LEDGER_V1') {
+      throw new Error('BOOKING_DISPOSITION_LEDGER_EVIDENCE_INVALID');
+    }
+    const ledger = await (this.prisma as any).depositLedgerEntry?.findFirst({
+      where: {
+        id: ledgerId,
+        tenantId,
+        type: { in: ['KEEP', 'DEDUCT', 'REFUND'] },
+        balanceEffect: { lt: 0 },
+      },
+      select: {
+        id: true,
+        tenantId: true,
+        depositId: true,
+        operationId: true,
+        type: true,
+        amount: true,
+        balanceEffect: true,
+        sourceType: true,
+        sourceId: true,
+        createdAt: true,
+        operation: { select: { id: true, tenantId: true, sourceDepositId: true, type: true, status: true, receiptId: true, result: true } },
+        deposit: {
+          select: {
+            id: true,
+            tenantId: true,
+            type: true,
+            contract: { select: { termsSnapshot: true } },
+          },
+        },
+      },
+    });
+    const amount = Number(ledger?.amount || 0);
+    const createdAt = ledger?.createdAt ? new Date(ledger.createdAt) : null;
+    const bookingMarker = (ledger?.deposit?.contract?.termsSnapshot as any)?.bookingCommand;
+    const modernBooking = Boolean(
+      ledger &&
+      ledger.tenantId === tenantId &&
+      ledger.deposit?.tenantId === tenantId &&
+      ['BOOKING', 'RESERVATION'].includes(String(ledger.deposit?.type || '').toUpperCase()) &&
+      bookingMarker &&
+      typeof bookingMarker === 'object' &&
+      bookingMarker.depositId === ledger.depositId &&
+      String(bookingMarker.invoiceId || '').trim(),
+    );
+    const operation = ledger?.operation;
+    const pendingCancellationOperation = Boolean(
+      operation &&
+      operation.tenantId === tenantId &&
+      operation.sourceDepositId === ledger.depositId &&
+      operation.type === 'CANCEL' &&
+      operation.status === 'PENDING' &&
+      (ledger.type === 'KEEP' || ledger.type === 'DEDUCT'),
+    );
+    const completedCancellationOperation = Boolean(
+      operation &&
+      operation.tenantId === tenantId &&
+      operation.sourceDepositId === ledger.depositId &&
+      operation.status === 'COMPLETED' &&
+      (operation.type === 'CANCEL' || (ledger.type === 'REFUND' && operation.type === 'COMPLETE_REFUND')),
+    );
+    const validLedger = Boolean(
+      Number.isFinite(amount) && amount > 0 &&
+      Number(ledger?.balanceEffect) === -amount &&
+      createdAt && !Number.isNaN(createdAt.getTime()) &&
+      ((ledger?.type === 'KEEP' || ledger?.type === 'DEDUCT') &&
+        ledger.sourceType === 'DEPOSIT_CANCELLATION' && ledger.sourceId === ledger.depositId ||
+       ledger?.type === 'REFUND' && ledger.sourceType === 'RECEIPT' && ledger.sourceId === operation?.receiptId),
+    );
+    const payloadAmount = Number(payload?.amount);
+    const payloadSourceId = String(payload?.sourceId || '').trim();
+    const payloadOperationId = String(payload?.metadata?.bookingDispositionOperationId || '').trim();
+    if (
+      !modernBooking ||
+      (!completedCancellationOperation && !pendingCancellationOperation) ||
+      !validLedger ||
+      payloadSourceId !== ledger.depositId ||
+      payloadOperationId !== ledger.operationId ||
+      !Number.isFinite(payloadAmount) ||
+      payloadAmount !== amount
+    ) {
+      throw new Error('BOOKING_DISPOSITION_LEDGER_EVIDENCE_INVALID');
+    }
+
+    if (pendingCancellationOperation) {
+      const result = operation.result as Record<string, unknown> | null;
+      const refundAmount = Number(result?.refundAmount);
+      const keepAmount = Number(result?.keepAmount);
+      const deductAmount = Number(result?.deductAmount);
+      const allocationValid = [refundAmount, keepAmount, deductAmount]
+        .every((value) => Number.isFinite(value) && value >= 0) &&
+        refundAmount > 0 &&
+        result?.pending === true &&
+        result?.refundStatus === 'PENDING' &&
+        (ledger.type === 'KEEP' ? keepAmount === amount : deductAmount === amount);
+      const receipt = allocationValid && operation.receiptId
+        ? await this.prisma.receipt.findFirst({
+            where: { id: operation.receiptId, tenantId, status: 'PENDING' },
+            select: { id: true, amount: true, status: true },
+          })
+        : null;
+      if (!receipt || Number(receipt.amount) !== refundAmount || receipt.status !== 'PENDING') {
+        throw new Error('BOOKING_DISPOSITION_LEDGER_EVIDENCE_INVALID');
+      }
+    }
+
+    if (ledger.type === 'REFUND') {
+      const receipt = await this.prisma.receipt.findFirst({
+        where: { id: ledger.sourceId, tenantId, status: 'COMPLETED' },
+        select: { id: true, amount: true, status: true },
+      });
+      const receiptValid = Boolean(
+        receipt && Number(receipt.amount) === amount && receipt.status === 'COMPLETED',
+      );
+      const parentCancellation = operation.type === 'COMPLETE_REFUND'
+        ? await (this.prisma as any).depositOperation?.findFirst({
+            where: {
+              tenantId,
+              sourceDepositId: ledger.depositId,
+              type: 'CANCEL',
+              status: 'COMPLETED',
+              receiptId: ledger.sourceId,
+            },
+            select: { id: true },
+          })
+        : { id: operation.id };
+      if (!receiptValid || !parentCancellation) {
+        throw new Error('BOOKING_DISPOSITION_LEDGER_EVIDENCE_INVALID');
+      }
+    }
+
+    const depositLiability = await this.resolveChartOfAccount(tenantId, '1300', 'Deposits Held', AccountType.LIABILITY);
+    const offsetAccount = await this.resolveChartOfAccount(
+      tenantId,
+      ledger.type === 'REFUND' ? '1100' : '4300',
+      ledger.type === 'REFUND' ? 'Bank' : 'Deposit Forfeiture Revenue',
+      ledger.type === 'REFUND' ? AccountType.ASSET : AccountType.REVENUE,
+    );
+    if (!depositLiability || !offsetAccount) throw new Error('Required Chart of Accounts not found');
+    const digest = createHash('sha256').update(`${tenantId}:${ledger.id}`).digest('hex').slice(0, 20).toUpperCase();
+    await this.journalEntryService.createJournalEntry(tenantId, {
+      code: `JE-BC-${digest}`,
+      sourceType: 'DEPOSIT',
+      sourceId: ledger.depositId,
+      description: `Booking deposit ${String(ledger.type).toLowerCase()} ${ledger.depositId}`,
+      entryDate: createdAt,
+      status: 'POSTED',
+      idempotent: true,
+      lines: [
+        { accountId: depositLiability.id, type: 'DEBIT', amount, description: 'Release booking deposit liability' },
+        {
+          accountId: offsetAccount.id,
+          type: 'CREDIT',
+          amount,
+          description: ledger.type === 'REFUND' ? 'Booking deposit refund cash out' : 'Booking deposit forfeiture revenue',
+        },
+      ],
+    });
+  }
+
+  private async isVerifiedModernBookingDispositionEvent(payload: any) {
+    const tenantId = String(payload?.tenantId || '').trim();
+    const depositId = String(payload?.sourceId || '').trim();
+    const operationId = String(payload?.metadata?.operationId || payload?.metadata?.bookingDispositionOperationId || '').trim();
+    if (!tenantId || !depositId || !operationId) return false;
+    const deposit = await (this.prisma as any).deposit?.findFirst({
+      where: {
+        id: depositId,
+        tenantId,
+        type: { in: ['BOOKING', 'RESERVATION'] },
+        deletedAt: null,
+      },
+      select: { id: true, contract: { select: { termsSnapshot: true } } },
+    });
+    const marker = (deposit?.contract?.termsSnapshot as any)?.bookingCommand;
+    if (!marker || marker.depositId !== depositId || !String(marker.invoiceId || '').trim()) return false;
+    const operation = await (this.prisma as any).depositOperation?.findFirst({
+      where: {
+        id: operationId,
+        tenantId,
+        sourceDepositId: depositId,
+        type: { in: ['CANCEL', 'COMPLETE_REFUND'] },
+      },
+      select: { id: true, type: true, status: true, receiptId: true, result: true },
+    });
+    if (!operation) return false;
+    if (operation.status === 'COMPLETED') return true;
+    if (operation.type !== 'CANCEL' || operation.status !== 'PENDING' || !operation.receiptId) return false;
+    const result = operation.result as Record<string, unknown> | null;
+    const refundAmount = Number(result?.refundAmount);
+    const keepAmount = Number(result?.keepAmount);
+    const deductAmount = Number(result?.deductAmount);
+    if (
+      ![refundAmount, keepAmount, deductAmount].every((value) => Number.isFinite(value) && value >= 0) ||
+      refundAmount <= 0 || result?.pending !== true || result?.refundStatus !== 'PENDING'
+    ) return false;
+    const receipt = await this.prisma.receipt.findFirst({
+      where: { id: operation.receiptId, tenantId, status: 'PENDING' },
+      select: { id: true, amount: true, status: true },
+    });
+    return Boolean(receipt && Number(receipt.amount) === refundAmount && receipt.status === 'PENDING');
+  }
+
+  private async createNormalInvoicePaymentJournal(payload: any) {
+    const tenantId = String(payload?.tenantId || '').trim();
+    const invoiceId = String(payload?.sourceId || payload?.invoiceId || '').trim();
+    const paymentId = String(payload?.paymentId || '').trim();
+    const incrementAmount = Number(payload?.paymentAmount);
+    if (!tenantId || !invoiceId || !paymentId || !Number.isFinite(incrementAmount) || incrementAmount <= 0) {
+      throw new Error('PAYMENT_JOURNAL_EVIDENCE_INVALID');
+    }
+
+    const payment = await this.prisma.payment.findFirst({
+      where: {
+        id: paymentId,
+        tenantId,
+        invoiceId,
+        status: 'CONFIRMED',
+        deletedAt: null,
+      },
+      select: { id: true, tenantId: true, invoiceId: true, amount: true, paidAt: true, status: true },
+    });
+    const paidAt = payment?.paidAt ? new Date(payment.paidAt) : null;
+    if (
+      !payment ||
+      payment.tenantId !== tenantId ||
+      payment.invoiceId !== invoiceId ||
+      payment.status !== 'CONFIRMED' ||
+      Number(payment.amount) !== incrementAmount ||
+      !paidAt ||
+      Number.isNaN(paidAt.getTime())
+    ) {
+      throw new Error('PAYMENT_JOURNAL_EVIDENCE_INVALID');
+    }
+
+    const bankAccount = await this.resolveChartOfAccount(tenantId, '1100', 'Bank', AccountType.ASSET);
+    const rentalRevenue = await this.resolveChartOfAccount(tenantId, '4000', 'Rental Revenue', AccountType.REVENUE);
+    if (!bankAccount || !rentalRevenue) throw new Error('Required Chart of Accounts not found');
+
+    const digest = createHash('sha256').update(`${tenantId}:${payment.id}`).digest('hex').slice(0, 20).toUpperCase();
+    const journal = {
+      code: `JE-IP-${digest}`,
+      sourceType: 'INVOICE',
+      sourceId: invoiceId,
+      description: `Ghi nhan INVOICE ${payload.metadata?.code || invoiceId}`,
+      entryDate: paidAt,
+      status: 'POSTED',
+      idempotent: true,
+      lines: [
+        { accountId: bankAccount.id, type: 'DEBIT', amount: incrementAmount, description: 'Tien vao ngan hang' },
+        { accountId: rentalRevenue.id, type: 'CREDIT', amount: incrementAmount, description: 'Doanh thu hoa don' },
+      ],
+    };
+    if (payload.metadata?.paymentJournalIdentity !== 'PAYMENT_V1') {
+      const candidates = await this.prisma.journalEntry.findMany({
+        where: { tenantId, sourceType: 'INVOICE', sourceId: invoiceId },
+        include: { lines: true },
+      });
+      if (candidates.length > 1) {
+        throw new Error('LEGACY_PAYMENT_JOURNAL_REVIEW_REQUIRED');
+      }
+      if (candidates.length === 1) {
+        if (!this.journalEntryService.isExactReplay(candidates[0], tenantId, journal)) {
+          throw new Error('LEGACY_PAYMENT_JOURNAL_REVIEW_REQUIRED');
+        }
+        return;
+      }
+    }
+    await this.journalEntryService.createJournalEntry(tenantId, journal);
   }
 
   private async shouldSendSePayResultToZalo(payload: any) {

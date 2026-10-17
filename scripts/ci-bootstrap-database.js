@@ -17,7 +17,8 @@ const historicalManifest = JSON.parse(fs.readFileSync(historicalManifestPath, 'u
 const supplementalManifest = JSON.parse(fs.readFileSync(path.join(root, 'packages/database/prisma/baseline/supplemental-migration-manifest.json'), 'utf8'));
 const baselineV2Manifest = JSON.parse(fs.readFileSync(baselineV2ManifestPath, 'utf8'));
 const reviewedMigrations = historicalManifest.migrations.map(({ name, sha256 }) => [name, sha256]);
-const nasReleaseFingerprint = '4174b76eac14c8e3800a382d13e757c0bfd291c02d68c737863eebf6b6c8581d';
+const nasLegacySeedFingerprint = '4174b76eac14c8e3800a382d13e757c0bfd291c02d68c737863eebf6b6c8581d';
+const nasReleaseFingerprint = 'df7b33d969caeec88c0288ace847308cb3479635614761b319537656f5d2e587';
 
 const sha256 = (file) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 const migrationFile = (name) => path.join(migrationsRoot, name, 'migration.sql');
@@ -205,13 +206,14 @@ async function existingVerifiedBaseline(prisma) {
 
 function validateNasReleaseHistory(rows, expected) {
   const active = rows.filter((row) => row.rolled_back_at === null);
-  if (expected.length !== 35 || active.length !== expected.length) throw new Error('NAS staging release migration coverage drift; no automatic repair is allowed.');
+  if (expected.length !== 36 || active.length !== 36) throw new Error('NAS staging release migration coverage drift; no automatic repair is allowed.');
   for (const [index, migration] of expected.entries()) {
     const row = active[index];
     if (!row.finished_at || row.migration_name !== migration.name || row.checksum !== migration.sha256) {
       throw new Error('NAS staging release migration history/checksum drift; no automatic repair is allowed.');
     }
   }
+  return active.length;
 }
 
 async function auditNasRelease(prisma) {
@@ -219,25 +221,27 @@ async function auditNasRelease(prisma) {
     .filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort()
     .map((name) => ({ name, sha256: sha256(migrationFile(name)) }));
   const rows = await queryRows(prisma, `SELECT migration_name, checksum, finished_at, rolled_back_at FROM "_prisma_migrations" ORDER BY migration_name`);
-  validateNasReleaseHistory(rows, expected);
-  if (fingerprint(await readCanonicalInventory(prisma)) !== nasReleaseFingerprint) {
+  const migrationCount = validateNasReleaseHistory(rows, expected);
+  const schemaFingerprint = fingerprint(await readCanonicalInventory(prisma));
+  if (schemaFingerprint !== nasReleaseFingerprint) {
     throw new Error('NAS staging release schema fingerprint drift; no automatic repair is allowed.');
   }
+  return { migrationCount, schemaFingerprint };
 }
 
 async function bootstrapNasStaging(prisma, actions) {
   const rows = await queryRows(prisma, `SELECT COUNT(*)::int AS count FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'`);
   if (Number(rows[0]?.count) === 0) {
     await actions.initialize();
-    await actions.audit();
+    const release = await actions.audit();
     await actions.seed();
-    await actions.markSeedCompleted();
-    await actions.verifySeedCompleted();
+    await actions.markSeedCompleted(release);
+    await actions.verifySeedCompleted(release);
     return 'INITIALIZED';
   }
   // Recreate/restart is strictly read-only; partial initialization fails closed.
-  await actions.audit();
-  await actions.verifySeedCompleted();
+  const release = await actions.audit();
+  await actions.verifySeedCompleted(release);
   return 'VERIFIED_EXISTING';
 }
 
@@ -255,21 +259,32 @@ function assertNasSeedRuntime(resolve = require.resolve, exists = fs.existsSync)
 
 const nasSeedMarkerId = 'nas-staging-bootstrap-v1';
 
-async function markNasSeedCompleted(prisma) {
+function assertNasReleaseIdentity(release) {
+  if (!release || release.migrationCount !== 36
+    || release.schemaFingerprint !== nasReleaseFingerprint) {
+    throw new Error('NAS staging seed completion requires an audited release identity.');
+  }
+  return release.schemaFingerprint;
+}
+
+async function markNasSeedCompleted(prisma, release) {
+  const schemaFingerprint = assertNasReleaseIdentity(release);
   const tenant = await prisma.tenantOrg.findUniqueOrThrow({ where: { code: 'HOMELAND' } });
   await prisma.auditLog.create({ data: {
     id: nasSeedMarkerId, tenantId: tenant.id, module: 'deployment',
     entity: 'NasStagingBootstrap', entityId: 'homeland_staging', action: 'CREATE',
-    after: { seedCompleted: true, schemaFingerprint: nasReleaseFingerprint },
+    after: { seedCompleted: true, schemaFingerprint },
   } });
 }
 
-async function assertNasSeedCompleted(prisma) {
+async function assertNasSeedCompleted(prisma, release) {
+  assertNasReleaseIdentity(release);
   const marker = await prisma.auditLog.findUnique({ where: { id: nasSeedMarkerId } });
   const tenant = await prisma.tenantOrg.findUnique({ where: { code: 'HOMELAND' } });
   if (!tenant || marker?.tenantId !== tenant.id || marker?.entity !== 'NasStagingBootstrap'
     || marker?.entityId !== 'homeland_staging' || marker?.action !== 'CREATE'
-    || marker?.after?.seedCompleted !== true || marker?.after?.schemaFingerprint !== nasReleaseFingerprint) {
+    || marker?.after?.seedCompleted !== true
+    || ![nasLegacySeedFingerprint, nasReleaseFingerprint].includes(marker?.after?.schemaFingerprint)) {
     throw new Error('NAS staging seed completion is unverified; automatic reseed or repair is forbidden.');
   }
 }
@@ -300,8 +315,8 @@ async function main() {
         },
         audit: () => auditNasRelease(prisma),
         seed: async () => execFileSync(process.execPath, [seedRuntime.cli, seedRuntime.seed], { cwd: root, env: process.env, stdio: 'inherit' }),
-        markSeedCompleted: () => markNasSeedCompleted(prisma),
-        verifySeedCompleted: () => assertNasSeedCompleted(prisma),
+        markSeedCompleted: (release) => markNasSeedCompleted(prisma, release),
+        verifySeedCompleted: (release) => assertNasSeedCompleted(prisma, release),
       });
       console.log(`NAS staging bootstrap: ${result}`);
       return;
@@ -317,4 +332,4 @@ async function main() {
 
 if (require.main === module) main().catch((error) => { console.error(error instanceof Error ? error.message : error); process.exitCode = 1; });
 
-module.exports = { assertBaselineV2Artifact, assertCanonicalFingerprint, assertHistoricalManifest, assertDisposableLocalDatabase, assertNasStagingDatabase, assertNasSeedPassword, validateMigrationInventory, contractStatusAudit, historicalManifest, supplementalManifest, reviewedMigrations, validateNasReleaseHistory, auditNasRelease, bootstrapNasStaging, assertNasSeedCompleted, assertNasSeedRuntime };
+module.exports = { assertBaselineV2Artifact, assertCanonicalFingerprint, assertHistoricalManifest, assertDisposableLocalDatabase, assertNasStagingDatabase, assertNasSeedPassword, validateMigrationInventory, contractStatusAudit, historicalManifest, supplementalManifest, reviewedMigrations, nasLegacySeedFingerprint, nasReleaseFingerprint, validateNasReleaseHistory, auditNasRelease, bootstrapNasStaging, assertNasReleaseIdentity, assertNasSeedCompleted, assertNasSeedRuntime };

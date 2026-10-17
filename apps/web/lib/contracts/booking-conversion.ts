@@ -47,6 +47,18 @@ export function getBookingDepositRefreshInterval(deposit: any, paymentRequest = 
     : false;
 }
 
+/** Presentation only: cash received and invoice settlement are distinct values from CORE. */
+export function getBookingInvoiceCashPresentation(bookingInvoice: any, depositAmount: number) {
+  const paidAmount = Math.max(0, Number(bookingInvoice?.paidAmount) || 0);
+  const remainingAmount = Math.max(0, Number(bookingInvoice?.remainingAmount) || 0);
+  return {
+    paidAmount,
+    remainingAmount,
+    isSettled: Boolean(bookingInvoice?.id) && remainingAmount === 0,
+    settledByCreditOrAdjustment: Boolean(bookingInvoice?.id) && remainingAmount === 0 && paidAmount < Math.max(0, Number(depositAmount) || 0),
+  };
+}
+
 export function getBookingHoldState(source: any, now = Date.now()) {
   const hold = source?.bookingHold;
   const expiresAt = hold?.expiresAt || null;
@@ -54,12 +66,19 @@ export function getBookingHoldState(source: any, now = Date.now()) {
     hold?.isActive && hold?.status === "ACTIVE" &&
     expiresAt && new Date(expiresAt).getTime() > now,
   );
+  const hasServerRecoveryState = typeof hold?.requiresRecovery === "boolean";
   return {
     known: Boolean(hold),
     status: hold?.status || "NONE",
     expiresAt,
     isActive,
-    requiresRecovery: Boolean(hold && !isActive && hold.status !== "CONVERTED"),
+    // CORE owns terminal/recovery truth. The fallback only supports old payloads
+    // whose active hold naturally passed its expiry, never terminal records.
+    requiresRecovery: hasServerRecoveryState
+      ? hold.requiresRecovery
+      : Boolean(hold?.status === "ACTIVE" && !isActive),
+    fundedInvalidAggregate: Boolean(hold?.fundedInvalidAggregate),
+    validPartialActive: Boolean(hold?.validPartialActive),
   };
 }
 

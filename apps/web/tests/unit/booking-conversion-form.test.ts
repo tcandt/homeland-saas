@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculateBookingFirstRent, getBookingConversionPaymentSummary, getBookingRentalDefaults, getBookingHoldState, getBookingRecoveryErrorMessage, parseBookingRentalDate, getBookingDepositRefreshInterval } from "../../lib/contracts/booking-conversion";
+import { calculateBookingFirstRent, getBookingConversionPaymentSummary, getBookingRentalDefaults, getBookingHoldState, getBookingInvoiceCashPresentation, getBookingRecoveryErrorMessage, parseBookingRentalDate, getBookingDepositRefreshInterval } from "../../lib/contracts/booking-conversion";
 import { depositAdapter } from "../../lib/adapters/deposit.adapter";
 
 describe("booking conversion total payment", () => {
@@ -49,6 +49,20 @@ describe("booking conversion total payment", () => {
 });
 
 describe("automatic booking payment reconciliation", () => {
+  it("separates 400k confirmed cash from the 600k still owed on a 1m booking invoice", () => {
+    expect(getBookingInvoiceCashPresentation({ id: "invoice-1", paidAmount: 400_000, remainingAmount: 600_000 }, 1_000_000)).toMatchObject({
+      paidAmount: 400_000,
+      remainingAmount: 600_000,
+      isSettled: false,
+    });
+  });
+  it("does not present internal credit settlement as full cash collection", () => {
+    expect(getBookingInvoiceCashPresentation({ id: "invoice-1", paidAmount: 400_000, remainingAmount: 0 }, 1_000_000)).toMatchObject({
+      paidAmount: 400_000,
+      isSettled: true,
+      settledByCreditOrAdjustment: true,
+    });
+  });
   it.each([
     ["BOOKING", "PENDING", "CONFIRMED", 5000],
     ["RESERVATION", "DRAFT", "CONFIRMED", 5000],
@@ -164,6 +178,20 @@ describe("booking hold presentation", () => {
   });
   it("does not recover a converted hold", () => {
     expect(getBookingHoldState({ bookingHold: { status: "CONVERTED", isActive: false } }, now).requiresRecovery).toBe(false);
+  });
+  it("uses CORE terminal recovery flags instead of inferring recovery for cancelled or pending-refund holds", () => {
+    expect(getBookingHoldState({ bookingHold: { status: "CANCELLED", isActive: false, requiresRecovery: false } }, now).requiresRecovery).toBe(false);
+    expect(getBookingHoldState({ bookingHold: { status: "EXPIRED", isActive: false, requiresRecovery: false, fundedInvalidAggregate: false } }, now)).toMatchObject({
+      requiresRecovery: false,
+      fundedInvalidAggregate: false,
+    });
+  });
+  it("retains the authoritative partial-funding projection from CORE", () => {
+    expect(getBookingHoldState({ bookingHold: { status: "ACTIVE", isActive: true, expiresAt: "2026-09-29T08:00:00Z", validPartialActive: true, requiresRecovery: false } }, now)).toMatchObject({
+      isActive: true,
+      validPartialActive: true,
+      requiresRecovery: false,
+    });
   });
   it.each([
     ["BOOKING_CONVERT_HOLD_ROOM_UNAVAILABLE", "dọn dẹp hoặc bảo trì"],

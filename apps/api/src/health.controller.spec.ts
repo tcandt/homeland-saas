@@ -44,12 +44,13 @@ describe('HealthController readiness', () => {
     expect(result.checks.schema.status).toBe('UP');
     const schemaSql = prisma.$queryRaw.mock.calls[1][0].join('');
     expect(schemaSql).toContain("migration_name = '20261014130000_retire_sales_role_and_leads'");
+    expect(schemaSql).toContain("migration_name = '20261017100000_booking_hold_cancel_adjustment_scope'");
     expect(schemaSql).toContain('WHERE finished_at IS NULL AND rolled_back_at IS NULL');
     expect(schemaSql).toContain(`to_regclass('public."SalesLead"') IS NULL`);
     expect(schemaSql).toContain("= ARRAY['ADMIN', 'FINANCE', 'MANAGER']::text[]");
   });
 
-  it('keeps readiness closed when the release migration or retired schema checks fail', async () => {
+  it('keeps readiness closed for a 35-migration release missing the booking cancellation scope migration', async () => {
     const prisma = {
       $queryRaw: vi.fn()
         .mockResolvedValueOnce([{ ok: 1 }])

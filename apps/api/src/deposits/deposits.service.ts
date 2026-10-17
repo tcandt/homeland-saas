@@ -2,6 +2,7 @@ import { Injectable, BadRequestException, Optional } from '@nestjs/common';
 import { BaseCrudService } from '../shared/services/base-crud.service';
 import {
   Deposit,
+  DepositOperationType,
   DepositOperationStatus,
   DepositStatus,
   Prisma,
@@ -336,6 +337,18 @@ export class DepositsService extends BaseCrudService<Deposit> {
         select: { id: true, title: true, dueDate: true },
       }).catch(() => []),
     ]);
+    const fundedByDepositId = new Map<string, number>();
+    const ledgerModel = (this.prisma as any).depositLedgerEntry;
+    if (ledgerModel?.groupBy && allDeposits.length > 0) {
+      const balances = await ledgerModel.groupBy({
+        by: ['depositId'],
+        where: { tenantId, depositId: { in: allDeposits.map((deposit: any) => deposit.id) } },
+        _sum: { balanceEffect: true },
+      });
+      for (const balance of balances || []) {
+        fundedByDepositId.set(String(balance.depositId), Number(balance?._sum?.balanceEffect || 0));
+      }
+    }
 
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -366,12 +379,15 @@ export class DepositsService extends BaseCrudService<Deposit> {
         pipelineCounts.DRAFT.amount += amt;
       }
 
-      if (st === 'PAID' || st === 'CONVERTED_TO_CONTRACT') {
-        totalFund += amt;
+      const actualFunded = fundedByDepositId.has(String(d.id))
+        ? Math.max(0, fundedByDepositId.get(String(d.id)) || 0)
+        : (st === 'PAID' || st === 'CONVERTED_TO_CONTRACT' ? amt : 0);
+      if (actualFunded > 0) {
+        totalFund += actualFunded;
         if (d.type === 'SECURITY') {
-          securityFund += amt;
+          securityFund += actualFunded;
         } else {
-          bookingFund += amt;
+          bookingFund += actualFunded;
         }
       }
 
@@ -482,11 +498,33 @@ export class DepositsService extends BaseCrudService<Deposit> {
       },
       contract: { select: { id: true, code: true, status: true, attachments: true } },
     });
-    return { items: result.data, total: result.meta.total };
+    return {
+      items: await this.attachAuthoritativeBalances(tenantId, result.data),
+      total: result.meta.total,
+    };
+  }
+
+  private async attachAuthoritativeBalances(tenantId: string | undefined, deposits: any[]) {
+    const items = Array.isArray(deposits) ? deposits : [];
+    if (!tenantId || items.length === 0) return items;
+    const ledgerModel = (this.prisma as any).depositLedgerEntry;
+    if (!ledgerModel?.groupBy) return items;
+    const balances = await ledgerModel.groupBy({
+      by: ['depositId'],
+      where: { tenantId, depositId: { in: items.map((deposit) => deposit.id) } },
+      _sum: { balanceEffect: true },
+    });
+    const amounts = new Map(
+      (balances || []).map((row: any) => [String(row.depositId), Math.max(0, Number(row?._sum?.balanceEffect || 0))]),
+    );
+    return items.map((deposit) => ({
+      ...deposit,
+      availableBalance: amounts.get(String(deposit.id)) || 0,
+    }));
   }
 
   async getDetail(id: string, include?: any, options?: { skipPaymentReconcile?: boolean }): Promise<any> {
-    let deposit = await this.repository.findById(id, {
+    let deposit: any = await this.repository.findById(id, {
       customer: true,
       room: { include: { building: true, floor: true } },
       contract: true,
@@ -496,10 +534,18 @@ export class DepositsService extends BaseCrudService<Deposit> {
       return null;
     }
 
+    const hasModernBookingMarker = Boolean(
+      ['BOOKING', 'RESERVATION'].includes(String(deposit.type).toUpperCase()) &&
+      deposit.contract?.termsSnapshot &&
+      typeof deposit.contract.termsSnapshot === 'object' &&
+      Object.prototype.hasOwnProperty.call(deposit.contract.termsSnapshot, 'bookingCommand'),
+    );
+
     if (
       !options?.skipPaymentReconcile &&
       this.depositCoreService &&
-      ['DRAFT', 'PENDING'].includes(String(deposit.status).toUpperCase())
+      ['DRAFT', 'PENDING'].includes(String(deposit.status).toUpperCase()) &&
+      !hasModernBookingMarker
     ) {
       const reconciliation = await this.reconcileConfirmedPayment(deposit);
       if (reconciliation.reconciled) {
@@ -525,7 +571,7 @@ export class DepositsService extends BaseCrudService<Deposit> {
       Number(availableBalance) >= Number(deposit.amount || 0) &&
       Number(deposit.amount || 0) > 0
     ) {
-      await this.prisma.deposit.updateMany({
+      if (!hasModernBookingMarker) await this.prisma.deposit.updateMany({
         where: {
           id: deposit.id,
           tenantId: deposit.tenantId,
@@ -534,7 +580,7 @@ export class DepositsService extends BaseCrudService<Deposit> {
         },
         data: { status: DepositStatus.PAID },
       }).catch(() => undefined);
-      deposit.status = DepositStatus.PAID;
+      if (!hasModernBookingMarker) deposit.status = DepositStatus.PAID;
     }
     const paymentRequestModel = (this.prisma as any).paymentRequest;
     let paymentRequest = await (paymentRequestModel?.findFirst
@@ -557,21 +603,25 @@ export class DepositsService extends BaseCrudService<Deposit> {
       },
       }).catch(() => null)
       : Promise.resolve(null));
+    const invoiceModel = (this.prisma as any).invoice;
+    let bookingInvoice: any = null;
     if (['BOOKING', 'RESERVATION'].includes(String(deposit.type).toUpperCase())) {
-      const invoiceModel = (this.prisma as any).invoice;
-      const bookingInvoice = await (invoiceModel?.findFirst
+      const bookingMarker = deposit.contract?.termsSnapshot?.bookingCommand;
+      const bookingInvoiceId = String(
+        bookingMarker?.depositId === deposit.id ? bookingMarker?.invoiceId || '' : '',
+      ).trim();
+      bookingInvoice = await (bookingInvoiceId && invoiceModel?.findFirst
         ? invoiceModel.findFirst({
         where: {
           tenantId: deposit.tenantId,
           deletedAt: null,
-          period: 'Cọc giữ phòng',
-          OR: [
-            ...(deposit.contractId ? [{ contractId: deposit.contractId }] : []),
-            ...(deposit.rentalCycleId ? [{ rentalCycleId: deposit.rentalCycleId }] : []),
-          ],
+          id: bookingInvoiceId,
+          billingKind: 'BOOKING_HOLD',
+          contractId: deposit.contractId,
+          rentalCycleId: deposit.rentalCycleId,
+          customerId: deposit.customerId,
         },
-        orderBy: { createdAt: 'desc' },
-        select: { id: true },
+        select: { id: true, total: true, paidAmount: true, creditAmount: true, status: true },
         }).catch(() => null)
         : Promise.resolve(null));
       if (bookingInvoice && paymentRequestModel?.findFirst) {
@@ -626,18 +676,214 @@ export class DepositsService extends BaseCrudService<Deposit> {
     const isActiveHold = String(roomHold?.status || '').toUpperCase() === 'ACTIVE'
       && holdExpiresAt != null
       && new Date(holdExpiresAt).getTime() > Date.now();
+    const partialBookingFunding =
+      ['BOOKING', 'RESERVATION'].includes(String(deposit.type).toUpperCase()) &&
+      Number(availableBalance || 0) > 0 &&
+      Number(availableBalance || 0) < Number(deposit.amount || 0);
+    const depositAmount = Number(deposit.amount || 0);
+    const ledgerBalance = Number(availableBalance || 0);
+    const terminalDeposit = new Set<string>([
+      DepositStatus.CANCELLED,
+      DepositStatus.REFUNDED,
+      DepositStatus.CONVERTED_TO_CONTRACT,
+    ]).has(String(deposit.status));
+    const operationModel = (this.prisma.tx as any).depositOperation;
+    const terminalDisposition = hasModernBookingMarker && terminalDeposit && operationModel?.findFirst
+      ? await operationModel.findFirst({
+          where: {
+            tenantId: deposit.tenantId,
+            sourceDepositId: deposit.id,
+            status: DepositOperationStatus.COMPLETED,
+            type: { in: [DepositOperationType.CANCEL, DepositOperationType.CONVERT_TO_SECURITY] },
+          },
+          select: { id: true, type: true, result: true, receiptId: true },
+          orderBy: { completedAt: 'desc' },
+        }).catch(() => null)
+      : null;
+    const pendingCancellation = hasModernBookingMarker && terminalDeposit && operationModel?.findFirst
+      ? await operationModel.findFirst({
+          where: {
+            tenantId: deposit.tenantId,
+            sourceDepositId: deposit.id,
+            status: DepositOperationStatus.PENDING,
+            type: DepositOperationType.CANCEL,
+            receiptId: { not: null },
+          },
+          select: { id: true, type: true, result: true, receiptId: true },
+          orderBy: { createdAt: 'desc' },
+        }).catch(() => null)
+      : null;
+    const bookingAdjustments = bookingInvoice && invoiceModel?.findMany
+      ? await invoiceModel.findMany({
+          where: {
+            tenantId: deposit.tenantId,
+            deletedAt: null,
+            adjustmentOfInvoiceId: bookingInvoice.id,
+            status: { not: 'DRAFT' },
+          },
+          select: {
+            id: true,
+            adjustmentOfInvoiceId: true,
+            billingKind: true,
+            total: true,
+            paidAmount: true,
+            creditAmount: true,
+            status: true,
+          },
+        }).catch(() => null)
+      : null;
+    const bookingInvoicePaidAmount = Number(bookingInvoice?.paidAmount || 0);
+    const bookingInvoiceTotal = Number(bookingInvoice?.total || 0);
+    const expectedBookingInvoiceStatus = bookingInvoicePaidAmount === 0
+      ? ['ISSUED', 'OVERDUE'].includes(String(bookingInvoice?.status || '').toUpperCase())
+        ? String(bookingInvoice.status).toUpperCase()
+        : null
+      : bookingInvoicePaidAmount === bookingInvoiceTotal
+        ? 'PAID'
+        : 'PARTIALLY_PAID';
+    const bookingCashValid = Boolean(
+      bookingInvoice &&
+      depositAmount > 0 &&
+      bookingInvoiceTotal === depositAmount &&
+      bookingInvoicePaidAmount >= 0 &&
+      bookingInvoicePaidAmount <= bookingInvoiceTotal &&
+      Number(bookingInvoice.creditAmount || 0) === 0 &&
+      expectedBookingInvoiceStatus &&
+      String(bookingInvoice.status || '').toUpperCase() === expectedBookingInvoiceStatus,
+    );
+    const canonicalCancellationClosure = Boolean(
+      bookingCashValid &&
+      Array.isArray(bookingAdjustments) &&
+      (bookingInvoicePaidAmount === bookingInvoiceTotal
+        ? bookingAdjustments.length === 0
+        : bookingAdjustments.length === 1 &&
+          bookingAdjustments[0].adjustmentOfInvoiceId === bookingInvoice.id &&
+          String(bookingAdjustments[0].billingKind || '').toUpperCase() === 'CREDIT_ADJUSTMENT' &&
+          Number(bookingAdjustments[0].total || 0) === bookingInvoiceTotal - bookingInvoicePaidAmount &&
+          Number(bookingAdjustments[0].paidAmount || 0) === 0 &&
+          Number(bookingAdjustments[0].creditAmount || 0) === 0 &&
+          String(bookingAdjustments[0].status || '').toUpperCase() === 'ISSUED'),
+    );
+    const noAdjustment = Array.isArray(bookingAdjustments) && bookingAdjustments.length === 0;
+    const operationAllocations = (operation: any) => {
+      const result = operation?.result;
+      if (!result || typeof result !== 'object') return null;
+      const values = ['refundAmount', 'keepAmount', 'deductAmount'].map((key) => Number((result as any)[key]));
+      return values.every((value) => Number.isFinite(value) && value >= 0)
+        ? { refundAmount: values[0], keepAmount: values[1], deductAmount: values[2] }
+        : null;
+    };
+    const terminalAllocations = operationAllocations(terminalDisposition);
+    const pendingAllocations = operationAllocations(pendingCancellation);
+    const terminalRefundAmount = terminalAllocations?.refundAmount || 0;
+    const pendingRefundAmount = pendingAllocations?.refundAmount || 0;
+    const receiptModel = (this.prisma as any).receipt;
+    const terminalReceipt = terminalDisposition?.receiptId && receiptModel?.findFirst
+      ? await receiptModel.findFirst({
+          where: { id: terminalDisposition.receiptId, tenantId: deposit.tenantId },
+          select: { id: true, amount: true, status: true },
+        }).catch(() => null)
+      : null;
+    const pendingReceipt = pendingCancellation?.receiptId && receiptModel?.findFirst
+      ? await receiptModel.findFirst({
+          where: { id: pendingCancellation.receiptId, tenantId: deposit.tenantId },
+          select: { id: true, amount: true, status: true },
+        }).catch(() => null)
+      : null;
+    const ledgerModel = (this.prisma.tx as any).depositLedgerEntry;
+    const terminalRefundLedger = terminalRefundAmount > 0 && terminalReceipt?.id && ledgerModel?.findFirst
+      ? await ledgerModel.findFirst({
+          where: {
+            tenantId: deposit.tenantId,
+            depositId: deposit.id,
+            type: 'REFUND',
+            sourceType: 'RECEIPT',
+            sourceId: terminalReceipt.id,
+            amount: terminalRefundAmount,
+            balanceEffect: -terminalRefundAmount,
+          },
+          select: { operationId: true },
+        }).catch(() => null)
+      : null;
+    const terminalRefundCompletion = terminalRefundLedger && terminalRefundLedger.operationId !== terminalDisposition?.id && operationModel?.findFirst
+      ? await operationModel.findFirst({
+          where: {
+            id: terminalRefundLedger.operationId,
+            tenantId: deposit.tenantId,
+            type: DepositOperationType.COMPLETE_REFUND,
+            status: DepositOperationStatus.COMPLETED,
+            receiptId: terminalReceipt.id,
+          },
+          select: { id: true },
+        }).catch(() => null)
+      : null;
+    const terminalRefundValid = terminalRefundAmount === 0 || Boolean(
+      terminalReceipt &&
+      Number(terminalReceipt.amount || 0) === terminalRefundAmount &&
+      String(terminalReceipt.status || '').toUpperCase() === ReceiptStatus.COMPLETED &&
+      terminalRefundLedger &&
+      (terminalRefundLedger.operationId === terminalDisposition?.id || terminalRefundCompletion),
+    );
+    const terminalCancelValid = Boolean(
+      terminalDisposition?.type === DepositOperationType.CANCEL &&
+      ledgerBalance === 0 &&
+      canonicalCancellationClosure &&
+      terminalAllocations &&
+      terminalAllocations.refundAmount + terminalAllocations.keepAmount + terminalAllocations.deductAmount === bookingInvoicePaidAmount &&
+      terminalRefundValid,
+    );
+    const terminalConversionValid = Boolean(
+      terminalDisposition?.type === DepositOperationType.CONVERT_TO_SECURITY &&
+      ledgerBalance === 0 &&
+      bookingCashValid &&
+      bookingInvoicePaidAmount === bookingInvoiceTotal &&
+      noAdjustment,
+    );
+    const pendingCancellationValid = Boolean(
+      pendingCancellation?.type === DepositOperationType.CANCEL &&
+      pendingAllocations &&
+      pendingRefundAmount > 0 &&
+      canonicalCancellationClosure &&
+      pendingAllocations.refundAmount + pendingAllocations.keepAmount + pendingAllocations.deductAmount === bookingInvoicePaidAmount &&
+      ledgerBalance === pendingRefundAmount &&
+      pendingReceipt &&
+      Number(pendingReceipt.amount || 0) === pendingRefundAmount &&
+      String(pendingReceipt.status || '').toUpperCase() === ReceiptStatus.PENDING,
+    );
+    const terminalAggregateValid = terminalCancelValid || terminalConversionValid || pendingCancellationValid;
+    const activeAggregateValid = Boolean(
+      !terminalDeposit &&
+      bookingCashValid &&
+      noAdjustment &&
+      ledgerBalance === bookingInvoicePaidAmount &&
+      String(deposit.status || '').toUpperCase() === (ledgerBalance === depositAmount ? 'PAID' : 'PENDING'),
+    );
+    const fundedInvalidAggregate = hasModernBookingMarker && !(terminalDeposit ? terminalAggregateValid : activeAggregateValid);
+    const validPartialActive = partialBookingFunding && !fundedInvalidAggregate && isActiveHold;
 
     return {
       ...deposit,
       sepayPendingReviewAmount: Number((paymentRequest as any)?.pendingReviewAmount || 0),
       ...(availableBalance === undefined ? {} : { availableBalance }),
       reconciliationError: (deposit as any).reconciliationError || null,
+      bookingInvoice: bookingInvoice
+        ? {
+            id: bookingInvoice.id,
+            paidAmount: Number(bookingInvoice.paidAmount || 0),
+            remainingAmount: terminalCancelValid || pendingCancellationValid
+              ? 0
+              : Math.max(0, Number(bookingInvoice.total || 0) - Number(bookingInvoice.paidAmount || 0) - Number(bookingInvoice.creditAmount || 0)),
+            status: bookingInvoice.status,
+          }
+        : null,
       bookingHold: ['BOOKING', 'RESERVATION'].includes(String(deposit.type).toUpperCase())
         ? {
             status: roomHold?.status || 'NONE',
             expiresAt: holdExpiresAt,
             isActive: isActiveHold,
-            requiresRecovery: !isActiveHold && ['PAID', 'CONVERTED_TO_CONTRACT'].includes(String(deposit.status).toUpperCase()),
+            fundedInvalidAggregate,
+            validPartialActive,
+            requiresRecovery: fundedInvalidAggregate || (ledgerBalance > 0 && !isActiveHold && !pendingCancellationValid),
           }
         : null,
       paymentRequest: paymentRequest || null,
@@ -1288,6 +1534,15 @@ export class DepositsService extends BaseCrudService<Deposit> {
     }
     if (deposit.status === DepositStatus.PAID && !resolutionAction) {
       throw new BadRequestException('Paid deposits require REFUND, KEEP, or DEDUCT resolution before cancel');
+    }
+    const modernBookingPending =
+      deposit.status === DepositStatus.PENDING &&
+      ['BOOKING', 'RESERVATION'].includes(String(deposit.type || '').toUpperCase()) &&
+      deposit.contract?.termsSnapshot &&
+      typeof deposit.contract.termsSnapshot === 'object' &&
+      Object.prototype.hasOwnProperty.call(deposit.contract.termsSnapshot, 'bookingCommand');
+    if (modernBookingPending) {
+      throw new BadRequestException('BOOKING_HOLD_FUNDED_CANCELLATION_REQUIRES_CORE_COMMAND');
     }
 
     if (deposit.status === DepositStatus.PAID) {

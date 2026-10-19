@@ -66,6 +66,15 @@ test('Web runtime Dockerfile locks the production runner to Node 22, direct Next
   assert.doesNotMatch(runner, /(?:^|\s)(?:npm|npx)\s+(?:run\s+)?start/m);
 });
 
+test('Web runner binds COMMIT_SHA before its first cached OS-refresh layer without later redefinition', () => {
+  const dockerfile = read('Dockerfile.web');
+  const runner = dockerfile.slice(dockerfile.indexOf('FROM base AS runner'));
+  const commitArg = runner.indexOf('ARG COMMIT_SHA');
+  const firstUpgrade = runner.indexOf('RUN apk upgrade --no-cache');
+  assert.ok(commitArg >= 0 && firstUpgrade > commitArg);
+  assert.equal((runner.match(/^ARG COMMIT_SHA$/gm) || []).length, 1);
+});
+
 test('Web verifier requires explicit opt-in and a full commit SHA before Docker is invoked', () => {
   for (const input of [
     { env: {}, args: ['web:test', commit] },

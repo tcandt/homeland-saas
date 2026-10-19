@@ -74,7 +74,10 @@ RUN chmod +x ./scripts/docker-api-entrypoint.sh ./scripts/update/*.sh
 # Copy only the pruned application tree into a fresh runtime stage. Global npm
 # remains available in the build stage, never in the running API/worker.
 FROM runtime-base AS runtime
-RUN rm -rf /usr/local/lib/node_modules/npm \
+ARG COMMIT_SHA
+# Refresh runtime OS packages for each release instead of reusing an old cache.
+RUN apk upgrade --no-cache \
+    && rm -rf /usr/local/lib/node_modules/npm \
     && rm -f /usr/local/bin/npm /usr/local/bin/npx \
     && ! command -v npm \
     && ! command -v npx
@@ -86,7 +89,6 @@ RUN ! command -v npm \
     && test ! -d /app/node_modules/npm
 
 # Build arguments for versioning
-ARG COMMIT_SHA
 ARG VERSION
 ARG BUILD_ID
 ARG BUILD_TIME

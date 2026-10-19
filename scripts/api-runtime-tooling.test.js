@@ -208,6 +208,15 @@ test('runtime image and build context cannot retain npm or release artifacts', (
   assert.match(read('.dockerignore'), /^\*\*\/\.codex-update$/m);
 });
 
+test('API runtime binds COMMIT_SHA before its first cached OS-refresh layer without later redefinition', () => {
+  const dockerfile = read('Dockerfile.api');
+  const runtime = dockerfile.slice(dockerfile.indexOf('FROM runtime-base AS runtime'));
+  const commitArg = runtime.indexOf('ARG COMMIT_SHA');
+  const firstUpgrade = runtime.indexOf('RUN apk upgrade --no-cache');
+  assert.ok(commitArg >= 0 && firstUpgrade > commitArg);
+  assert.equal((runtime.match(/^ARG COMMIT_SHA$/gm) || []).length, 1);
+});
+
 test('CI keeps Node 22 and scans runtime image OS and library vulnerabilities', () => {
   const workflow = read('.github/workflows/ci-cd-pipeline.yml');
   assert.match(workflow, /node-version:\s*['"]?22['"]?/);

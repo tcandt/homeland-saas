@@ -63,13 +63,14 @@ RUN npm run build -w apps/web
 
 # Production image, copy all the files and run next
 FROM base AS runner
+ARG COMMIT_SHA
+# Refresh runtime OS packages for each release instead of reusing an old cache.
 RUN apk upgrade --no-cache \
     && apk add --no-cache libc6-compat libreoffice-writer font-noto font-noto-cjk ttf-dejavu \
     && rm -rf /usr/local/lib/node_modules/npm \
     && rm -f /usr/local/bin/npm /usr/local/bin/npx
 WORKDIR /app
 
-ARG COMMIT_SHA
 ARG VERSION
 ARG BUILD_ID
 ARG BUILD_TIME

@@ -55,6 +55,11 @@ export interface HunonicDashboardData {
   electric_meters: HunonicElectricMeter[];
 }
 
+export interface HunonicHistoryProgress {
+  completed: number;
+  total: number;
+}
+
 export interface HunonicMonthlyHistoryPoint {
   provider_meter_id: string | null;
   provider_root_id: string | null;
@@ -131,17 +136,27 @@ export class HunonicProvider {
     });
   }
 
-  async fetchRecentMonthlyHistory(monthCount = 12): Promise<{ dashboard: HunonicDashboardData; history: HunonicMonthlyHistoryPoint[]; skippedIncompletePoints: number }> {
+  async fetchRecentMonthlyHistory(
+    monthCount = 12,
+    options: {
+      includeMeter?: (meter: HunonicElectricMeter) => boolean;
+      onProgress?: (progress: HunonicHistoryProgress) => void | Promise<void>;
+    } = {},
+  ): Promise<{ dashboard: HunonicDashboardData; history: HunonicMonthlyHistoryPoint[]; skippedIncompletePoints: number }> {
     const dashboard = await this.fetchDashboardData();
     const session = await this.createSession();
     const months = getRecentMonths(monthCount);
     const years = Array.from(new Set(months.map((month) => month.year)));
     const history: HunonicMonthlyHistoryPoint[] = [];
     let skippedIncompletePoints = 0;
+    const meters = dashboard.electric_meters.filter((meter) => options.includeMeter ? options.includeMeter(meter) : true);
+    const totalRequests = meters.reduce((total, meter) => total + ((meter.provider_root_id || meter.provider_meter_id) ? years.length : 0), 0);
+    let completedRequests = 0;
+    await options.onProgress?.({ completed: completedRequests, total: totalRequests });
 
     const tokenId = session.source === 'mobile' ? session.tokenId : null;
 
-    for (const meter of dashboard.electric_meters) {
+    for (const meter of meters) {
       const rootId = meter.provider_root_id || meter.provider_meter_id;
       if (!rootId) continue;
 
@@ -169,6 +184,8 @@ export class HunonicProvider {
           assertSuccess(response.data, 'Hunonic getDataGraph failed');
           responseData = response.data;
         }
+        completedRequests += 1;
+        await options.onProgress?.({ completed: completedRequests, total: totalRequests });
 
         const graphData = arrayOf(responseData?.data?.graph_data);
         const pointsByPeriod = new Map<string, any>();

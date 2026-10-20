@@ -92,6 +92,9 @@ jobs:
       - run: node --test scripts/ci-bootstrap-database.test.js scripts/nas-staging-compose.test.js scripts/runtime-audit-policy.test.js
       - run: npm run test
       - run: npm run test:release-repair --workspace=web
+      - name: Hunonic sync presentation focused unit gate
+        working-directory: apps/web
+        run: npx vitest run lib/hooks/useHunonicSync.test.ts lib/hunonic/presentation.test.ts
 
   integration-test:
     name: Integration Test
@@ -140,6 +143,17 @@ jobs:
           TEST_DATABASE_URL: postgresql://homeland:homeland123@127.0.0.1:5433/homeland_booking_invoice_test?schema=public
           COMMUNICATION_IMMEDIATE_DELIVERY: 'false'
         run: npx vitest run src/communication/in-app-notification-identity.integration.spec.ts
+      - name: Prepare isolated Hunonic reservation gate database
+        run: >-
+          docker compose -f docker-compose.ci.yml -p homeland-ci-${{ github.run_id }}-${{ github.run_attempt }}
+          exec -T postgres psql -U homeland -d postgres -v ON_ERROR_STOP=1
+          -c 'CREATE DATABASE homeland_hunonic_test_ci'
+      - name: Hunonic reservation real PostgreSQL gate
+        working-directory: apps/api
+        env:
+          RUN_HUNONIC_SYNC_DB_TESTS: '1'
+          HUNONIC_TEST_DATABASE_URL: postgresql://homeland:homeland123@127.0.0.1:5433/homeland_hunonic_test_ci?schema=public
+        run: npx vitest run src/hunonic/hunonic-sync-reservation.integration.spec.ts
       - run: npm run test:e2e --workspace=api
 
   build-api:

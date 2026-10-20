@@ -30,6 +30,8 @@ import { Switch } from "@/components/ui/Switch";
 import { useSettingsSection } from "@/lib/hooks/useSettingsSection";
 import { useAuthStore } from "@/lib/auth/auth-store";
 import { hunonicApi, HunonicSettingsPayload } from "@/lib/api/hunonic.api";
+import { useHunonicSync } from "@/lib/hooks/useHunonicSync";
+import { HunonicSyncProgress } from "@/components/hunonic/HunonicSyncProgress";
 import toast from "react-hot-toast";
 
 const fallback: Required<HunonicSettingsPayload> = {
@@ -87,13 +89,19 @@ export default function SettingsHunonicIntegration() {
   });
 
   const [isTesting, setIsTesting] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
 
   const rawOverview = overview.data as any;
   const overviewData = rawOverview?.data || rawOverview || {};
-  const totalMeters = overviewData.totalMeters || overviewData.meters?.length || 0;
-  const onlineMeters = overviewData.onlineMeters || 0;
+  const totalMeters = overviewData.summary?.mappings || overviewData.totalMeters || overviewData.meters?.length || 0;
+  const onlineMeters = overviewData.summary?.online || overviewData.onlineMeters || 0;
   const lastSyncAt = overviewData.lastSyncAt || overviewData.syncedAt;
+  const sync = useHunonicSync({
+    enabled: Boolean(draft.enabled),
+    onSuccess: async (result) => {
+      await overview.mutate();
+      toast.success(`Đồng bộ Hunonic hoàn tất (${result.result?.inventory?.managed ?? result.result?.syncedCount ?? 0} công tơ)`);
+    },
+  });
 
   const openConfigModal = () => {
     const current = draft || fallback;
@@ -187,15 +195,10 @@ export default function SettingsHunonicIntegration() {
   };
 
   const syncNow = async () => {
-    setIsSyncing(true);
     try {
-      const result: any = await hunonicApi.sync();
-      await overview.mutate();
-      toast.success(`Đã đồng bộ chỉ số điện từ Hunonic thành công (${result?.data?.syncedCount ?? "toàn bộ"} công tơ)`);
+      await sync.start();
     } catch (error: any) {
       toast.error(error?.message || "Không đồng bộ được chỉ số điện");
-    } finally {
-      setIsSyncing(false);
     }
   };
 
@@ -277,7 +280,8 @@ export default function SettingsHunonicIntegration() {
                 variant="outline"
                 size="sm"
                 onClick={syncNow}
-                isLoading={isSyncing}
+                disabled={!sync.canSync || sync.isRunning || sync.isStarting}
+                isLoading={sync.isRunning || sync.isStarting}
                 className="h-8 rounded-xl px-3 text-xs font-bold"
               >
                 <RefreshCcw size={13} className="mr-1.5 text-emerald-600" /> Đồng bộ ngay
@@ -292,6 +296,7 @@ export default function SettingsHunonicIntegration() {
                 Lưu cấu hình
               </Button>
             </div>
+            <HunonicSyncProgress status={sync.status} error={sync.pollError} />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -438,7 +443,8 @@ export default function SettingsHunonicIntegration() {
                 type="button"
                 variant="outline"
                 onClick={syncNow}
-                isLoading={isSyncing}
+                disabled={!sync.canSync || sync.isRunning || sync.isStarting}
+                isLoading={sync.isRunning || sync.isStarting}
                 className="h-10 rounded-xl px-3.5 text-xs font-bold"
               >
                 <RefreshCcw size={14} className="mr-1.5 text-emerald-600" /> Đồng bộ ngay

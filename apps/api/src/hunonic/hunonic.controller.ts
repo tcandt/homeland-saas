@@ -91,6 +91,20 @@ export class HunonicController {
     return this.hunonicService.syncTenant(tenantId, undefined, { backfillMonths: 6 });
   }
 
+  @Post('sync/start')
+  @RequirePermissions('meter.sync')
+  @ApiOperation({ summary: 'Start an asynchronous Hunonic sync and return real persisted progress' })
+  startSync(@CurrentUser('tenantId') tenantId: string) {
+    return this.hunonicService.startSync(tenantId);
+  }
+
+  @Get('sync/status')
+  @RequirePermissions('meter.sync')
+  @ApiOperation({ summary: 'Get tenant-scoped Hunonic sync progress' })
+  syncStatus(@Query('jobId') jobId: string, @CurrentUser('tenantId') tenantId: string) {
+    return this.hunonicService.getSyncStatus(tenantId, jobId);
+  }
+
   @Get('sync-logs')
   @RequirePermissions('meter.read')
   @ApiOperation({ summary: 'Get Hunonic sync logs history' })

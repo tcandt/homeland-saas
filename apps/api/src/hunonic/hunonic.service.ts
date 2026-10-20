@@ -1,10 +1,11 @@
-import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { Prisma, SettingScope } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { PrismaService } from '../prisma.service';
 import { HunonicElectricMeter, HunonicElectricityRateMode, HunonicMonthlyHistoryPoint, HunonicProvider, HunonicProviderOptions } from './hunonic.provider';
 import { shouldRunGeneralSchedulers } from '../shared/config/runtime-mode';
+import { classifyHunonicMeter, meterKindForMapping } from './hunonic-meter-identity';
 
 type HunonicSettings = {
   enabled?: boolean;
@@ -71,6 +72,17 @@ type HunonicLockPeriodsInput = {
   }>;
 };
 
+type HunonicSyncProgress = {
+  version: 1;
+  phase: 'queued' | 'discovering' | 'syncing' | 'backfilling' | 'completed' | 'failed';
+  processed: number;
+  total: number;
+  percent: number;
+  heartbeatAt: string;
+  warnings?: string[];
+  result?: Record<string, unknown>;
+};
+
 const HUNONIC_SETTING_KEY = 'hunonic';
 const HUNONIC_PROVIDER_RETRY_BASE_DELAY_MS = process.env.NODE_ENV === 'test' ? 0 : 250;
 
@@ -101,6 +113,7 @@ export class HunonicService {
       orderBy: [{ buildingCode: 'asc' }, { roomCode: 'asc' }],
     });
     const mappings = dedupeMappingsByRoom(rawMappings);
+    const roomMappings = mappings.filter((mapping: any) => meterKindForMapping(mapping) === 'ROOM');
 
     const latestLog = await this.prismaAny.hunonicSyncLog.findFirst({
       where: { tenantId },
@@ -117,7 +130,7 @@ export class HunonicService {
       const lockedMap = new Map(lockedPeriods.map((item) => [lockedPeriodKey(item), item]));
       let hasNewAutoLock = false;
 
-      for (const mapping of mappings) {
+      for (const mapping of roomMappings) {
         const raw = mapping.raw || {};
         const rootExtra = typeof raw.root_extra === 'string' ? parseJsonObject(raw.root_extra) : raw.root_extra || {};
         const dataExtra = typeof raw.data_extra === 'string' ? parseJsonObject(raw.data_extra) : raw.data_extra || {};
@@ -154,9 +167,10 @@ export class HunonicService {
       managedBuildingCodes,
       summary: {
         mappings: mappings.length,
-        online: mappings.filter((item: any) => item.lastStatus === 'on').length,
-        totalEnergyMonthKwh: sumDecimal(mappings, 'lastReadingKwh'),
-        totalMoneyMonthVnd: sumDecimal(mappings, 'lastAmountVnd'),
+        roomMeters: roomMappings.length,
+        online: roomMappings.filter((item: any) => item.lastStatus === 'on').length,
+        totalEnergyMonthKwh: sumDecimal(roomMappings, 'lastReadingKwh'),
+        totalMoneyMonthVnd: sumDecimal(roomMappings, 'lastAmountVnd'),
       },
       latestLog,
       lockedPeriods,
@@ -202,6 +216,7 @@ export class HunonicService {
     const rows = [];
 
     for (const mapping of mappings) {
+      const presentation = meterPresentation(mapping);
       const mobileMeter = mobileRootByRoom.get(canonicalRoomKey(mapping.buildingCode, mapping.roomCode));
       const rootId = mobileMeter?.provider_root_id || mobileMeter?.provider_meter_id || mapping.providerRootId || mapping.providerMeterId;
       if (!rootId) continue;
@@ -212,9 +227,10 @@ export class HunonicService {
         const resolvedRate = resolveElectricityRateState({ settings, rootId, mapping, mobileMeter, groups, custom });
         rows.push({
           id: mapping.id,
-          buildingCode: mapping.buildingCode,
-          roomCode: mapping.roomCode,
-          displayName: mapping.displayName,
+          buildingCode: presentation.buildingCode,
+          roomCode: presentation.roomCode,
+          displayName: presentation.displayName,
+          meterKind: presentation.meterKind,
           deviceName: mobileMeter?.name || mapping.deviceName,
           providerRootId: rootId,
           providerMeterId: mobileMeter?.provider_meter_id || mapping.providerMeterId,
@@ -227,9 +243,10 @@ export class HunonicService {
       } catch (error: any) {
         rows.push({
           id: mapping.id,
-          buildingCode: mapping.buildingCode,
-          roomCode: mapping.roomCode,
-          displayName: mapping.displayName,
+          buildingCode: presentation.buildingCode,
+          roomCode: presentation.roomCode,
+          displayName: presentation.displayName,
+          meterKind: presentation.meterKind,
           deviceName: mobileMeter?.name || mapping.deviceName,
           providerRootId: rootId,
           providerMeterId: mobileMeter?.provider_meter_id || mapping.providerMeterId,
@@ -504,14 +521,33 @@ export class HunonicService {
             },
           };
 
+    // Shared meters may retain a legacy persisted scope used by immutable
+    // observations. Resolve their filters from presentation, never rewrite it.
+    const rawMappings = await this.prismaAny.hunonicMeterMapping.findMany({
+      where: { tenantId },
+      select: { id: true, buildingCode: true, roomCode: true, displayName: true, deviceName: true, homeName: true, roomName: true },
+      orderBy: [{ buildingCode: 'asc' }, { roomCode: 'asc' }],
+    });
+    const sharedMappings = rawMappings.filter((mapping: any) => meterPresentation(mapping).meterKind !== 'ROOM');
+    const matchingSharedIds = sharedMappings.filter((mapping: any) => {
+      const display = meterPresentation(mapping);
+      return (!query.buildingCode || query.buildingCode === 'all' || canonicalBuildingCode(display.buildingCode) === canonicalBuildingCode(query.buildingCode))
+        && (!query.roomCode || query.roomCode === 'all' || canonicalRoomCode(display.roomCode) === canonicalRoomCode(query.roomCode))
+        && (!search || [display.buildingCode, display.roomCode, display.displayName, mapping.deviceName].some((value) => normalizeText(value).includes(normalizeText(search))));
+    }).map((mapping: any) => mapping.id);
+    const mappingFilter = sharedMappings.length ? {
+      OR: [
+        { ...relationFilter, id: { notIn: sharedMappings.map((mapping: any) => mapping.id) } },
+        { id: { in: matchingSharedIds } },
+      ],
+    } : relationFilter;
     const where = {
       tenantId,
       ...timeFilter,
-      meterMapping: relationFilter,
+      meterMapping: mappingFilter,
     };
 
-    const [allForSummary, rawMappings] = await Promise.all([
-      this.prismaAny.hunonicMeterReading.findMany({
+    const allForSummary = await this.prismaAny.hunonicMeterReading.findMany({
         where,
         orderBy: [{ readingAt: 'desc' }, { createdAt: 'desc' }],
         include: {
@@ -522,24 +558,21 @@ export class HunonicService {
               roomCode: true,
               displayName: true,
               deviceName: true,
+              homeName: true,
+              roomName: true,
               providerMeterId: true,
             },
           },
         },
-      }),
-      this.prismaAny.hunonicMeterMapping.findMany({
-        where: { tenantId },
-        select: { buildingCode: true, roomCode: true, displayName: true },
-        orderBy: [{ buildingCode: 'asc' }, { roomCode: 'asc' }],
-      }),
-    ]);
+      });
 
     const duplicateCountByKey = countReadingsByRoomPeriod(allForSummary);
     const dedupedReadings = dedupeHistoryReadings(allForSummary);
     const total = dedupedReadings.length;
     const readings = dedupedReadings.slice((page - 1) * limit, page * limit);
     const monthlyRows = buildMonthlyRows(dedupedReadings, lockedPeriods, duplicateCountByKey);
-    const roomsWithData = countRoomsWithData(monthlyRows);
+    const roomMonthlyRows = monthlyRows.filter((row: any) => row.meterKind === 'ROOM');
+    const roomsWithData = countRoomsWithData(roomMonthlyRows);
     const mappings = dedupeMappingsByRoom(rawMappings);
     const dataQuality = buildDataQualitySummary(monthlyRows);
 
@@ -550,19 +583,15 @@ export class HunonicService {
         page,
         limit,
         availableYears: getThreeYearOptions(),
-        rooms: mappings.map((item: any) => ({
-          buildingCode: item.buildingCode,
-          roomCode: item.roomCode,
-          displayName: item.displayName,
-        })),
+        rooms: mappings.map((item: any) => meterPresentation(item)),
         lockedPeriods,
       },
       summary: {
         totalReadings: total,
         monthlyRows: monthlyRows.length,
         roomsWithData,
-        totalEnergyMonthKwh: monthlyRows.reduce((sum, item) => sum + item.energyMonthKwh, 0),
-        totalMoneyMonthVnd: monthlyRows.reduce((sum, item) => sum + item.moneyMonthVnd, 0),
+        totalEnergyMonthKwh: roomMonthlyRows.reduce((sum, item) => sum + item.energyMonthKwh, 0),
+        totalMoneyMonthVnd: roomMonthlyRows.reduce((sum, item) => sum + item.moneyMonthVnd, 0),
         // Totals include only fields supplied by Hunonic.  Incomplete rows
         // are explicitly reported below and are never financial evidence.
         dataQuality,
@@ -592,7 +621,11 @@ export class HunonicService {
       }),
     ]);
     return {
-      logs,
+      logs: logs.map((log: any) => ({
+        ...log,
+        progress: readSyncProgress(log.message, log.status),
+        message: syncLogHumanMessage(log),
+      })),
       pagination: {
         page,
         limit,
@@ -741,27 +774,65 @@ export class HunonicService {
     };
   }
 
-  async syncTenant(tenantId: string, overrideSettings?: HunonicSettings, options: { backfillMonths?: number } = {}) {
+  async startSync(tenantId: string) {
+    const settings = await this.getSettings(tenantId);
+    if (!settings.enabled) throw new BadRequestException('Hunonic integration is disabled.');
+    const reservation = await this.reserveSyncLog(tenantId, this.resolveProviderMode(settings));
+    const progress = readSyncProgress(reservation.log.message, reservation.log.status);
+    if (!reservation.reused) {
+      void this.syncTenant(tenantId, undefined, { backfillMonths: 6, logId: reservation.log.id })
+        .catch((error) => this.logger.error(`Hunonic async sync failed for tenant ${tenantId}: ${safeHunonicError(error)}`));
+    }
+    return syncStatusResponse(reservation.log, progress);
+  }
+
+  async getSyncStatus(tenantId: string, jobId: string) {
+    let log = await this.prismaAny.hunonicSyncLog.findFirst({ where: { id: jobId, tenantId } });
+    if (!log) throw new NotFoundException('HUNONIC_SYNC_JOB_NOT_FOUND');
+    if (log.status === 'RUNNING' && !isFreshSyncLease(log, new Date())) {
+      await this.prismaAny.hunonicSyncLog.updateMany({
+        where: { id: jobId, tenantId, status: 'RUNNING', message: log.message },
+        data: { status: 'FAILED', finishedAt: new Date(), error: 'HUNONIC_SYNC_STALE' },
+      });
+      log = await this.prismaAny.hunonicSyncLog.findFirst({ where: { id: jobId, tenantId } });
+      if (!log) throw new NotFoundException('HUNONIC_SYNC_JOB_NOT_FOUND');
+    }
+    return syncStatusResponse(log, readSyncProgress(log.message, log.status));
+  }
+
+  async syncTenant(tenantId: string, overrideSettings?: HunonicSettings, options: { backfillMonths?: number; logId?: string } = {}) {
     const settings = overrideSettings || await this.getSettings(tenantId);
     if (!settings.enabled && !overrideSettings) {
       return { skipped: true, reason: 'Hunonic integration is disabled.' };
     }
 
     const preferredMode = this.resolveProviderMode(settings);
-    const startedAt = new Date();
-    const log = await this.prismaAny.hunonicSyncLog.create({
-      data: { tenantId, status: 'RUNNING', source: preferredMode, startedAt },
-    });
+    const directReservation = options.logId ? null : await this.reserveSyncLog(tenantId, preferredMode);
+    if (directReservation?.reused) {
+      return { skipped: true, reason: 'HUNONIC_SYNC_ALREADY_RUNNING', jobId: directReservation.log.id };
+    }
+    const log = options.logId
+      ? await this.prismaAny.hunonicSyncLog.findFirst({ where: { id: options.logId, tenantId } })
+      : directReservation?.log;
+    if (!log) throw new NotFoundException('HUNONIC_SYNC_JOB_NOT_FOUND');
 
     try {
       const backfillMonths = options.backfillMonths !== undefined ? options.backfillMonths : 12;
       const provider = new HunonicProvider(this.toProviderOptions({ ...settings, mode: preferredMode }));
+      const buildings = await this.prisma.building.findMany({
+        where: { tenantId, deletedAt: null },
+        include: { rooms: { where: { deletedAt: null } } },
+      });
+      await this.publishSyncProgress(tenantId, log.id, syncProgress('discovering', 0, 0));
       const backfill = backfillMonths > 0
         ? await this.withProviderRetry(
-            () => provider.fetchRecentMonthlyHistory(backfillMonths),
+            () => provider.fetchRecentMonthlyHistory(backfillMonths, {
+              includeMeter: (meter) => Boolean(resolveFixedRoomMapping(meter, buildings)),
+              onProgress: ({ completed, total }) => this.publishSyncProgress(tenantId, log.id, syncProgress('backfilling', completed, total)),
+            }),
             `recent monthly history for tenant ${tenantId}`,
           ).catch((err) => {
-            this.logger.warn(`Failed to fetch recent monthly history: ${err?.message}`);
+            this.logger.warn(`Failed to fetch recent monthly history: ${safeHunonicError(err)}`);
             return null;
           })
         : null;
@@ -769,21 +840,28 @@ export class HunonicService {
         () => provider.fetchDashboardData(),
         `dashboard for tenant ${tenantId}`,
       );
-      const buildings = await this.prisma.building.findMany({
-        where: { tenantId, deletedAt: null },
-        include: { rooms: { where: { deletedAt: null } } },
-      });
       const roomIndex = createRoomIndex(buildings);
       let readingsSaved = 0;
       const mappingByProviderMeterId = new Map<string, any>();
       const autoLockRows: HunonicLockedPeriod[] = [];
+      const candidates = dashboard.electric_meters
+        .map((meter) => ({ meter, fixed: resolveFixedRoomMapping(meter, buildings) }))
+        .filter((item) => item.fixed);
+      assertNoDuplicateHunonicMappings(candidates);
+      for (const { meter } of candidates) {
+        if (Number.isNaN(new Date(meter.updated_at || dashboard.exported_at).getTime())) {
+          throw new BadRequestException('HUNONIC_INVALID_READING_TIMESTAMP');
+        }
+      }
+      const inventory = summarizeHunonicInventory(dashboard.electric_meters, candidates);
+      const totalWork = candidates.length + (backfill?.history.length || 0);
+      let processedWork = 0;
+      await this.publishSyncProgress(tenantId, log.id, syncProgress('syncing', processedWork, totalWork));
 
-      for (const meter of dashboard.electric_meters) {
-        const fixed = resolveFixedRoomMapping(meter, buildings);
-        if (!fixed) continue;
+      for (const { meter, fixed } of candidates) {
         const readingAt = meter.updated_at ? new Date(meter.updated_at) : new Date(dashboard.exported_at);
         const providerMeterId = meter.provider_meter_id || meter.provider_device_id;
-        if (!providerMeterId || Number.isNaN(readingAt.getTime())) continue;
+        await this.publishSyncProgress(tenantId, log.id, syncProgress('syncing', processedWork, totalWork));
 
         const roomMatch = (fixed.buildingId || fixed.roomId)
           ? { buildingId: fixed.buildingId, roomId: fixed.roomId }
@@ -833,7 +911,7 @@ export class HunonicService {
           );
           if (upsertedPrev) readingsSaved += 1;
 
-          if (settings.autoLockPreviousMonth !== false) {
+          if (settings.autoLockPreviousMonth !== false && fixed.meterKind !== 'BUILDING_TOTAL' && fixed.meterKind !== 'EV_CHARGING') {
             autoLockRows.push({
               buildingCode: fixed.buildingCode,
               roomCode: fixed.roomCode,
@@ -844,6 +922,8 @@ export class HunonicService {
             });
           }
         }
+        processedWork += 1;
+        await this.publishSyncProgress(tenantId, log.id, syncProgress('syncing', processedWork, totalWork));
       }
 
       if (autoLockRows.length > 0) {
@@ -871,7 +951,8 @@ export class HunonicService {
       for (const point of backfill?.history || []) {
         const providerMeterId = point.provider_meter_id || point.provider_device_id;
         const match = providerMeterId ? mappingByProviderMeterId.get(providerMeterId) : null;
-        if (!match) continue;
+        if (!match) throw new ConflictException('HUNONIC_UNMATCHED_HISTORY_METER');
+        await this.publishSyncProgress(tenantId, log.id, syncProgress('syncing', processedWork, totalWork));
         const readingAt = getPeriodReadingAt(point.period);
         const meter = monthlyPointToMeter(match.meter, point);
         const upserted = await this.upsertMonthlyReading(
@@ -883,20 +964,32 @@ export class HunonicService {
           meter,
         );
         if (upserted) readingsSaved += 1;
+        processedWork += 1;
+        await this.publishSyncProgress(tenantId, log.id, syncProgress('syncing', processedWork, totalWork));
       }
 
-      await this.prismaAny.hunonicSyncLog.update({
-        where: { id: log.id },
+      const finished = await this.prismaAny.hunonicSyncLog.updateMany({
+        where: { id: log.id, tenantId, status: 'RUNNING' },
         data: {
           status: 'SUCCESS',
           finishedAt: new Date(),
           metersFound: dashboard.electric_meters.length,
           readingsSaved,
-          message: backfill
-            ? `Backfilled ${backfillMonths} months and updated ${readingsSaved} Hunonic monthly readings.`
-            : `Updated ${readingsSaved} Hunonic current-month readings.`,
+          message: serializeSyncProgress(syncProgress('completed', totalWork, totalWork, {
+            result: {
+              metersFound: dashboard.electric_meters.length,
+              metersMatched: candidates.length,
+              syncedCount: candidates.length,
+              inventory,
+              readingsSaved,
+              backfillMonths: backfill ? backfillMonths : 0,
+              skippedIncompletePoints: backfill?.skippedIncompletePoints || 0,
+              backfillWarning: backfill ? undefined : (backfillMonths > 0 ? 'BACKFILL_UNAVAILABLE' : undefined),
+            },
+          })),
         },
       });
+      if (finished.count !== 1) throw new ConflictException('HUNONIC_SYNC_LEASE_LOST');
 
       return {
         skipped: false,
@@ -906,9 +999,9 @@ export class HunonicService {
         backfillMonths: backfill ? backfillMonths : 0,
       };
     } catch (error: any) {
-      await this.prismaAny.hunonicSyncLog.update({
-        where: { id: log.id },
-        data: { status: 'FAILED', finishedAt: new Date(), error: error?.message || 'Hunonic sync failed.' },
+      await this.prismaAny.hunonicSyncLog.updateMany({
+        where: { id: log.id, tenantId, status: 'RUNNING' },
+        data: { status: 'FAILED', finishedAt: new Date(), error: safeHunonicError(error), message: serializeSyncProgress(syncProgress('failed', 0, 0)) },
       });
       throw error;
     }
@@ -988,6 +1081,39 @@ export class HunonicService {
     }, { maxWait: 5000, timeout: 14 * 60 * 1000 });
   }
 
+  /** Reserve only the log creation transaction; provider I/O runs after it commits. */
+  private async reserveSyncLog(tenantId: string, source: string) {
+    const reserve = async (db: any) => {
+      if (typeof db.$queryRaw === 'function') {
+        await db.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${`hunonic:sync:${tenantId}`}))::text AS "lock"`);
+      }
+      const now = new Date();
+      const running = await db.hunonicSyncLog.findMany({
+        where: { tenantId, status: 'RUNNING' },
+        orderBy: { startedAt: 'desc' },
+      });
+      const active = running.find((log: any) => isFreshSyncLease(log, now));
+      if (active) return { log: active, reused: true };
+      for (const stale of running) {
+        const expired = await db.hunonicSyncLog.updateMany({
+          where: { id: stale.id, tenantId, status: 'RUNNING', message: stale.message },
+          data: { status: 'FAILED', finishedAt: now, error: 'HUNONIC_SYNC_STALE' },
+        });
+        if (!expired.count) {
+          const refreshed = await db.hunonicSyncLog.findFirst({ where: { id: stale.id, tenantId, status: 'RUNNING' } });
+          if (refreshed) return { log: refreshed, reused: true };
+        }
+      }
+      const log = await db.hunonicSyncLog.create({
+        data: { tenantId, status: 'RUNNING', source, startedAt: now, message: serializeSyncProgress(syncProgress('queued', 0, 0)) },
+      });
+      return { log, reused: false };
+    };
+    return typeof this.prismaAny.$transaction === 'function'
+      ? this.prismaAny.$transaction(reserve)
+      : reserve(this.prismaAny);
+  }
+
   private async withProviderRetry<T>(operation: () => Promise<T>, label: string, attempts = 3): Promise<T> {
     let lastError: unknown;
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
@@ -996,11 +1122,22 @@ export class HunonicService {
       } catch (error: any) {
         lastError = error;
         if (attempt >= attempts) break;
-        this.logger.warn(`Hunonic ${label} failed on attempt ${attempt}/${attempts}; retrying: ${error?.message || error}`);
+        this.logger.warn(`Hunonic ${label} failed on attempt ${attempt}/${attempts}; retrying: ${safeHunonicError(error)}`);
         await delay(Math.min(HUNONIC_PROVIDER_RETRY_BASE_DELAY_MS * (2 ** (attempt - 1)), 1000));
       }
     }
     throw lastError;
+  }
+
+  private async publishSyncProgress(tenantId: string, logId: string, progress: HunonicSyncProgress) {
+    const current = await this.prismaAny.hunonicSyncLog.findFirst({ where: { id: logId, tenantId, status: 'RUNNING' } });
+    if (!current) throw new ConflictException('HUNONIC_SYNC_LEASE_LOST');
+    const previous = readSyncProgress(current.message, current.status);
+    const updated = await this.prismaAny.hunonicSyncLog.updateMany({
+      where: { id: logId, tenantId, status: 'RUNNING', message: current.message },
+      data: { message: serializeSyncProgress({ ...progress, percent: Math.max(previous.percent, progress.percent) }) },
+    });
+    if (updated.count !== 1) throw new ConflictException('HUNONIC_SYNC_LEASE_LOST');
   }
 
   private async getSettings(tenantId: string): Promise<HunonicSettings> {
@@ -1069,8 +1206,8 @@ export class HunonicService {
   private async upsertMeterMappingByRoom(
     tenantId: string,
     providerMeterId: string,
-    roomMatch: { buildingId: string; roomId: string } | undefined,
-    fixed: { buildingCode: string; roomCode: string; displayName: string },
+    roomMatch: { buildingId?: string; roomId?: string } | undefined,
+    fixed: { buildingCode: string; roomCode: string; displayName: string; meterKind?: 'ROOM' | 'BUILDING_TOTAL' | 'EV_CHARGING' },
     meter: HunonicElectricMeter,
     exportedAt: Date,
   ) {
@@ -1104,13 +1241,17 @@ export class HunonicService {
     const existingByProvider = await this.prismaAny.hunonicMeterMapping.findUnique({
       where: { tenantId_providerMeterId: { tenantId, providerMeterId } },
     });
+    if ((fixed.meterKind === 'BUILDING_TOTAL' || fixed.meterKind === 'EV_CHARGING')
+      && (roomMatch?.roomId || existingByProvider?.roomId)) {
+      throw new ConflictException('HUNONIC_SHARED_METER_ROOM_BINDING_REQUIRES_REVIEW');
+    }
     if (existingByProvider) {
       const scopeChanged =
         (Boolean(roomMatch?.buildingId) && existingByProvider.buildingId !== roomMatch?.buildingId) ||
         (Boolean(roomMatch?.roomId) && existingByProvider.roomId !== roomMatch?.roomId) ||
         canonicalBuildingCode(existingByProvider.buildingCode) !== canonicalBuildingCode(fixed.buildingCode) ||
         canonicalRoomCode(existingByProvider.roomCode) !== canonicalRoomCode(fixed.roomCode);
-      if (scopeChanged) {
+      if (scopeChanged && fixed.meterKind !== 'BUILDING_TOTAL' && fixed.meterKind !== 'EV_CHARGING') {
         throw new ConflictException('HUNONIC_MAPPING_SCOPE_CHANGE_REQUIRES_REVIEW');
       }
       const {
@@ -1228,20 +1369,26 @@ export class HunonicService {
 }
 
 function isIgnoredHunonicMeter(meter: HunonicElectricMeter) {
-  const name = String(meter.name || '');
-  const roomName = String(meter.room_name || '');
-  const homeName = String(meter.home_name || '');
-  const combined = normalizeText(`${name} ${roomName} ${homeName}`);
-  return (
-    combined.includes('nha cua tinh') ||
-    (combined.includes('tinh') && combined.includes('nha')) ||
-    combined.includes('nlmt')
-  );
+  return Boolean(classifyHunonicMeter(meter)?.ignored);
 }
 
 function resolveFixedRoomMapping(meter: HunonicElectricMeter, buildings: Array<any> = []) {
-  if (isIgnoredHunonicMeter(meter)) {
+  const classified = classifyHunonicMeter(meter);
+  if (classified?.ignored) {
     return null;
+  }
+
+  // Total and EV meters are intentionally not attached to a billable room.
+  // Existing total mappings retain their historical DB scope; only the
+  // projection below corrects their semantic labels.
+  if (classified && classified.meterKind !== 'ROOM') {
+    return {
+      roomId: undefined,
+      buildingCode: classified.buildingCode,
+      roomCode: classified.roomCode,
+      displayName: classified.displayName,
+      meterKind: classified.meterKind,
+    };
   }
 
   const name = String(meter.name || '').trim();
@@ -1285,6 +1432,7 @@ function resolveFixedRoomMapping(meter: HunonicElectricMeter, buildings: Array<a
       r.code.includes(code)
     );
     if (matchedBuilding) {
+      if (classified?.meterKind === 'ROOM' && !matchedRoom) return null;
       return {
         buildingId: matchedBuilding.id,
         roomId: matchedRoom?.id,
@@ -1397,6 +1545,136 @@ function normalizeText(value: unknown) {
     .toLowerCase();
 }
 
+function syncProgress(
+  phase: HunonicSyncProgress['phase'],
+  processed: number,
+  total: number,
+  extras: Pick<HunonicSyncProgress, 'warnings' | 'result'> = {},
+): HunonicSyncProgress {
+  const safeProcessed = Math.max(0, Math.trunc(processed));
+  const safeTotal = Math.max(0, Math.trunc(total));
+  return {
+    version: 1,
+    phase,
+    processed: safeProcessed,
+    total: safeTotal,
+    // A running stage only reports observed units of that stage.  100 is
+    // reserved for the persisted SUCCESS terminal state.
+    percent: phase === 'completed' ? 100
+      : phase === 'backfilling' ? (safeTotal > 0 ? Math.min(50, Math.floor((safeProcessed / safeTotal) * 50)) : 0)
+        : phase === 'syncing' ? 50 + (safeTotal > 0 ? Math.min(49, Math.floor((safeProcessed / safeTotal) * 49)) : 0) : 0,
+    heartbeatAt: new Date().toISOString(),
+    ...extras,
+  };
+}
+
+function isFreshSyncLease(log: any, now: Date) {
+  let heartbeatValue: unknown = log?.startedAt;
+  try {
+    const parsed = JSON.parse(String(log?.message || ''));
+    if (parsed?.version === 1 && typeof parsed.heartbeatAt === 'string') heartbeatValue = parsed.heartbeatAt;
+  } catch { /* legacy logs use their start time once, then are reclaimed */ }
+  const heartbeat = new Date(heartbeatValue as any).getTime();
+  return Number.isFinite(heartbeat) && heartbeat >= now.getTime() - 30 * 60 * 1000;
+}
+
+function serializeSyncProgress(progress: HunonicSyncProgress) {
+  return JSON.stringify(progress);
+}
+
+function readSyncProgress(message: unknown, status: string): HunonicSyncProgress {
+  try {
+    const parsed = JSON.parse(String(message || ''));
+    if (parsed?.version === 1 && typeof parsed.phase === 'string') {
+      const progress = syncProgress(parsed.phase, Number(parsed.processed), Number(parsed.total), {
+        warnings: Array.isArray(parsed.warnings) ? parsed.warnings.map(String) : undefined,
+        result: parsed.result && typeof parsed.result === 'object' ? parsed.result : undefined,
+      });
+      const withHeartbeat = {
+        ...progress,
+        percent: Math.max(progress.percent, Math.min(99, Number(parsed.percent) || 0)),
+        heartbeatAt: typeof parsed.heartbeatAt === 'string' ? parsed.heartbeatAt : progress.heartbeatAt,
+      };
+      return status === 'SUCCESS' ? { ...withHeartbeat, phase: 'completed', percent: 100 }
+        : status === 'FAILED' ? { ...withHeartbeat, phase: 'failed' } : withHeartbeat;
+    }
+  } catch { /* legacy human messages remain supported */ }
+  return status === 'SUCCESS'
+    ? syncProgress('completed', 0, 0)
+    : status === 'FAILED'
+      ? syncProgress('failed', 0, 0)
+      : syncProgress('queued', 0, 0);
+}
+
+function syncStatusResponse(log: any, progress: HunonicSyncProgress) {
+  return {
+    jobId: log.id,
+    status: log.status,
+    percent: progress.percent,
+    phase: progress.phase,
+    processed: progress.processed,
+    total: progress.total,
+    ...(progress.result ? { result: progress.result } : {}),
+    ...(log.status === 'FAILED' ? { error: String(log.error || 'HUNONIC_SYNC_FAILED') } : {}),
+  };
+}
+
+function syncLogHumanMessage(log: any) {
+  const progress = readSyncProgress(log.message, log.status);
+  if (log.status === 'SUCCESS') return `Đồng bộ Hunonic hoàn tất (${Number(log.readingsSaved || 0)} chỉ số).`;
+  if (log.status === 'FAILED') return String(log.error || 'Đồng bộ Hunonic thất bại.');
+  return `Đang ${progress.phase}: ${progress.processed}/${progress.total}.`;
+}
+
+function safeHunonicError(error: unknown) {
+  const message = String((error as any)?.message || 'Hunonic sync failed.');
+  // Provider messages are untrusted and may contain signed URLs or secrets.
+  return /^HUNONIC_[A-Z_]+$/.test(message) ? message : 'HUNONIC_SYNC_FAILED';
+}
+
+function assertNoDuplicateHunonicMappings(candidates: Array<{ meter: HunonicElectricMeter; fixed: any }>) {
+  const providers = new Set<string>();
+  const roomScopes = new Set<string>();
+  for (const { meter, fixed } of candidates) {
+    const providerId = String(meter.provider_meter_id || meter.provider_device_id || '');
+    if (!providerId || providers.has(providerId)) throw new ConflictException('HUNONIC_DUPLICATE_PROVIDER_METER');
+    providers.add(providerId);
+    if (fixed.meterKind === 'BUILDING_TOTAL' || fixed.meterKind === 'EV_CHARGING') continue;
+    const scope = canonicalRoomKey(fixed.buildingCode, fixed.roomCode);
+    if (roomScopes.has(scope)) throw new ConflictException('HUNONIC_CONFLICTING_ROOM_METER_NAMES');
+    roomScopes.add(scope);
+  }
+}
+
+function summarizeHunonicInventory(
+  discovered: HunonicElectricMeter[],
+  candidates: Array<{ meter: HunonicElectricMeter; fixed: any }>,
+) {
+  const roomByBuilding: Record<string, number> = {};
+  const totalsByBuilding: Record<string, number> = {};
+  let buildingTotals = 0;
+  let evCharging = 0;
+  for (const { fixed } of candidates) {
+    if (fixed.meterKind === 'BUILDING_TOTAL') {
+      buildingTotals += 1;
+      totalsByBuilding[fixed.buildingCode] = (totalsByBuilding[fixed.buildingCode] || 0) + 1;
+    } else if (fixed.meterKind === 'EV_CHARGING') {
+      evCharging += 1;
+    } else {
+      roomByBuilding[fixed.buildingCode] = (roomByBuilding[fixed.buildingCode] || 0) + 1;
+    }
+  }
+  return {
+    discovered: discovered.length,
+    excluded: discovered.length - candidates.length,
+    rooms: roomByBuilding,
+    buildingTotalsByBuilding: totalsByBuilding,
+    buildingTotals,
+    evCharging,
+    managed: candidates.length,
+  };
+}
+
 
 function hasMonthlyElectricityData(meter: HunonicElectricMeter) {
   return isPresentNumber(meter.energy_month_kwh) || isPresentNumber(meter.money_month_vnd);
@@ -1488,13 +1766,15 @@ function mapMeterMapping(mapping: any) {
     valueObj.power_current ??
     raw.power_current;
 
+  const presentation = meterPresentation(mapping);
   return {
     id: mapping.id,
     buildingId: mapping.buildingId,
     roomId: mapping.roomId,
-    buildingCode: mapping.buildingCode,
-    roomCode: mapping.roomCode,
-    displayName: mapping.displayName,
+    buildingCode: presentation.buildingCode,
+    roomCode: presentation.roomCode,
+    displayName: presentation.displayName,
+    meterKind: presentation.meterKind,
     deviceName: mapping.deviceName,
     status: mapping.lastStatus,
     powerCurrentW: Number(rawPower || 0),
@@ -1511,6 +1791,23 @@ function mapMeterMapping(mapping: any) {
     sourceRoomName: mapping.roomName,
     room: mapping.room,
     building: mapping.building,
+  };
+}
+
+function meterPresentation(mapping: any) {
+  const identity = classifyHunonicMeter({
+    name: mapping.deviceName,
+    room_name: mapping.roomName,
+    home_name: mapping.homeName,
+  });
+  if (identity && !identity.ignored && identity.meterKind !== 'ROOM') {
+    return identity;
+  }
+  return {
+    meterKind: 'ROOM' as const,
+    buildingCode: mapping.buildingCode,
+    roomCode: mapping.roomCode,
+    displayName: identity && !identity.ignored ? identity.displayName : mapping.displayName,
   };
 }
 
@@ -1787,11 +2084,13 @@ function buildMonthlyRows(
 
     const key = `${canonicalRoomKey(mapping.buildingCode, mapping.roomCode)}:${year}:${month}`;
     if (!latestByRoomMonth.has(key)) {
+      const presentation = meterPresentation(mapping);
       const periodKey = lockedPeriodKey({ buildingCode: mapping.buildingCode, roomCode: mapping.roomCode, period });
       latestByRoomMonth.set(key, {
-        buildingCode: mapping.buildingCode,
-        roomCode: mapping.roomCode,
-        displayName: mapping.displayName,
+        buildingCode: presentation.buildingCode,
+        roomCode: presentation.roomCode,
+        displayName: presentation.displayName,
+        meterKind: presentation.meterKind,
         deviceName: mapping.deviceName,
         meterMappingId: reading.meterMappingId,
         providerMeterId: mapping.providerMeterId,
@@ -1981,11 +2280,13 @@ function normalizeReadingPeriod(value: unknown, fallbackDate: Date) {
 
 function mapHistoryReading(reading: any) {
   const mapping = reading.meterMapping || {};
+  const presentation = meterPresentation(mapping);
   return {
     id: reading.id,
-    buildingCode: mapping.buildingCode,
-    roomCode: mapping.roomCode,
-    displayName: mapping.displayName,
+    buildingCode: presentation.buildingCode,
+    roomCode: presentation.roomCode,
+    displayName: presentation.displayName,
+    meterKind: presentation.meterKind,
     deviceName: mapping.deviceName,
     providerMeterId: mapping.providerMeterId,
     status: reading.status,

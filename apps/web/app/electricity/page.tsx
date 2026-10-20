@@ -50,6 +50,8 @@ import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { Switch } from "@/components/ui/Switch";
 import { hunonicApi, HunonicLockedPeriodRow, HunonicRateApplyPayload } from "@/lib/api/hunonic.api";
+import { useHunonicSync } from "@/lib/hooks/useHunonicSync";
+import { HunonicSyncProgress } from "@/components/hunonic/HunonicSyncProgress";
 import { formatHunonicHistoryValue, resolveHunonicRateMode, getHunonicConnection, getHunonicMonthlyTotals } from "@/lib/hunonic/presentation";
 import { getHunonicHistoryFilterOptions, toHunonicHistoryParams, updateHunonicHistoryFilter } from "@/lib/hunonic/history-filters";
 import toast from "react-hot-toast";
@@ -85,6 +87,16 @@ function formatCustomRate(rate?: number | string | null) {
 
 function isMeterOnline(meter: any): boolean {
   return getHunonicConnection(meter).online;
+}
+
+function meterTitle(meter: any) {
+  if (meter.meterKind === "BUILDING_TOTAL") return meter.displayName || `Công tơ tổng ${meter.buildingCode || ""}`.trim();
+  if (meter.meterKind === "EV_CHARGING") return meter.displayName || "Công tơ ổ cắm xe điện";
+  return meter.displayName || meter.roomCode || meter.deviceName || meter.name || "Công tơ phòng";
+}
+
+function meterLocation(meter: any) {
+  return meter.meterKind === "ROOM" ? `Phòng ${meter.roomCode || "-"}` : "Khu chung";
 }
 
 const now = new Date();
@@ -147,6 +159,12 @@ export function ElectricityManagerContent() {
     () => hunonicApi.rates(),
     { revalidateOnFocus: false },
   );
+  const sync = useHunonicSync({
+    onSuccess: async (result) => {
+      await Promise.all([mutateOverview(), mutateRates(), mutateHistoryData()]);
+      toast.success(`Đồng bộ hoàn tất (${result.result?.inventory?.managed ?? result.result?.syncedCount ?? 0} công tơ)`);
+    },
+  });
 
   // View & UI states
   const [viewMode, setViewMode] = useState<"table" | "grid">("table");
@@ -167,7 +185,6 @@ export function ElectricityManagerContent() {
   const [selectedMeterIds, setSelectedMeterIds] = useState<string[]>([]);
 
   // Action modals states
-  const [isSyncing, setIsSyncing] = useState(false);
   const [isRateModalOpen, setIsRateModalOpen] = useState(false);
   const [rateMode, setRateMode] = useState<"residential" | "custom">("residential");
   const [customRate, setCustomRate] = useState("3500");
@@ -299,24 +316,32 @@ export function ElectricityManagerContent() {
   }, [meters]);
 
   const kpis = useMemo(() => {
+    const roomMeters = meters.filter((m) => m.meterKind === "ROOM");
     const total = meters.length;
     const online = meters.filter((m) => isMeterOnline(m)).length;
-    const totalKwh = meters.reduce(
+    const totalKwh = roomMeters.reduce(
       (acc, m) => acc + getHunonicMonthlyTotals(m).energyKwh,
       0,
     );
-    const totalCost = meters.reduce(
+    const totalCost = roomMeters.reduce(
       (acc, m) => acc + getHunonicMonthlyTotals(m).cost,
       0,
     );
     return {
       total,
+      rooms: roomMeters.length,
       online,
       offline: total - online,
       totalKwh: Math.max(0, totalKwh),
       totalCost,
     };
   }, [meters, freshnessTick]);
+
+  const inventoryLabel = useMemo(() => {
+    const count = (building: string, kind?: string) => meters.filter((meter) => meter.buildingCode === building && (!kind || meter.meterKind === kind)).length;
+    const ev = meters.filter((meter) => meter.meterKind === "EV_CHARGING").length;
+    return `LK01.31: ${count("LK01.31")} • LK01.32: ${count("LK01.32")} • LK08.24: ${count("LK08.24")} • LK08.25: ${count("LK08.25")} • xe điện: ${ev}`;
+  }, [meters]);
 
   const filteredMeters = useMemo(() => {
     return meters.filter((m) => {
@@ -485,15 +510,10 @@ export function ElectricityManagerContent() {
   }, [selectedMeters]);
 
   const handleSync = async () => {
-    setIsSyncing(true);
     try {
-      const result: any = await hunonicApi.sync();
-      await mutateOverview();
-      toast.success(`Đồng bộ chỉ số thành công (${result?.data?.syncedCount ?? "toàn bộ"} công tơ)`);
+      await sync.start();
     } catch (error: any) {
       toast.error(error?.message || "Không thể đồng bộ chỉ số từ Hunonic");
-    } finally {
-      setIsSyncing(false);
     }
   };
 
@@ -695,8 +715,8 @@ export function ElectricityManagerContent() {
               <PlugZap size={16} />
             </div>
             <div className="min-w-0">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-muted">Tổng công tơ</div>
-              <div className="text-lg font-black text-text leading-tight">{kpis.total}</div>
+              <div className="text-[10px] font-bold uppercase tracking-wider text-muted">Công tơ quản lý</div>
+              <div className="text-lg font-black text-text leading-tight">{kpis.total} <span className="text-[11px] text-muted">({kpis.rooms} phòng)</span></div>
             </div>
           </div>
 
@@ -717,7 +737,7 @@ export function ElectricityManagerContent() {
               <Bolt size={16} />
             </div>
             <div className="min-w-0">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-muted">Tiêu thụ tháng</div>
+              <div className="text-[10px] font-bold uppercase tracking-wider text-muted">Tiêu thụ tháng · {kpis.rooms} phòng</div>
               <div className="text-lg font-black text-amber-600 dark:text-amber-400 leading-tight truncate">
                 {formatKwh(kpis.totalKwh)}
               </div>
@@ -729,13 +749,14 @@ export function ElectricityManagerContent() {
               <Zap size={16} />
             </div>
             <div className="min-w-0">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-muted">Tạm tính tiền điện</div>
+              <div className="text-[10px] font-bold uppercase tracking-wider text-muted">Tạm tính · {kpis.rooms} phòng</div>
               <div className="text-lg font-black text-indigo-600 dark:text-indigo-400 leading-tight truncate">
                 {formatCurrency(kpis.totalCost)}
               </div>
             </div>
           </div>
         </div>
+        <p className="-mt-1 text-[11px] text-muted">Kiểm kê thực tế: {inventoryLabel}</p>
 
         {/* TOOLBAR RỘNG RÃI, THOÁNG ĐÃNG: Bố cục 2 nhóm rõ ràng, không bị bí bách */}
         <div className="flex flex-col gap-2.5 rounded-2xl border border-border bg-card p-3 shadow-sm lg:flex-row lg:items-center lg:justify-between">
@@ -795,7 +816,8 @@ export function ElectricityManagerContent() {
               variant="outline"
               size="sm"
               onClick={handleSync}
-              isLoading={isSyncing}
+              disabled={!sync.canSync || sync.isRunning || sync.isStarting}
+              isLoading={sync.isRunning || sync.isStarting}
               className="h-9 rounded-xl px-3 text-xs font-bold shadow-sm"
               title="Đồng bộ số liệu từ Hunonic"
             >
@@ -906,6 +928,7 @@ export function ElectricityManagerContent() {
             </div>
           </div>
         </div>
+        <HunonicSyncProgress status={sync.status} error={sync.pollError} />
 
         {/* VIEW MODE: TABLE VIEW */}
         {viewMode === "table" && (
@@ -991,10 +1014,10 @@ export function ElectricityManagerContent() {
                           {visibleColumns.room && (
                             <td className="py-2 px-3">
                               <div className="font-black text-text text-xs">
-                                {meter.roomCode ? `Phòng ${meter.roomCode}` : "Chưa gán"}
+                                {meterTitle(meter)}
                               </div>
                               <div className="text-[10px] text-muted font-medium">
-                                {meter.buildingCode ? `Tòa ${meter.buildingCode}` : "-"}
+                                {meterLocation(meter)}{meter.buildingCode ? ` • Tòa ${meter.buildingCode}` : ""}
                               </div>
                             </td>
                           )}
@@ -1192,8 +1215,8 @@ export function ElectricityManagerContent() {
                           className="rounded border-border text-primary focus:ring-primary h-3.5 w-3.5 cursor-pointer mt-0.5"
                         />
                         <div>
-                          <div className="text-sm font-black text-text">Phòng {meter.roomCode || "-"}</div>
-                          <div className="text-[10px] text-muted font-medium">Tòa {meter.buildingCode || "-"}</div>
+                          <div className="text-sm font-black text-text">{meterTitle(meter)}</div>
+                          <div className="text-[10px] text-muted font-medium">{meterLocation(meter)}{meter.buildingCode ? ` • Tòa ${meter.buildingCode}` : ""}</div>
                         </div>
                       </div>
 
@@ -1582,14 +1605,14 @@ export function ElectricityManagerContent() {
                   type="button"
                   variant="primary"
                   size="sm"
-                  disabled={isSyncing}
+                  disabled={!sync.canSync || sync.isRunning || sync.isStarting}
                   onClick={async () => {
                     await handleSync();
                     mutateHistoryData();
                   }}
                   className="h-8 rounded-xl px-3 text-xs font-bold shadow-none"
                 >
-                  {isSyncing ? (
+                  {sync.isRunning || sync.isStarting ? (
                     <>
                       <RefreshCcw size={13} className="mr-1.5 animate-spin" /> Đang đồng bộ...
                     </>

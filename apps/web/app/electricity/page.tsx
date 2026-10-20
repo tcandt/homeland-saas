@@ -709,7 +709,7 @@ export function ElectricityManagerContent() {
   return (
     <div className="space-y-3.5 pb-20">
         {/* COMPACT STATS BAR: Tinh gọn, hiện đại, không chiếm diện tích */}
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="grid grid-cols-1 gap-2 min-[480px]:grid-cols-2 lg:grid-cols-4">
           <div className="flex items-center gap-3 rounded-xl border border-border/80 bg-card p-2.5 px-3.5 shadow-sm">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary font-bold">
               <PlugZap size={16} />
@@ -738,7 +738,7 @@ export function ElectricityManagerContent() {
             </div>
             <div className="min-w-0">
               <div className="text-[10px] font-bold uppercase tracking-wider text-muted">Tiêu thụ tháng · {kpis.rooms} phòng</div>
-              <div className="text-lg font-black text-amber-600 dark:text-amber-400 leading-tight truncate">
+              <div className="text-lg font-black text-amber-600 dark:text-amber-400 leading-tight break-words" data-testid="hunonic-energy-total">
                 {formatKwh(kpis.totalKwh)}
               </div>
             </div>
@@ -750,7 +750,7 @@ export function ElectricityManagerContent() {
             </div>
             <div className="min-w-0">
               <div className="text-[10px] font-bold uppercase tracking-wider text-muted">Tạm tính · {kpis.rooms} phòng</div>
-              <div className="text-lg font-black text-indigo-600 dark:text-indigo-400 leading-tight truncate">
+              <div className="text-lg font-black text-indigo-600 dark:text-indigo-400 leading-tight break-words" data-testid="hunonic-cost-total">
                 {formatCurrency(kpis.totalCost)}
               </div>
             </div>

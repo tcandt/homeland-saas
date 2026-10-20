@@ -10,8 +10,8 @@ function inventoryFixture() {
         energyMonthKwh: 10, moneyMonthVnd: 35000, lastSyncedAt: new Date().toISOString(), providerObservedAt: new Date().toISOString() });
     }
   }
-  for (const number of ['24', '25']) meters.push({ id: `total${number}`, meterKind: 'BUILDING_TOTAL', buildingCode: `LK08.${number}`, roomCode: `TOTAL-${number}`, displayName: `Công tơ tổng tòa nhà LK08.${number}`, energyMonthKwh: 100, moneyMonthVnd: 350000 });
-  meters.push({ id: 'ev', meterKind: 'EV_CHARGING', buildingCode: 'COMMON', roomCode: 'EV-CHARGING', displayName: 'Ổ cắm xe điện', energyMonthKwh: 20, moneyMonthVnd: 70000 });
+  for (const number of ['24', '25']) meters.push({ id: `total${number}`, meterKind: 'BUILDING_TOTAL', buildingCode: `LK08.${number}`, roomCode: `TOTAL-${number}`, displayName: `Công tơ tổng tòa nhà LK08.${number}`, energyMonthKwh: 100, moneyMonthVnd: 350000, status: 'on', lastSyncedAt: new Date().toISOString() });
+  meters.push({ id: 'ev', meterKind: 'EV_CHARGING', buildingCode: 'COMMON', roomCode: 'EV-CHARGING', displayName: 'Ổ cắm xe điện', energyMonthKwh: 20, moneyMonthVnd: 70000, status: 'on', lastSyncedAt: new Date().toISOString() });
   return meters;
 }
 
@@ -80,8 +80,15 @@ test.describe('Hunonic inventory and actual server-progress presentation', () =>
       await page.setViewportSize({ width, height: 900 });
       await expect(progress).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+      for (const id of ['hunonic-energy-total', 'hunonic-cost-total']) {
+        expect(await page.getByTestId(id).evaluate(el => el.scrollWidth <= el.clientWidth && getComputedStyle(el).textOverflow !== 'ellipsis')).toBe(true);
+      }
       await page.screenshot({ path: testInfo.outputPath(`hunonic-${width}.png`), fullPage: true });
     }
+    await page.goto('/settings?section=hunonic');
+    await expect(page.getByText('37 công tơ (37 online)', { exact: true })).toBeVisible();
+    await expect(page.getByText('Chưa đồng bộ', { exact: true })).toHaveCount(0);
+    expect(starts).toBe(1);
     expect(errors).toEqual([]);
   });
 });

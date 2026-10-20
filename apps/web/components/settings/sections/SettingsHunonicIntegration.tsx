@@ -32,6 +32,7 @@ import { useAuthStore } from "@/lib/auth/auth-store";
 import { hunonicApi, HunonicSettingsPayload } from "@/lib/api/hunonic.api";
 import { useHunonicSync } from "@/lib/hooks/useHunonicSync";
 import { HunonicSyncProgress } from "@/components/hunonic/HunonicSyncProgress";
+import { getHunonicConnection } from "@/lib/hunonic/presentation";
 import toast from "react-hot-toast";
 
 const fallback: Required<HunonicSettingsPayload> = {
@@ -61,7 +62,7 @@ function shortSecret(value?: string) {
 function formatDate(value?: string) {
   if (!value) return "Chưa đồng bộ";
   try {
-    return new Date(value).toLocaleString("vi-VN");
+    return new Date(value).toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" });
   } catch {
     return value;
   }
@@ -73,7 +74,7 @@ export default function SettingsHunonicIntegration() {
     "TENANT",
     fallback,
   );
-  const overview = useSWR(["hunonic-overview"], () => hunonicApi.overview(), { revalidateOnFocus: false });
+  const overview = useSWR(["hunonic-overview"], () => hunonicApi.overview(), { revalidateOnFocus: false, refreshInterval: 30000 });
   const user = useAuthStore((state) => state.user);
   const canEditSecrets = (user?.email || "").toLowerCase() === "admin@homeland.vn";
 
@@ -92,9 +93,14 @@ export default function SettingsHunonicIntegration() {
 
   const rawOverview = overview.data as any;
   const overviewData = rawOverview?.data || rawOverview || {};
-  const totalMeters = overviewData.summary?.mappings || overviewData.totalMeters || overviewData.meters?.length || 0;
-  const onlineMeters = overviewData.summary?.online || overviewData.onlineMeters || 0;
-  const lastSyncAt = overviewData.lastSyncAt || overviewData.syncedAt;
+  const meters = Array.isArray(overviewData.meters) ? overviewData.meters : [];
+  const totalMeters = overviewData.summary?.mappings ?? overviewData.totalMeters ?? meters.length;
+  const onlineMeters = meters.filter((meter: any) => getHunonicConnection(meter).online).length;
+  const latestMeterSync = meters.reduce((latest: string | undefined, meter: any) =>
+    Number.isFinite(Date.parse(meter.lastSyncedAt)) && (!latest || Date.parse(meter.lastSyncedAt) > Date.parse(latest))
+      ? meter.lastSyncedAt : latest, undefined);
+  const lastSyncAt = (overviewData.latestLog?.status === "SUCCESS" ? overviewData.latestLog.finishedAt : undefined)
+    || latestMeterSync || overviewData.lastSyncAt || overviewData.syncedAt;
   const sync = useHunonicSync({
     enabled: Boolean(draft.enabled),
     onSuccess: async (result) => {

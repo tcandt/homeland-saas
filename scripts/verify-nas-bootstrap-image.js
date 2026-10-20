@@ -11,7 +11,7 @@ if (process.env.VERIFY_DISPOSABLE_NAS_IMAGE !== 'true' || !image || image.starts
 const migrationCount = fs.readdirSync(path.resolve(__dirname, '../packages/database/prisma/migrations'), { withFileTypes: true })
   .filter((entry) => entry.isDirectory() && fs.existsSync(path.resolve(__dirname, '../packages/database/prisma/migrations', entry.name, 'migration.sql')))
   .length;
-if (migrationCount !== 36) throw new Error('Expected the reviewed 36-migration release inventory.');
+if (migrationCount !== 37) throw new Error('Expected the reviewed 37-migration release inventory.');
 
 const suffix = crypto.randomBytes(6).toString('hex');
 const network = `homeland-bootstrap-check-${suffix}`;

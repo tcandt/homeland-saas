@@ -91,11 +91,11 @@ test('existing BASELINE-V2 path is audit-only and cannot resolve or apply baseli
 });
 
 test('NAS release audit rejects partial, failed, duplicated, unknown or changed migration history', () => {
-  const expected = Array.from({ length: 36 }, (_, i) => ({ name: `migration_${String(i).padStart(2, '0')}`, sha256: 'a'.repeat(64) }));
+  const expected = Array.from({ length: 37 }, (_, i) => ({ name: `migration_${String(i).padStart(2, '0')}`, sha256: 'a'.repeat(64) }));
   const rows = expected.map(({ name, sha256 }) => ({ migration_name: name, checksum: sha256, finished_at: new Date(), rolled_back_at: null }));
   assert.doesNotThrow(() => validateNasReleaseHistory(rows, expected));
   assert.doesNotThrow(() => validateNasReleaseHistory([...rows, { rolled_back_at: new Date() }], expected));
-  for (const altered of [rows.slice(0, 35), rows.slice(0, 18), rows.slice(0, 22), [...rows, rows[0]], rows.map((row, i) => i === 0 ? { ...row, checksum: 'b'.repeat(64) } : row), rows.map((row, i) => i === 0 ? { ...row, finished_at: null } : row), rows.map((row, i) => i === 0 ? { ...row, migration_name: 'unknown' } : row)]) {
+  for (const altered of [rows.slice(0, 36), rows.slice(0, 35), rows.slice(0, 18), rows.slice(0, 22), [...rows, rows[0]], rows.map((row, i) => i === 0 ? { ...row, checksum: 'b'.repeat(64) } : row), rows.map((row, i) => i === 0 ? { ...row, finished_at: null } : row), rows.map((row, i) => i === 0 ? { ...row, migration_name: 'unknown' } : row)]) {
     assert.throws(() => validateNasReleaseHistory(altered, expected), /drift/);
   }
 });
@@ -154,7 +154,7 @@ test('NAS seed failure cannot write completion marker and a partial seed cannot 
   assert.deepEqual(calls, ['audit', 'verifySeedCompleted']);
 });
 
-test('NAS seed completion marker accepts known 35 proof only after audited schema/history 36', async () => {
+test('NAS seed completion marker accepts known 35/36 proof only after audited schema/history 37', async () => {
   const marker = {
     tenantId: 'synthetic-tenant', entity: 'NasStagingBootstrap', entityId: 'homeland_staging', action: 'CREATE',
     after: { seedCompleted: true, schemaFingerprint: nasLegacySeedFingerprint },
@@ -163,16 +163,19 @@ test('NAS seed completion marker accepts known 35 proof only after audited schem
     auditLog: { findUnique: async () => marker },
     tenantOrg: { findUnique: async () => ({ id: 'synthetic-tenant' }) },
   };
-  const audited36 = { migrationCount: 36, schemaFingerprint: nasReleaseFingerprint };
-  await assertNasSeedCompleted(prisma, audited36);
+  const audited37 = { migrationCount: 37, schemaFingerprint: nasReleaseFingerprint };
+  await assertNasSeedCompleted(prisma, audited37);
+  prisma.auditLog.findUnique = async () => ({ ...marker, after: { seedCompleted: true, schemaFingerprint: 'df7b33d969caeec88c0288ace847308cb3479635614761b319537656f5d2e587' } });
+  await assertNasSeedCompleted(prisma, audited37);
   prisma.auditLog.findUnique = async () => ({ ...marker, after: { seedCompleted: true, schemaFingerprint: nasReleaseFingerprint } });
-  await assertNasSeedCompleted(prisma, audited36);
+  await assertNasSeedCompleted(prisma, audited37);
   prisma.auditLog.findUnique = async () => marker;
   for (const altered of [null, { ...marker, tenantId: 'other' }, { ...marker, action: 'UPDATE' }, { ...marker, entity: 'Other' }, { ...marker, entityId: 'production' }, { ...marker, after: {} }, { ...marker, after: { ...marker.after, schemaFingerprint: 'wrong' } }]) {
     prisma.auditLog.findUnique = async () => altered;
-    await assert.rejects(assertNasSeedCompleted(prisma, audited36), /seed completion is unverified/);
+    await assert.rejects(assertNasSeedCompleted(prisma, audited37), /seed completion is unverified/);
   }
   await assert.rejects(assertNasSeedCompleted(prisma, { migrationCount: 35, schemaFingerprint: nasLegacySeedFingerprint }), /audited release identity/);
+  await assert.rejects(assertNasSeedCompleted(prisma, { migrationCount: 36, schemaFingerprint: 'df7b33d969caeec88c0288ace847308cb3479635614761b319537656f5d2e587' }), /audited release identity/);
 });
 
 test('booking cancellation migration is transactional and binds its single item to the canonical service payload', () => {

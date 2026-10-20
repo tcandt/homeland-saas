@@ -18,7 +18,8 @@ const supplementalManifest = JSON.parse(fs.readFileSync(path.join(root, 'package
 const baselineV2Manifest = JSON.parse(fs.readFileSync(baselineV2ManifestPath, 'utf8'));
 const reviewedMigrations = historicalManifest.migrations.map(({ name, sha256 }) => [name, sha256]);
 const nasLegacySeedFingerprint = '4174b76eac14c8e3800a382d13e757c0bfd291c02d68c737863eebf6b6c8581d';
-const nasReleaseFingerprint = 'df7b33d969caeec88c0288ace847308cb3479635614761b319537656f5d2e587';
+const nasPreviousSeedFingerprint = 'df7b33d969caeec88c0288ace847308cb3479635614761b319537656f5d2e587';
+const nasReleaseFingerprint = '33a0e89ac0d7ccb0299b1b8b0110c34e0e8c77b318187a2f8ee1c3eb89e92bb8';
 
 const sha256 = (file) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 const migrationFile = (name) => path.join(migrationsRoot, name, 'migration.sql');
@@ -206,7 +207,7 @@ async function existingVerifiedBaseline(prisma) {
 
 function validateNasReleaseHistory(rows, expected) {
   const active = rows.filter((row) => row.rolled_back_at === null);
-  if (expected.length !== 36 || active.length !== 36) throw new Error('NAS staging release migration coverage drift; no automatic repair is allowed.');
+  if (expected.length !== 37 || active.length !== 37) throw new Error('NAS staging release migration coverage drift; no automatic repair is allowed.');
   for (const [index, migration] of expected.entries()) {
     const row = active[index];
     if (!row.finished_at || row.migration_name !== migration.name || row.checksum !== migration.sha256) {
@@ -260,7 +261,7 @@ function assertNasSeedRuntime(resolve = require.resolve, exists = fs.existsSync)
 const nasSeedMarkerId = 'nas-staging-bootstrap-v1';
 
 function assertNasReleaseIdentity(release) {
-  if (!release || release.migrationCount !== 36
+  if (!release || release.migrationCount !== 37
     || release.schemaFingerprint !== nasReleaseFingerprint) {
     throw new Error('NAS staging seed completion requires an audited release identity.');
   }
@@ -284,7 +285,7 @@ async function assertNasSeedCompleted(prisma, release) {
   if (!tenant || marker?.tenantId !== tenant.id || marker?.entity !== 'NasStagingBootstrap'
     || marker?.entityId !== 'homeland_staging' || marker?.action !== 'CREATE'
     || marker?.after?.seedCompleted !== true
-    || ![nasLegacySeedFingerprint, nasReleaseFingerprint].includes(marker?.after?.schemaFingerprint)) {
+    || ![nasLegacySeedFingerprint, nasPreviousSeedFingerprint, nasReleaseFingerprint].includes(marker?.after?.schemaFingerprint)) {
     throw new Error('NAS staging seed completion is unverified; automatic reseed or repair is forbidden.');
   }
 }

@@ -3,6 +3,12 @@ import { createHash } from 'crypto';
 const DEFAULT_BASE_URL = 'https://api.hunonicpro.com/v2';
 const DEFAULT_WEBSITE_BASE_URL = 'https://web.hunonic.com/api/api/hun-api';
 
+type MobileSession = { token?: string; expiresAt: number; pending?: Promise<string> };
+// Hunonic invalidates the previous login. Share sessions across provider instances
+// in this process; additional provider-calling processes need shared coordination.
+const mobileSessions = new Map<string, MobileSession>();
+const MOBILE_SESSION_TTL_MS = 30 * 60 * 1000;
+
 export type HunonicApiMode = 'mobile' | 'website';
 
 export interface HunonicProviderOptions {
@@ -154,8 +160,6 @@ export class HunonicProvider {
     let completedRequests = 0;
     await options.onProgress?.({ completed: completedRequests, total: totalRequests });
 
-    const tokenId = session.source === 'mobile' ? session.tokenId : null;
-
     for (const meter of meters) {
       const rootId = meter.provider_root_id || meter.provider_meter_id;
       if (!rootId) continue;
@@ -173,15 +177,14 @@ export class HunonicProvider {
           assertSuccess(response.data, 'Hunonic getDataGraph failed');
           responseData = response.data;
         } else {
-          const response = await this.postForm('/atmwifi/getDataGraph', this.sign({
+          const response = await this.readMobile((tokenId) => this.postForm('/atmwifi/getDataGraph', this.sign({
             token_id: tokenId,
             root_id: rootId,
             type: 3,
             year,
             time_start: `${year}-01-01`,
             time_end: `${year}-12-31`,
-          }));
-          assertSuccess(response.data, 'Hunonic getDataGraph failed');
+          })), 'Hunonic getDataGraph failed');
           responseData = response.data;
         }
         completedRequests += 1;
@@ -228,13 +231,8 @@ export class HunonicProvider {
   }
 
   async fetchElectricityRateGroups(rootId: string): Promise<HunonicElectricityRateGroup[]> {
-    const tokenId = await this.login();
-    return this.fetchElectricityRateGroupsWithToken(tokenId, rootId);
-  }
-
-  private async fetchElectricityRateGroupsWithToken(tokenId: string, rootId: string): Promise<HunonicElectricityRateGroup[]> {
-    const response = await this.postForm('/atmwifi/electricityRate', this.sign({ token_id: tokenId, root_id: rootId }));
-    assertSuccess(response.data, 'Hunonic electricityRate failed');
+    const response = await this.readMobile((tokenId) => this.postForm('/atmwifi/electricityRate',
+      this.sign({ token_id: tokenId, root_id: rootId })), 'Hunonic electricityRate failed');
     return arrayOf(response.data?.data).map((group) => ({
       id: String(group.id || ''),
       name: String(group.name || ''),
@@ -244,8 +242,8 @@ export class HunonicProvider {
   }
 
   async applyElectricityRate(rootId: string, mode: HunonicElectricityRateMode, customRateVnd?: number) {
+    const groups = await this.fetchElectricityRateGroups(rootId);
     const tokenId = await this.login();
-    const groups = await this.fetchElectricityRateGroupsWithToken(tokenId, rootId);
     const targetGroup = findElectricityRateGroup(groups, mode);
     if (mode === 'residential' && !targetGroup) {
       throw new HunonicApiError('Hunonic residential electricity rate group was not found.');
@@ -297,6 +295,59 @@ export class HunonicProvider {
   }
 
   private async login(): Promise<string> {
+    const key = this.mobileSessionKey();
+    const now = Date.now();
+    let entry = mobileSessions.get(key);
+    if (entry?.pending) return entry.pending;
+    if (entry?.token && entry.expiresAt > now) return entry.token;
+    if (!entry) {
+      for (const [oldKey, session] of mobileSessions) {
+        if (!session.pending && session.expiresAt <= now) mobileSessions.delete(oldKey);
+      }
+      if (mobileSessions.size >= 256) throw new HunonicApiError('HUNONIC_SESSION_CAPACITY');
+      entry = { expiresAt: 0 };
+      mobileSessions.set(key, entry);
+    }
+    const current = entry;
+    current.pending = this.performLogin().then((token) => {
+      current.token = token;
+      current.expiresAt = Date.now() + MOBILE_SESSION_TTL_MS;
+      return token;
+    }).catch((error) => {
+      if (mobileSessions.get(key) === current) mobileSessions.delete(key);
+      throw error;
+    }).finally(() => { current.pending = undefined; });
+    return current.pending;
+  }
+
+  private mobileSessionKey() {
+    return createHash('sha256').update(JSON.stringify([
+      this.baseUrl, this.accountKey, this.username, this.password,
+      this.mobileAccessKey, this.mobileSecretKey, this.lang,
+    ])).digest('hex');
+  }
+
+  private async readMobile(
+    read: (token: string) => ReturnType<HunonicProvider['request']>,
+    message: string,
+  ) {
+    const token = await this.login();
+    let response = await read(token);
+    if (response.status === 401 || response.status === 403 || Number(response.data?.error_code) === 40) {
+      const entry = mobileSessions.get(this.mobileSessionKey());
+      // A delayed failure for an old token must not discard a newer session.
+      if (entry?.token === token) {
+        entry.token = undefined;
+        entry.expiresAt = 0;
+      }
+      response = await read(await this.login());
+    }
+    if (response.status >= 400) throw new HunonicApiError(message, { status: response.status });
+    assertSuccess(response.data, message);
+    return response;
+  }
+
+  private async performLogin(): Promise<string> {
     if (!this.username || !this.password) {
       throw new Error('Missing Hunonic mobile credentials.');
     }
@@ -325,8 +376,8 @@ export class HunonicProvider {
     }
 
     if (!tokenId) throw new Error('Missing Hunonic tokenId.');
-    const response = await this.getJson(`/device/listDeviceByHome?token_id=${encodeURIComponent(tokenId)}`);
-    assertSuccess(response.data, 'Hunonic listDeviceByHome failed');
+    const response = await this.readMobile((token) => this.getJson(`/device/listDeviceByHome?token_id=${encodeURIComponent(token)}`),
+      'Hunonic listDeviceByHome failed');
     return response.data;
   }
 

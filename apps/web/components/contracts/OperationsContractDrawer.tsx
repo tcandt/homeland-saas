@@ -99,6 +99,7 @@ import {
 } from "../../lib/api/contracts.api";
 import { customersApi } from "../../lib/api/customers.api";
 import { hunonicApi } from "../../lib/api/hunonic.api";
+import { identityDocumentImages, settlementElectricityValues } from "../../lib/contracts/settlement-electricity";
 
 function formatDate(value?: string | null) {
   if (!value) return "Chưa có";
@@ -347,6 +348,7 @@ function getFileUrl(url: string) {
 }
 
 function getDocumentImageCandidates(src: string) {
+  if (!src || src === "TEMP_RESIDENCE_DECLARED") return [];
   const apiBase =
     process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:3001/api/v1";
   const legacyPath = /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?\//i.test(
@@ -667,6 +669,9 @@ export default function OperationsContractDrawer({
   const contractFileInputRef = useRef<HTMLInputElement>(null);
   const cccdFileInputRef = useRef<HTMLInputElement>(null);
   const settlementIdempotencyKeyRef = useRef("");
+  const settlementSessionRef = useRef(0);
+  const settlementSyncInFlightRef = useRef(false);
+  const [isSyncingHunonic, setIsSyncingHunonic] = useState(false);
   const renewalIdempotencyKeyRef = useRef("");
   const refundCompletionIdempotencyKeyRef = useRef("");
 
@@ -758,6 +763,7 @@ export default function OperationsContractDrawer({
   const deleteMutation = useDeleteContractMutation();
   const completeRoomTurnoverMutation = useCompleteRoomTurnoverMutation();
   const settlementRefund = detailContract?.settlementRefund;
+  const customerIdentityImages = identityDocumentImages(detailContract?.customer?.idImages);
   const isBookingHold = isBookingContract(detailContract);
   const linkedRental = getLinkedRental(detailContract);
   const contractTypeLabel = getContractTypeLabel(detailContract);
@@ -1033,6 +1039,9 @@ export default function OperationsContractDrawer({
 
   useEffect(() => {
     if (!detailContract?.id) return;
+    settlementSessionRef.current += 1;
+    settlementSyncInFlightRef.current = false;
+    setIsSyncingHunonic(false);
     setSettlementForm({
       actualMoveOutDate: toDateInputValue(),
       roomTurnoverStatus: "AVAILABLE",
@@ -1100,7 +1109,7 @@ export default function OperationsContractDrawer({
 
   useEffect(() => {
     const requestId = ++settlementPreviewRequestRef.current;
-    if (!isSettlementModalOpen || !detailContract?.id) {
+    if (!isSettlementModalOpen || !detailContract?.id || isSyncingHunonic) {
       setIsSettlementPreviewPending(false);
       return;
     }
@@ -1131,7 +1140,7 @@ export default function OperationsContractDrawer({
     }, 250);
 
     return () => window.clearTimeout(timer);
-  }, [isSettlementModalOpen, detailContract?.id, settlementPreviewPayloadKey]);
+  }, [isSettlementModalOpen, detailContract?.id, settlementPreviewPayloadKey, isSyncingHunonic]);
 
   const updateSettlementField = (
     field: keyof typeof settlementForm,
@@ -1140,7 +1149,6 @@ export default function OperationsContractDrawer({
     setSettlementForm((prev) => ({ ...prev, [field]: value }));
   };
 
-  const [isSyncingHunonic, setIsSyncingHunonic] = useState(false);
   const [customSharedOccupants, setCustomSharedOccupants] = useState<
     number | null
   >(null);
@@ -1161,44 +1169,45 @@ export default function OperationsContractDrawer({
   };
 
   const handleSyncElectricity = async () => {
-    if (isSyncingHunonic) return;
+    if (settlementSyncInFlightRef.current || !detailContract?.roomId || !detailContract?.id) return;
+    const session = settlementSessionRef.current;
+    settlementSyncInFlightRef.current = true;
+    settlementPreviewRequestRef.current += 1;
     setIsSyncingHunonic(true);
     try {
-      showToast("Đang đồng bộ chỉ số điện từ công tơ Hunonic...", "info");
-      await hunonicApi.sync();
+      await hunonicApi.syncRoom(detailContract.roomId);
+      if (session !== settlementSessionRef.current) return;
       if (detailContract?.id) {
         const payload = buildSettlementPayload();
+        delete payload.electricityAmount;
+        delete payload.electricityClosingKwh;
         const preview: any = await contractsApi.previewSettlement(
           detailContract.id,
           payload,
         );
+        if (session !== settlementSessionRef.current) return;
         setSettlementPreview(preview);
-        if (preview?.utilitySnapshot?.electricity) {
-          const elec = preview.utilitySnapshot.electricity;
-          const amount = elec.calculatedAmountVnd || elec.monthAmountVnd;
-          if (amount !== undefined && amount !== null) {
-            updateSettlementField("electricityAmount", String(Number(amount)));
-          }
-          if (elec.monthKwh !== undefined && elec.monthKwh !== null) {
-            updateSettlementField(
-              "electricityClosingKwh",
-              String(Number(elec.monthKwh)),
-            );
-          }
-        }
+        const values = settlementElectricityValues(preview?.utilitySnapshot?.electricity);
+        setSettlementForm((prev) => ({ ...prev, ...(values || {
+          electricityAmount: "", electricityClosingKwh: "",
+        }) }));
       }
       showToast(
         "Đã đồng bộ công tơ điện và cập nhật số liệu thành công!",
         "success",
       );
     } catch (error: any) {
+      if (session !== settlementSessionRef.current) return;
       showToast(
         error?.response?.data?.message ||
           "Không thể đồng bộ công tơ điện Hunonic",
         "error",
       );
     } finally {
-      setIsSyncingHunonic(false);
+      if (session === settlementSessionRef.current) {
+        settlementSyncInFlightRef.current = false;
+        setIsSyncingHunonic(false);
+      }
     }
   };
 
@@ -1208,6 +1217,11 @@ export default function OperationsContractDrawer({
       return;
     }
     const electricity = settlementPreview.utilitySnapshot.electricity;
+    const electricityValues = settlementElectricityValues(electricity, customSharedOccupants);
+    if (!electricityValues) {
+      showToast("Thiếu mốc chỉ số điện. Cần nhập điện sử dụng trong kỳ trả phòng.", "error");
+      return;
+    }
     const isShared = Boolean(electricity.isSharedRoom);
     const effectiveOccupants =
       customSharedOccupants ?? (electricity.activeOccupants || 1);
@@ -1225,19 +1239,10 @@ export default function OperationsContractDrawer({
           electricity.calculatedAmountVnd || electricity.monthAmountVnd || 0,
         );
 
-    const kwhToApply = isShared
-      ? Math.round(
-          (Number(electricity.totalRoomMonthKwh || electricity.monthKwh || 0) /
-            Math.max(1, effectiveOccupants)) *
-            100,
-        ) / 100
-      : Number(electricity.monthKwh || 0);
-
     const water = settlementPreview.utilitySnapshot.water;
     setSettlementForm((prev) => ({
       ...prev,
-      electricityAmount: String(amountToApply),
-      electricityClosingKwh: String(kwhToApply),
+      ...electricityValues,
       ...(water
         ? {
             waterAmount: String(Number(water.amount || 0)),
@@ -1268,7 +1273,22 @@ export default function OperationsContractDrawer({
 
   const handleOpenSettlementModal = () => {
     settlementIdempotencyKeyRef.current = "";
+    settlementSessionRef.current += 1;
+    settlementSyncInFlightRef.current = false;
+    setCustomSharedOccupants(null);
+    setSettlementPreview(null);
+    setSettlementForm((prev) => ({ ...prev, actualMoveOutDate: toDateInputValue(),
+      electricityAmount: "", electricityClosingKwh: "" }));
     setIsSettlementModalOpen(true);
+    if (hasPermission("meter.sync")) void handleSyncElectricity();
+  };
+
+  const handleCloseSettlementModal = () => {
+    settlementSessionRef.current += 1;
+    settlementSyncInFlightRef.current = false;
+    settlementPreviewRequestRef.current += 1;
+    setIsSyncingHunonic(false);
+    setIsSettlementModalOpen(false);
   };
 
   const handleConfirmTermination = () => {
@@ -2635,8 +2655,8 @@ export default function OperationsContractDrawer({
                   <div className="grid grid-cols-2 gap-2">
                     <div
                       onClick={() => {
-                        if (detailContract.customer?.idImages?.[0]) {
-                          handlePreview(detailContract.customer.idImages[0]);
+                        if (customerIdentityImages[0]) {
+                          handlePreview(customerIdentityImages[0].url);
                         } else {
                           setActiveTab("documents");
                           showToast("Chuyển đến tab Hồ sơ để quản lý và xem ảnh CCCD", "info");
@@ -2645,9 +2665,9 @@ export default function OperationsContractDrawer({
                       className="h-[48px] rounded-lg border border-slate-200/80 dark:border-white/[0.1] bg-gradient-to-br from-amber-50/80 via-sky-50/60 to-emerald-50/50 dark:from-slate-800 dark:to-slate-900 flex items-center justify-center overflow-hidden relative shadow-2xs cursor-pointer hover:border-primary/50 hover:shadow-xs transition-all group"
                     >
                       <span className="absolute top-1 left-1.5 px-1 py-0.2 bg-black/60 backdrop-blur-xs text-white rounded text-[8px] font-bold z-10">CCCD 1</span>
-                      {detailContract.customer?.idImages?.[0] ? (
+                      {customerIdentityImages[0] ? (
                         <ProtectedDocumentImage
-                          src={detailContract.customer.idImages[0]}
+                          src={customerIdentityImages[0].url}
                           alt="CCCD 1"
                           className="h-full w-full object-cover group-hover:scale-105 transition-transform"
                         />
@@ -2663,8 +2683,8 @@ export default function OperationsContractDrawer({
                     </div>
                     <div
                       onClick={() => {
-                        if (detailContract.customer?.idImages?.[1]) {
-                          handlePreview(detailContract.customer.idImages[1]);
+                        if (customerIdentityImages[1]) {
+                          handlePreview(customerIdentityImages[1].url);
                         } else {
                           setActiveTab("documents");
                           showToast("Chuyển đến tab Hồ sơ để quản lý và xem ảnh CCCD", "info");
@@ -2673,9 +2693,9 @@ export default function OperationsContractDrawer({
                       className="h-[48px] rounded-lg border border-slate-200/80 dark:border-white/[0.1] bg-gradient-to-br from-slate-50 via-slate-100 to-amber-50/60 dark:from-slate-800 dark:to-slate-900 flex items-center justify-center overflow-hidden relative shadow-2xs cursor-pointer hover:border-primary/50 hover:shadow-xs transition-all group"
                     >
                       <span className="absolute top-1 left-1.5 px-1 py-0.2 bg-black/60 backdrop-blur-xs text-white rounded text-[8px] font-bold z-10">CCCD 2</span>
-                      {detailContract.customer?.idImages?.[1] ? (
+                      {customerIdentityImages[1] ? (
                         <ProtectedDocumentImage
-                          src={detailContract.customer.idImages[1]}
+                          src={customerIdentityImages[1].url}
                           alt="CCCD 2"
                           className="h-full w-full object-cover group-hover:scale-105 transition-transform"
                         />
@@ -3031,11 +3051,10 @@ export default function OperationsContractDrawer({
                       />
                     </div>
 
-                    {detailContract.customer?.idImages &&
-                    detailContract.customer.idImages.length > 0 ? (
+                    {customerIdentityImages.length > 0 ? (
                       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        {detailContract.customer.idImages.map(
-                          (url: string, index: number) => (
+                        {customerIdentityImages.map(
+                          ({ url, index }) => (
                             <div
                               key={index}
                               className="relative group h-[128px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 shadow-sm transition-all hover:border-primary/40 hover:shadow-md dark:border-slate-800 dark:bg-slate-800/40"
@@ -3602,7 +3621,7 @@ export default function OperationsContractDrawer({
 
         <Modal
           isOpen={isSettlementModalOpen}
-          onClose={() => setIsSettlementModalOpen(false)}
+          onClose={handleCloseSettlementModal}
           title="Quyết toán trả phòng & Thanh lý hợp đồng"
           maxWidth="max-w-[1240px]"
           testId="contract-settlement-modal"
@@ -3616,7 +3635,7 @@ export default function OperationsContractDrawer({
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => setIsSettlementModalOpen(false)}
+                  onClick={handleCloseSettlementModal}
                 >
                   Đóng
                 </Button>
@@ -3624,7 +3643,7 @@ export default function OperationsContractDrawer({
                   variant="outline"
                   size="sm"
                   onClick={handleApplyUtilitySnapshot}
-                  disabled={!settlementPreview?.utilitySnapshot?.electricity}
+                  disabled={isSyncingHunonic || !settlementElectricityValues(settlementPreview?.utilitySnapshot?.electricity)}
                   className="font-bold flex items-center gap-1.5 cursor-pointer"
                 >
                   <Zap size={14} className="text-amber-500" />
@@ -3638,6 +3657,9 @@ export default function OperationsContractDrawer({
                   isLoading={terminateMutation.isPending}
                   disabled={
                     !settlementPreview ||
+                    isSyncingHunonic ||
+                    (settlementPreview?.utilitySnapshot?.electricity?.manualRequired &&
+                      !settlementForm.electricityAmount.trim() && !settlementForm.electricityClosingKwh.trim()) ||
                     isSettlementPreviewPending ||
                     isSettlementProofUploading
                   }
@@ -3663,12 +3685,13 @@ export default function OperationsContractDrawer({
                     <label className="text-[11px] font-bold text-muted uppercase tracking-wider block mb-1">
                       Ngày trả phòng thực tế
                     </label>
-                    <StyledDateInput
-                      testId="contract-settlement-actual-move-out-date"
-                      value={settlementForm.actualMoveOutDate}
-                      onChange={(val) =>
-                        updateSettlementField("actualMoveOutDate", val)
-                      }
+                    <Input
+                      data-testid="contract-settlement-actual-move-out-date"
+                      type="date"
+                      readOnly
+                      value={settlementPreview?.actualMoveOutDate
+                        ? toDateInputValue(settlementPreview.actualMoveOutDate)
+                        : settlementForm.actualMoveOutDate}
                     />
                   </div>
                   <div>
@@ -3765,7 +3788,7 @@ export default function OperationsContractDrawer({
                   </div>
                   <div>
                     <label className="text-[11px] font-bold text-muted uppercase tracking-wider block mb-1">
-                      Chỉ số điện chốt (kWh)
+                      Điện sử dụng kỳ trả phòng (kWh)
                     </label>
                     <Input
                       placeholder="0"
@@ -4370,7 +4393,7 @@ export default function OperationsContractDrawer({
                       <div className="grid grid-cols-2 gap-3">
                         <div className="p-2.5 rounded-lg bg-surface/60 border border-border/60">
                           <span className="text-[10px] font-bold uppercase tracking-wider text-muted block">
-                            kWh tháng hiện tại
+                            Điện sử dụng kỳ trả phòng
                           </span>
                           <span className="text-base font-mono font-black text-text mt-0.5 block">
                             {Number(
@@ -4402,10 +4425,16 @@ export default function OperationsContractDrawer({
                       </div>
                     )}
 
+                    {settlementPreview.utilitySnapshot.electricity.manualRequired && (
+                      <p role="alert" className="text-xs text-amber-700 dark:text-amber-300">
+                        Thiếu chỉ số điện hoặc đơn giá hợp lệ. Nhập điện sử dụng trong thời gian khách ở và số tiền điện cần thu để quyết toán.
+                      </p>
+                    )}
                     <Button
                       variant="ghost"
                       size="sm"
                       onClick={handleApplyUtilitySnapshot}
+                      disabled={isSyncingHunonic || !settlementElectricityValues(settlementPreview.utilitySnapshot.electricity)}
                       className="w-full text-xs font-bold text-amber-700 dark:text-amber-300 hover:bg-amber-500/10 border border-amber-500/20 py-1.5 h-auto flex items-center justify-center gap-1.5 cursor-pointer"
                     >
                       <Zap size={13} />

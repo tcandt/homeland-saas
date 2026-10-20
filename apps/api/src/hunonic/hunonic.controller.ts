@@ -91,6 +91,16 @@ export class HunonicController {
     return this.hunonicService.syncTenant(tenantId, undefined, { backfillMonths: 6 });
   }
 
+  @Post('rooms/:roomId/sync')
+  @RequirePermissions('meter.sync')
+  @ApiOperation({ summary: 'Sync only the mapped meter for one room, without history backfill' })
+  syncRoom(
+    @Param('roomId') roomId: string,
+    @CurrentUser('tenantId') tenantId: string,
+  ) {
+    return this.hunonicService.syncRoom(tenantId, roomId);
+  }
+
   @Post('sync/start')
   @RequirePermissions('meter.sync')
   @ApiOperation({ summary: 'Start an asynchronous Hunonic sync and return real persisted progress' })

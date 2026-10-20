@@ -19,6 +19,7 @@ function previewFixture(options: { foreignCycle?: boolean } = {}) {
     room: { id: "room-a" },
   };
   const tx: any = {
+    hunonicMeterMapping: { findFirst: vi.fn(async () => null) },
     contract: {
       findFirst: vi.fn(async ({ where }: any) =>
         where.id === contract.id && where.tenantId === contract.tenantId

@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadGatewayException, BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { Prisma, SettingScope } from '@prisma/client';
 import { createHash } from 'node:crypto';
@@ -421,8 +421,8 @@ export class HunonicService {
     };
   }
 
-  async getRoomElectricityPricing(tenantId: string, roomId: string) {
-    let mapping = await this.prismaAny.hunonicMeterMapping.findFirst({
+  async getRoomElectricityPricing(tenantId: string, roomId: string, options: { offline?: boolean; mapping?: any } = {}) {
+    let mapping = options.mapping || await this.prismaAny.hunonicMeterMapping.findFirst({
       where: { tenantId, roomId, enabled: true },
       orderBy: [{ lastSyncedAt: 'desc' }, { updatedAt: 'desc' }],
     });
@@ -448,29 +448,20 @@ export class HunonicService {
     if (!mapping) return null;
 
     const settings = await this.getSettings(tenantId);
-    const provider = new HunonicProvider(this.toProviderOptions({ ...settings, mode: 'mobile' }));
-    const dashboard = await provider.fetchDashboardData();
-    const mobileRootByRoom = new Map<string, HunonicElectricMeter>();
-
-    for (const meter of dashboard.electric_meters) {
-      const fixed = resolveFixedRoomMapping(meter);
-      const rootId = meter.provider_root_id || meter.provider_meter_id;
-      if (fixed && rootId) mobileRootByRoom.set(canonicalRoomKey(fixed.buildingCode, fixed.roomCode), meter);
-    }
-
-    const mobileMeter = mobileRootByRoom.get(canonicalRoomKey(mapping.buildingCode, mapping.roomCode));
-    const rootId = mobileMeter?.provider_root_id || mobileMeter?.provider_meter_id || mapping.providerRootId || mapping.providerMeterId;
+    const rootId = mapping.providerRootId || mapping.providerMeterId;
     if (!rootId) return null;
 
-    const groups = await provider.fetchElectricityRateGroups(rootId);
+    const groups = options.offline ? [] : await new HunonicProvider(
+      this.toProviderOptions({ ...settings, mode: 'mobile' }),
+    ).fetchElectricityRateGroups(rootId);
     const custom = groups.find((group) => group.id === '1' || normalizeText(group.name).includes('tu thiet lap'));
     const residential = groups.find((group) => group.id === '2' || normalizeText(group.name).includes('sinh hoat'));
-    const resolvedRate = resolveElectricityRateState({ settings, rootId, mapping, mobileMeter, groups, custom });
+    const resolvedRate = resolveElectricityRateState({ settings, rootId, mapping, mobileMeter: mapping, groups, custom });
 
     return {
       meterId: mapping.id,
       providerRootId: rootId,
-      providerMeterId: mobileMeter?.provider_meter_id || mapping.providerMeterId,
+      providerMeterId: mapping.providerMeterId,
       currentMode: resolvedRate.currentMode,
       customRateVnd: resolvedRate.customRateVnd,
       residentialSteps: residential?.rates || [],
@@ -784,6 +775,45 @@ export class HunonicService {
         .catch((error) => this.logger.error(`Hunonic async sync failed for tenant ${tenantId}: ${safeHunonicError(error)}`));
     }
     return syncStatusResponse(reservation.log, progress);
+  }
+
+  async syncRoom(tenantId: string, roomId: string) {
+    const mappings = await this.prismaAny.hunonicMeterMapping.findMany({
+      where: { tenantId, roomId, enabled: true },
+      take: 2,
+    });
+    if (!mappings.length) throw new NotFoundException('HUNONIC_ROOM_METER_NOT_FOUND');
+    if (mappings.length !== 1 || meterKindForMapping(mappings[0]) !== 'ROOM') {
+      throw new ConflictException('HUNONIC_ROOM_METER_AMBIGUOUS');
+    }
+    const mapping = mappings[0];
+    const settings = await this.getSettings(tenantId);
+    if (!settings.enabled) throw new BadRequestException('HUNONIC_INTEGRATION_DISABLED');
+    const provider = new HunonicProvider(this.toProviderOptions(settings));
+    let dashboard: Awaited<ReturnType<HunonicProvider['fetchDashboardData']>>;
+    try {
+      // Hunonic exposes current readings in one inventory response. No
+      // historical graph requests or writes for any other room are made.
+      dashboard = await this.withProviderRetry(() => provider.fetchDashboardData(), 'room meter sync');
+    } catch (error) {
+      this.logger.warn(`Hunonic room sync failed: ${safeHunonicError(error)}`);
+      throw new BadGatewayException('HUNONIC_ROOM_SYNC_FAILED');
+    }
+    const matches = dashboard.electric_meters.filter((meter) =>
+      (meter.provider_meter_id || meter.provider_device_id) === mapping.providerMeterId,
+    );
+    if (matches.length !== 1) throw new ConflictException('HUNONIC_ROOM_PROVIDER_METER_MISMATCH');
+    const meter = matches[0];
+    const readingAt = new Date(meter.updated_at || dashboard.exported_at);
+    if (Number.isNaN(readingAt.getTime()) || !hasMonthlyElectricityData(meter)) {
+      throw new BadGatewayException('HUNONIC_ROOM_READING_UNAVAILABLE');
+    }
+    const period = normalizeReadingPeriod(meter.current_month, readingAt);
+    if (period !== getReadingPeriod(new Date())) {
+      throw new BadGatewayException('HUNONIC_ROOM_READING_STALE');
+    }
+    const saved = await this.upsertMonthlyReading(tenantId, mapping, roomId, period, readingAt, meter);
+    return { meterId: mapping.id, roomId, readingsSaved: saved ? 1 : 0, readingAt, period };
   }
 
   async getSyncStatus(tenantId: string, jobId: string) {

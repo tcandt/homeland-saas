@@ -87,6 +87,7 @@ function createFixture() {
     },
     invoice: {
       findMany: vi.fn(async () => state.invoices),
+      findFirst: vi.fn(async () => null),
       create: vi.fn(async ({ data }: any) => {
         if (state.failInvoice) throw new Error("INJECTED_AFTER_CLAIM_FAILURE");
         const invoice = { id: `invoice-${state.invoices.length + 1}`, ...data };
@@ -103,7 +104,14 @@ function createFixture() {
         Object.assign(invoice, data);
         return { count: 1 };
       }),
+      update: vi.fn(async ({ where, data }: any) => {
+        const invoice = state.invoices.find((item: any) => item.id === where.id);
+        if (!invoice) throw new Error("INVOICE_NOT_FOUND");
+        Object.assign(invoice, data);
+        return invoice;
+      }),
     },
+    invoiceItem: { createMany: vi.fn(async () => ({ count: 1 })) },
     creditNote: {
       create: vi.fn(async ({ data }: any) => {
         const note = { id: `credit-${state.creditNotes.length + 1}`, ...data };
@@ -132,6 +140,8 @@ function createFixture() {
     },
     auditLog: { create: vi.fn(async ({ data }: any) => state.audits.push(data)) },
     outboxEvent: { create: vi.fn(async ({ data }: any) => state.outbox.push(data)) },
+    hunonicMeterMapping: { findFirst: vi.fn(async () => null) },
+    hunonicMeterReading: { findFirst: vi.fn(async () => null) },
   };
   const prisma: any = {
     tx: {
@@ -146,13 +156,13 @@ function createFixture() {
         finally { release?.(); }
       },
     },
-    hunonicMeterMapping: { findFirst: vi.fn(async () => null) },
   };
+  const hunonic = { getRoomElectricityPricing: vi.fn(async () => null) } as any;
   const service = new ContractsService(
     {} as any, { log: vi.fn() } as any, prisma, { publish: vi.fn() } as any,
-    { getRoomElectricityPricing: vi.fn(async () => null) } as any,
+    hunonic,
   );
-  return { state, service, tx };
+  return { state, service, tx, hunonic };
 }
 
 describe("CORE-09.01 authoritative settlement command", () => {
@@ -298,6 +308,75 @@ describe("CORE-09.01 authoritative settlement command", () => {
     expect(state.operations).toHaveLength(1);
     expect(state.ledger.filter((row: any) => row.type === "DEDUCT")).toHaveLength(1);
     expect(tx.outboxEvent.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("creates settlement invoice as draft, appends items, then issues it", async () => {
+    const { service, tx } = createFixture();
+    await service.terminateContract("contract-1", "user-1", settlementInput, "tenant-1", "settle-invoice-trigger");
+    expect(tx.invoice.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: "DRAFT" }),
+    }));
+    expect(tx.invoiceItem.createMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: [expect.objectContaining({ invoiceId: "invoice-1" })],
+    }));
+    expect(tx.invoice.update).toHaveBeenCalledWith({
+      where: { id: "invoice-1" }, data: { status: "ISSUED" },
+    });
+  });
+
+  it("uses the server Vietnam date and replays unchanged input across midnight", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-10-20T10:00:00.000Z"));
+      const { state, service } = createFixture();
+      await service.terminateContract("contract-1", "user-1", settlementInput, "tenant-1", "settle-server-date");
+      expect(state.settlement.actualMoveOutAt.toISOString()).toBe("2026-10-20T10:00:00.000Z");
+      vi.setSystemTime(new Date("2026-10-20T18:00:00.000Z"));
+      await service.terminateContract("contract-1", "user-1", settlementInput, "tenant-1", "settle-server-date");
+      expect(state.invoices).toHaveLength(1);
+      expect(state.settlement.actualMoveOutAt.toISOString()).toBe("2026-10-20T10:00:00.000Z");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("uses a same-provider-period baseline delta and leaves missing evidence for manual settlement", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-10-20T10:00:00.000Z"));
+      const { state, service, tx, hunonic } = createFixture();
+      tx.hunonicMeterMapping.findFirst.mockResolvedValue({
+        id: "meter-1", tenantId: "tenant-1", roomId: "room-1", enabled: true,
+        providerMeterId: "provider-1", displayName: "Điện", deviceName: "Meter", lastStatus: "ONLINE",
+      });
+      const current = { id: "current", energyMonthKwh: 100, moneyMonthVnd: 300_000,
+        readingAt: new Date("2026-10-20T09:00:00.000Z") };
+      const baseline = { id: "move-in", energyMonthKwh: 40, moneyMonthVnd: 120_000,
+        readingAt: new Date("2026-10-10T09:00:00.000Z") };
+      tx.hunonicMeterReading.findFirst.mockImplementation(async ({ where }: any) => {
+        if (where.id === "move-in") return baseline;
+        return where.readingAt?.lte && new Date(where.readingAt.lte) < current.readingAt
+          ? null : current;
+      });
+      hunonic.getRoomElectricityPricing.mockResolvedValue({ currentMode: "custom", customRateVnd: 3000, residentialSteps: [] });
+      const contract = {
+        ...state.contract,
+        activatedAt: new Date("2026-10-10T09:00:00.000Z"),
+        moveInSnapshot: { meterReadingId: "move-in", capturedAt: new Date("2026-10-10T09:00:00.000Z") },
+      };
+      const snapshot = await (service as any).getUtilitySnapshot(tx, "tenant-1", "room-1", new Date("2026-10-20T16:59:59.999Z"), contract);
+      expect(snapshot.electricity).toMatchObject({ monthKwh: 60, calculatedAmountVnd: 180_000, baselineKwh: 40, baselineReadingId: "move-in" });
+      tx.hunonicMeterReading.findFirst.mockImplementation(async ({ where }: any) => {
+        if (where.id === "move-in") return null;
+        if (where.readingAt instanceof Date) return null;
+        return where.readingAt?.lte && new Date(where.readingAt.lte) < current.readingAt
+          ? null : current;
+      });
+      const missing = await (service as any).getUtilitySnapshot(tx, "tenant-1", "room-1", new Date("2026-10-20T16:59:59.999Z"), contract);
+      expect(missing.electricity).toMatchObject({ manualRequired: true, manualRequiredReason: "ELECTRICITY_BASELINE_REQUIRED", monthKwh: null });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("writes a complete settlement notification context to the durable outbox", async () => {

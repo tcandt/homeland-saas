@@ -57,6 +57,8 @@ describe("Contracts Workflow Verification", () => {
       },
       tx: {
         $queryRaw: vi.fn().mockResolvedValue([{ id: "r1" }]),
+        hunonicMeterMapping: { findFirst: vi.fn().mockResolvedValue(null) },
+        hunonicMeterReading: { findFirst: vi.fn().mockResolvedValue(null) },
         auditLog: { create: vi.fn() },
         outboxEvent: { create: vi.fn() },
         contract: {

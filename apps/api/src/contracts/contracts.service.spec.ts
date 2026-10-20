@@ -47,6 +47,12 @@ describe("ContractsService", () => {
       },
       tx: {
         $queryRaw: vi.fn().mockResolvedValue([{ id: "r1" }]),
+        hunonicMeterMapping: {
+          findFirst: vi.fn().mockResolvedValue(null),
+        },
+        hunonicMeterReading: {
+          findFirst: vi.fn().mockResolvedValue(null),
+        },
         invoice: {
           create: vi.fn().mockResolvedValue({
             id: "entry-invoice-1",
@@ -184,6 +190,8 @@ describe("ContractsService", () => {
 
     service = module.get<ContractsService>(ContractsService);
   });
+
+  afterEach(() => vi.useRealTimers());
 
   const mockLockedContract = (contract: any) => {
     prismaService.tx.contract.findFirst.mockImplementationOnce(async () => contract);
@@ -3254,6 +3262,8 @@ describe("ContractsService", () => {
     });
 
     it("should use Hunonic snapshot electricity amount when operator leaves electricity blank", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-08-10T10:00:00.000Z"));
       const mockContract = {
         id: "c1",
         code: "C-004",
@@ -3264,24 +3274,22 @@ describe("ContractsService", () => {
         monthlyRent: 12000,
       };
 
-      prismaService.hunonicMeterMapping.findFirst.mockResolvedValue({
+      prismaService.tx.hunonicMeterMapping.findFirst.mockResolvedValue({
         id: "meter-1",
+        tenantId: "t1",
+        roomId: "r1",
+        enabled: true,
         providerMeterId: "provider-1",
         displayName: "31-04",
         deviceName: "ĐIỆN 31.04",
         lastStatus: "on",
-        lastReadingKwh: 42,
-        lastAmountVnd: 147000,
         lastSyncedAt: new Date("2026-08-09T09:00:00.000Z"),
-        readings: [
-          {
-            energyMonthKwh: 42,
-            moneyMonthVnd: 147000,
-            powerCurrentW: 61,
-            currentMonth: "2026-08",
-            readingAt: new Date("2026-08-09T09:00:00.000Z"),
-          },
-        ],
+      });
+      prismaService.tx.hunonicMeterReading.findFirst.mockResolvedValue({
+        id: "reading-1", tenantId: "t1", meterMappingId: "meter-1",
+        sourcePeriod: "2026-08", aggregateBasis: "MONTHLY_AGGREGATE_V1",
+        energyMonthKwh: 42, moneyMonthVnd: 147000, powerCurrentW: 61,
+        readingAt: new Date("2026-08-09T09:00:00.000Z"),
       });
       hunonicService.getRoomElectricityPricing.mockResolvedValue({
         currentMode: "custom",
@@ -3329,6 +3337,8 @@ describe("ContractsService", () => {
     });
 
     it("should calculate settlement electricity by residential steps when Hunonic meter is in EVN mode", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-08-10T10:00:00.000Z"));
       const mockContract = {
         id: "c1",
         code: "C-005",
@@ -3339,24 +3349,22 @@ describe("ContractsService", () => {
         monthlyRent: 12000,
       };
 
-      prismaService.hunonicMeterMapping.findFirst.mockResolvedValue({
+      prismaService.tx.hunonicMeterMapping.findFirst.mockResolvedValue({
         id: "meter-1",
+        tenantId: "t1",
+        roomId: "r1",
+        enabled: true,
         providerMeterId: "provider-1",
         displayName: "32-01",
         deviceName: "DIEN 32.01",
         lastStatus: "on",
-        lastReadingKwh: 80,
-        lastAmountVnd: 999999,
         lastSyncedAt: new Date("2026-08-09T09:00:00.000Z"),
-        readings: [
-          {
-            energyMonthKwh: 80,
-            moneyMonthVnd: 999999,
-            powerCurrentW: 50,
-            currentMonth: "2026-08",
-            readingAt: new Date("2026-08-09T09:00:00.000Z"),
-          },
-        ],
+      });
+      prismaService.tx.hunonicMeterReading.findFirst.mockResolvedValue({
+        id: "reading-1", tenantId: "t1", meterMappingId: "meter-1",
+        sourcePeriod: "2026-08", aggregateBasis: "MONTHLY_AGGREGATE_V1",
+        energyMonthKwh: 80, moneyMonthVnd: 999999, powerCurrentW: 50,
+        readingAt: new Date("2026-08-09T09:00:00.000Z"),
       });
       hunonicService.getRoomElectricityPricing.mockResolvedValue({
         currentMode: "residential",
@@ -3395,6 +3403,8 @@ describe("ContractsService", () => {
     });
 
     it("should use manual move-out electricity closing kwh for settlement snapshot and calculation", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-08-10T10:00:00.000Z"));
       const mockContract = {
         id: "c1",
         code: "C-006",
@@ -3405,24 +3415,22 @@ describe("ContractsService", () => {
         monthlyRent: 12000,
       };
 
-      prismaService.hunonicMeterMapping.findFirst.mockResolvedValue({
+      prismaService.tx.hunonicMeterMapping.findFirst.mockResolvedValue({
         id: "meter-1",
+        tenantId: "t1",
+        roomId: "r1",
+        enabled: true,
         providerMeterId: "provider-1",
         displayName: "32-01",
         deviceName: "DIEN 32.01",
         lastStatus: "on",
-        lastReadingKwh: 80,
-        lastAmountVnd: 999999,
         lastSyncedAt: new Date("2026-08-09T09:00:00.000Z"),
-        readings: [
-          {
-            energyMonthKwh: 80,
-            moneyMonthVnd: 999999,
-            powerCurrentW: 50,
-            currentMonth: "2026-08",
-            readingAt: new Date("2026-08-09T09:00:00.000Z"),
-          },
-        ],
+      });
+      prismaService.tx.hunonicMeterReading.findFirst.mockResolvedValue({
+        id: "reading-1", tenantId: "t1", meterMappingId: "meter-1",
+        sourcePeriod: "2026-08", aggregateBasis: "MONTHLY_AGGREGATE_V1",
+        energyMonthKwh: 80, moneyMonthVnd: 999999, powerCurrentW: 50,
+        readingAt: new Date("2026-08-09T09:00:00.000Z"),
       });
       hunonicService.getRoomElectricityPricing.mockResolvedValue({
         currentMode: "custom",
@@ -3449,7 +3457,7 @@ describe("ContractsService", () => {
       );
       expect(result.settlementSnapshot).toEqual(
         expect.objectContaining({
-          capturedAt: "2026-08-10T00:00:00.000Z",
+          capturedAt: "2026-08-10T10:00:00.000Z",
           electricity: expect.objectContaining({
             monthKwh: 35,
             closingKwh: 35,
@@ -3466,6 +3474,142 @@ describe("ContractsService", () => {
           }),
         ]),
       );
+    });
+
+    it("requires manual settlement when the current-period provider kWh is null", async () => {
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(new Date("2026-08-10T10:00:00.000Z"));
+        prismaService.tx.hunonicMeterMapping.findFirst.mockResolvedValue({
+          id: "meter-null-kwh", tenantId: "t1", roomId: "r1", enabled: true,
+          providerMeterId: "provider-1", displayName: "Meter", deviceName: "Meter", lastStatus: "ONLINE",
+        });
+        prismaService.tx.hunonicMeterReading.findFirst.mockResolvedValue({
+          id: "reading-null-kwh", tenantId: "t1", meterMappingId: "meter-null-kwh",
+          sourcePeriod: "2026-08", aggregateBasis: "MONTHLY_AGGREGATE_V1",
+          energyMonthKwh: null, moneyMonthVnd: 125000,
+          readingAt: new Date("2026-08-10T09:00:00.000Z"),
+        });
+        hunonicService.getRoomElectricityPricing.mockResolvedValue({
+          currentMode: "custom", customRateVnd: 3000, residentialSteps: [],
+        });
+
+        const snapshot = await (service as any).getUtilitySnapshot(
+          prismaService.tx, "t1", "r1", new Date("2026-08-10T16:59:59.999Z"),
+          { id: "c-null-kwh", tenantId: "t1", roomId: "r1" },
+        );
+
+        expect(snapshot.electricity).toMatchObject({ manualRequired: true });
+        expect(prismaService.tx.hunonicMeterReading.findFirst).toHaveBeenCalledWith(
+          expect.objectContaining({ where: expect.objectContaining({
+            tenantId: "t1", meterMappingId: "meter-null-kwh", sourcePeriod: "2026-08",
+            aggregateBasis: "MONTHLY_AGGREGATE_V1",
+          }) }),
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("marks zero manual kWh without a tariff as manual-required and rejects canonical settlement", async () => {
+      const contract = {
+        id: "c-no-tariff", code: "C-NO-TARIFF", status: ContractStatus.ACTIVE,
+        tenantId: "t1", roomId: "r1", customerId: "cu1", monthlyRent: 12000,
+      };
+      vi.spyOn(service, "getDetail").mockResolvedValue(contract as any);
+      prismaService.tx.contract.findFirst.mockResolvedValue({ ...contract, rentalCycleId: "cycle-1", customer: {}, room: {} });
+      prismaService.tx.rentalCycle.findFirst.mockResolvedValue({ id: "cycle-1" });
+      prismaService.tx.hunonicMeterMapping.findFirst.mockResolvedValue({
+        id: "meter-no-tariff", tenantId: "t1", roomId: "r1", enabled: true,
+        providerMeterId: "provider-1", displayName: "Meter", deviceName: "Meter", lastStatus: "ONLINE",
+      });
+      hunonicService.getRoomElectricityPricing.mockResolvedValue(null);
+
+      const preview = await service.previewSettlement("c-no-tariff", {
+        actualMoveOutDate: "2026-08-10T00:00:00.000Z", rentDaysCharged: 0,
+        electricityClosingKwh: 0,
+      }, "t1");
+
+      expect(preview.utilitySnapshot.electricity).toMatchObject({
+        manualRequired: true, calculatedAmountVnd: null,
+      });
+      expect(() => (service as any).assertSettlementElectricityOverride(
+        { utilitySnapshot: preview.utilitySnapshot }, { electricityClosingKwh: 0 },
+      )).toThrow("SETTLEMENT_ELECTRICITY_MANUAL_REQUIRED");
+    });
+
+    it("requires manual settlement when the provider current reading predates the move-in boundary", async () => {
+      prismaService.tx.hunonicMeterMapping.findFirst.mockResolvedValue({
+        id: "meter-stale", tenantId: "t1", roomId: "r1", enabled: true,
+        providerMeterId: "provider-1", displayName: "Meter", deviceName: "Meter", lastStatus: "ONLINE",
+      });
+      prismaService.tx.hunonicMeterReading.findFirst.mockResolvedValue({
+        id: "reading-stale", tenantId: "t1", meterMappingId: "meter-stale",
+        sourcePeriod: "2026-10", aggregateBasis: "MONTHLY_AGGREGATE_V1",
+        energyMonthKwh: 80, moneyMonthVnd: 240000,
+        readingAt: new Date("2026-10-09T09:00:00.000Z"),
+      });
+      hunonicService.getRoomElectricityPricing.mockResolvedValue({
+        currentMode: "custom", customRateVnd: 3000, residentialSteps: [],
+      });
+
+      const snapshot = await (service as any).getUtilitySnapshot(
+        prismaService.tx, "t1", "r1", new Date("2026-10-20T16:59:59.999Z"),
+        { id: "c-stale", tenantId: "t1", roomId: "r1", activatedAt: new Date("2026-10-10T09:00:00.000Z") },
+      );
+
+      expect(snapshot.electricity).toMatchObject({ manualRequired: true });
+    });
+
+    it("splits a shared ACTIVE and EXPIRING population once after the move-in baseline", async () => {
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(new Date("2026-10-20T10:00:00.000Z"));
+        prismaService.tx.hunonicMeterMapping.findFirst.mockResolvedValue({
+          id: "meter-shared", tenantId: "t1", roomId: "r1", enabled: true,
+          providerMeterId: "provider-1", displayName: "Meter", deviceName: "Meter", lastStatus: "ONLINE",
+        });
+        prismaService.tx.room.findUnique.mockResolvedValue({ id: "r1", rentalType: "SHARED", capacity: 4, bedCount: 4 });
+        prismaService.tx.contract.count.mockResolvedValue(2);
+        prismaService.tx.hunonicMeterReading.findFirst.mockImplementation(({ where }: any) => {
+          if (where.id === "move-in-reading") {
+            return Promise.resolve({
+              id: "move-in-reading", tenantId: "t1", meterMappingId: "meter-shared",
+              sourcePeriod: "2026-10", aggregateBasis: "MONTHLY_AGGREGATE_V1",
+              energyMonthKwh: 40, moneyMonthVnd: 120000, readingAt: new Date("2026-10-10T09:00:00.000Z"),
+            });
+          }
+          return Promise.resolve({
+            id: "current-reading", tenantId: "t1", meterMappingId: "meter-shared",
+            sourcePeriod: "2026-10", aggregateBasis: "MONTHLY_AGGREGATE_V1",
+            energyMonthKwh: 100, moneyMonthVnd: 300000, readingAt: new Date("2026-10-20T09:00:00.000Z"),
+          });
+        });
+        hunonicService.getRoomElectricityPricing.mockResolvedValue({
+          currentMode: "custom", customRateVnd: 3000, residentialSteps: [],
+        });
+
+        const snapshot = await (service as any).getUtilitySnapshot(
+          prismaService.tx, "t1", "r1", new Date("2026-10-20T16:59:59.999Z"),
+          {
+            id: "c-shared", tenantId: "t1", roomId: "r1",
+            activatedAt: new Date("2026-10-10T09:00:00.000Z"),
+            moveInSnapshot: { meterReadingId: "move-in-reading", capturedAt: new Date("2026-10-10T09:00:00.000Z") },
+          },
+        );
+
+        expect(snapshot.electricity).toMatchObject({
+          totalRoomMonthKwh: 60, totalCalculatedAmountVnd: 180000,
+          baselineKwh: 40, monthKwh: 30, calculatedAmountVnd: 90000,
+        });
+        expect(prismaService.tx.contract.count).toHaveBeenCalledWith(expect.objectContaining({
+          where: expect.objectContaining({ status: expect.objectContaining({
+            in: expect.arrayContaining([ContractStatus.ACTIVE, ContractStatus.EXPIRING]),
+          }) }),
+        }));
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 

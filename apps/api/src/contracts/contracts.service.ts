@@ -2295,6 +2295,8 @@ export class ContractsService extends BaseCrudService<Contract> {
           gender: true,
           identityNo: true,
           address: true,
+          idImages: true,
+          idImageProvenance: true,
         },
       },
       room: {
@@ -3329,7 +3331,14 @@ export class ContractsService extends BaseCrudService<Contract> {
     if (!cycle)
       throw new BadRequestException("SETTLEMENT_RENTAL_CYCLE_SCOPE_MISMATCH");
 
-    const preview = await this.composeSettlementPreview(contract, input);
+    const preview = await this.composeSettlementPreview(
+      contract,
+      {
+        ...input,
+        actualMoveOutDate: this.getServerSettlementDate(),
+      } as ContractSettlementInput,
+      this.prisma.tx,
+    );
     const context = await this.loadSettlementFinancialContext(
       this.prisma.tx,
       contract,
@@ -5290,10 +5299,20 @@ export class ContractsService extends BaseCrudService<Contract> {
       // The authoritative balance pass augments the preview breakdown with
       // finalChargeCreditAmount; keep the transaction-local value open for
       // that validated augmentation.
+      // The supplied date is intentionally not an accounting date.  A
+      // settlement is always recorded on the server's Vietnam calendar day.
+      // Keep the original input in requestHash above so a retry remains a
+      // replay even if it crosses midnight.
+      const effectiveInput = {
+        ...input,
+        actualMoveOutDate: this.getServerSettlementDate(),
+      } as ContractSettlementInput;
       let settlement: any = await this.composeSettlementPreview(
         contract,
-        input,
+        effectiveInput,
+        tx,
       );
+      this.assertSettlementElectricityOverride(settlement, input);
       const deposits = await tx.deposit.findMany({
         where: {
           tenantId,
@@ -5408,9 +5427,12 @@ export class ContractsService extends BaseCrudService<Contract> {
         } as any,
       });
 
-      const invoice =
-        settlement.totals.chargeTotal > 0
-          ? await tx.invoice.create({
+      let invoice: any = null;
+      if (settlement.totals.chargeTotal > 0) {
+        // InvoiceItem's DB trigger rejects inserts into an ISSUED invoice.
+        // Persist the complete DRAFT document first, then issue it after all
+        // immutable evidence exists.
+        const draftInvoice = await tx.invoice.create({
               data: {
                 tenantId,
                 code: `FIN-SET-${contract.id}`,
@@ -5418,7 +5440,7 @@ export class ContractsService extends BaseCrudService<Contract> {
                 contractId: contract.id,
                 rentalCycleId: contract.rentalCycleId,
                 customerId: contract.customerId,
-                status: InvoiceStatus.ISSUED,
+                status: InvoiceStatus.DRAFT,
                 billingKind: "CONTRACT_SETTLEMENT",
                 baseInvoiceKey: settlementBaseInvoiceKey,
                 dueDate: settlement.actualMoveOutDate,
@@ -5428,19 +5450,24 @@ export class ContractsService extends BaseCrudService<Contract> {
                 paidAmount: 0,
                 creditAmount:
                   settlement.accountingBreakdown.finalChargeCreditAmount,
-                items: {
-                  create: settlement.invoiceItems.map((item: any) => ({
-                    tenantId,
-                    type: item.type,
-                    description: item.description,
-                    quantity: 1,
-                    unitPrice: item.amount,
-                    amount: item.amount,
-                  })),
-                },
               },
-            })
-          : null;
+            });
+        await tx.invoiceItem.createMany({
+          data: settlement.invoiceItems.map((item: any) => ({
+            tenantId,
+            invoiceId: draftInvoice.id,
+            type: item.type,
+            description: item.description,
+            quantity: 1,
+            unitPrice: item.amount,
+            amount: item.amount,
+          })),
+        });
+        invoice = await tx.invoice.update({
+          where: { id: draftInvoice.id },
+          data: { status: InvoiceStatus.ISSUED },
+        });
+      }
 
       // A deposit offset is an append-only credit against the exact unpaid
       // invoices.  The CreditNote preserves source evidence; creditAmount is
@@ -7153,12 +7180,15 @@ export class ContractsService extends BaseCrudService<Contract> {
   private async composeSettlementPreview(
     contract: any,
     input: ContractSettlementInput,
+    client: any = this.prisma.tx,
   ) {
     const actualMoveOutDate = this.resolveMoveOutDate(input.actualMoveOutDate);
     const utilitySnapshot = await this.getUtilitySnapshot(
+      client,
       contract.tenantId,
       contract.roomId,
       actualMoveOutDate,
+      contract,
     );
     const electricityClosingKwh =
       input.electricityClosingKwh !== undefined &&
@@ -7231,30 +7261,21 @@ export class ContractsService extends BaseCrudService<Contract> {
   }
 
   private async getUtilitySnapshot(
+    client: any,
     tenantId: string,
     roomId: string,
     moveOutDate: Date,
+    contract: any,
   ) {
     if (!tenantId || !roomId) {
       return { electricity: null, water: null };
     }
 
-    const mapping = await (this.prisma as any).hunonicMeterMapping.findFirst({
+    const mapping = await client.hunonicMeterMapping.findFirst({
       where: {
         tenantId,
         roomId,
         enabled: true,
-      },
-      include: {
-        readings: {
-          where: {
-            readingAt: {
-              lte: moveOutDate,
-            },
-          },
-          orderBy: { readingAt: "desc" },
-          take: 1,
-        },
       },
       orderBy: { updatedAt: "desc" },
     });
@@ -7263,18 +7284,17 @@ export class ContractsService extends BaseCrudService<Contract> {
       return { electricity: null, water: null };
     }
 
-    const latestReading =
-      Array.isArray(mapping.readings) && mapping.readings.length > 0
-        ? mapping.readings[0]
-        : await (this.prisma as any).hunonicMeterReading.findFirst({
-            where: {
-              tenantId,
-              meterMappingId: mapping.id,
-            },
-            orderBy: { readingAt: "desc" },
-          });
-    const period =
-      latestReading?.currentMonth || this.getSettlementPeriod(moveOutDate);
+    const period = this.getSettlementPeriod(moveOutDate);
+    const latestReading = await client.hunonicMeterReading.findFirst({
+      where: {
+        tenantId,
+        meterMappingId: mapping.id,
+        sourcePeriod: period,
+        aggregateBasis: "MONTHLY_AGGREGATE_V1",
+        readingAt: { lte: moveOutDate },
+      },
+      orderBy: [{ readingAt: "desc" }, { createdAt: "desc" }],
+    });
     let pricing: Awaited<
       ReturnType<HunonicService["getRoomElectricityPricing"]>
     > = null;
@@ -7282,12 +7302,13 @@ export class ContractsService extends BaseCrudService<Contract> {
       pricing = await this.hunonicService.getRoomElectricityPricing(
         tenantId,
         roomId,
+        { offline: true, mapping: { ...mapping, raw: latestReading?.raw || mapping.raw } },
       );
     } catch {
       pricing = null;
     }
-    const room = (this.prisma as any).room?.findUnique
-      ? await (this.prisma as any).room.findUnique({
+    const room = client.room?.findUnique
+      ? await client.room.findUnique({
           where: { id: roomId },
           select: {
             id: true,
@@ -7302,12 +7323,13 @@ export class ContractsService extends BaseCrudService<Contract> {
     const isSharedRoom = room?.rentalType === "SHARED";
     let activeOccupants = 1;
     if (isSharedRoom) {
-      const activeContracts = (this.prisma as any).contract?.count
-        ? await (this.prisma as any).contract.count({
+      const activeContracts = client.contract?.count
+        ? await client.contract.count({
             where: {
               tenantId,
               roomId,
-              status: "ACTIVE",
+              status: { in: ACTIVE_LIKE_CONTRACT_STATUSES },
+              deletedAt: null,
             },
           })
         : 0;
@@ -7317,15 +7339,118 @@ export class ContractsService extends BaseCrudService<Contract> {
       );
     }
 
-    const totalRoomMonthKwh = Number(
-      latestReading?.energyMonthKwh ?? mapping.lastReadingKwh ?? 0,
+    if (!latestReading) {
+      return {
+        electricity: this.buildManualElectricityRequiredSnapshot(
+          mapping,
+          period,
+          "CURRENT_PERIOD_READING_REQUIRED",
+          pricing,
+        ),
+        water: null,
+      };
+    }
+
+    const moveInAt = this.resolveSettlementMoveInDate(contract);
+    const lastBilled = await client.invoice?.findFirst?.({
+      where: {
+        tenantId,
+        contractId: contract.id,
+        rentalCycleId: contract.rentalCycleId,
+        usagePeriod: period,
+        deletedAt: null,
+        status: {
+          in: [
+            InvoiceStatus.ISSUED,
+            InvoiceStatus.PARTIALLY_PAID,
+            InvoiceStatus.PAID,
+            InvoiceStatus.OVERDUE,
+          ],
+        },
+        items: { some: { type: InvoiceItemType.UTILITY_ELECTRICITY } },
+      },
+      orderBy: [{ dueDate: "desc" }, { createdAt: "desc" }],
+      select: { items: { where: { type: InvoiceItemType.UTILITY_ELECTRICITY },
+        select: { billingSnapshot: { select: { sourceReading: true, meterMappingId: true, usagePeriod: true } } } } },
+    });
+    const billedSnapshot = lastBilled?.items?.find((item: any) =>
+      item.billingSnapshot?.meterMappingId === mapping.id && item.billingSnapshot?.usagePeriod === period,
+    )?.billingSnapshot;
+    const billedReading = billedSnapshot?.sourceReading;
+    if (lastBilled && (!billedReading || billedReading.tenantId !== tenantId ||
+        billedReading.meterMappingId !== mapping.id || billedReading.sourcePeriod !== period ||
+        billedReading.aggregateBasis !== "MONTHLY_AGGREGATE_V1")) {
+      return { electricity: this.buildManualElectricityRequiredSnapshot(
+        mapping, period, "BILLED_PERIOD_BASELINE_REQUIRED", pricing,
+      ), water: null };
+    }
+    const periodStart = this.getVietnamMonthStart(moveOutDate);
+    const boundary = new Date(
+      Math.max(
+        periodStart.getTime(),
+        moveInAt?.getTime() || Number.NEGATIVE_INFINITY,
+        billedReading ? new Date(billedReading.readingAt).getTime() : Number.NEGATIVE_INFINITY,
+      ),
     );
-    const totalRoomAmountVnd = Number(
-      latestReading?.moneyMonthVnd ?? mapping.lastAmountVnd ?? 0,
-    );
-    const totalCalculatedAmountVnd =
-      this.calculateElectricityAmount(totalRoomMonthKwh, pricing) ??
-      totalRoomAmountVnd;
+    const currentKwh = Number(latestReading.energyMonthKwh);
+    const currentAmount = Number(latestReading.moneyMonthVnd);
+    if (latestReading.energyMonthKwh == null || !Number.isFinite(currentKwh) ||
+        currentKwh < 0 || boundary > moveOutDate || new Date(latestReading.readingAt) < boundary) {
+      return {
+        electricity: this.buildManualElectricityRequiredSnapshot(
+          mapping,
+          period,
+          "ELECTRICITY_BOUNDARY_INVALID",
+          pricing,
+        ),
+        water: null,
+      };
+    }
+    const baselineRequired = boundary.getTime() > periodStart.getTime();
+    const baseline = baselineRequired
+      ? (billedReading && new Date(billedReading.readingAt).getTime() === boundary.getTime()
+        ? billedReading : await this.findSettlementElectricityBaseline(
+          client,
+          tenantId,
+          mapping.id,
+          period,
+          boundary,
+          contract.moveInSnapshot,
+        ))
+      : null;
+    const baselineKwh = baselineRequired ? Number(baseline?.energyMonthKwh) : 0;
+    const baselineAmount = baselineRequired ? Number(baseline?.moneyMonthVnd) : 0;
+    if (
+      baselineRequired &&
+      (!baseline || baseline.energyMonthKwh == null || !Number.isFinite(baselineKwh) ||
+        baselineKwh < 0 || baselineKwh > currentKwh)
+    ) {
+      return {
+        electricity: this.buildManualElectricityRequiredSnapshot(
+          mapping,
+          period,
+          "ELECTRICITY_BASELINE_REQUIRED",
+          pricing,
+          boundary,
+        ),
+        water: null,
+      };
+    }
+    const totalRoomMonthKwh = this.roundMoney(currentKwh - baselineKwh);
+    const totalRoomAmountVnd =
+      Number.isFinite(currentAmount) && currentAmount >= 0 &&
+      (!baselineRequired || (Number.isFinite(baselineAmount) && baselineAmount >= 0))
+        ? Math.max(0, Math.round(currentAmount - baselineAmount))
+        : 0;
+    const pricedAmount = this.calculateElectricityAmount(totalRoomMonthKwh, pricing);
+    if (pricedAmount === null && (latestReading.moneyMonthVnd == null ||
+        (baselineRequired && baseline?.moneyMonthVnd == null) ||
+        !Number.isFinite(currentAmount) || currentAmount < baselineAmount)) {
+      return { electricity: this.buildManualElectricityRequiredSnapshot(
+        mapping, period, "ELECTRICITY_PRICING_REQUIRED", pricing, boundary,
+      ), water: null };
+    }
+    const totalCalculatedAmountVnd = pricedAmount ?? totalRoomAmountVnd;
 
     const monthKwh = isSharedRoom
       ? Math.round((totalRoomMonthKwh / activeOccupants) * 100) / 100
@@ -7349,6 +7474,9 @@ export class ContractsService extends BaseCrudService<Contract> {
         totalRoomMonthKwh,
         totalRoomAmountVnd,
         totalCalculatedAmountVnd,
+        baselineKwh,
+        baselineReadingId: baseline?.id || null,
+        billingBoundaryAt: boundary,
         monthKwh,
         monthAmountVnd,
         calculatedAmountVnd,
@@ -7358,7 +7486,7 @@ export class ContractsService extends BaseCrudService<Contract> {
         powerCurrentW: Number(latestReading?.powerCurrentW ?? 0),
         readingAt: latestReading?.readingAt ?? mapping.lastSyncedAt ?? null,
         currentMonth: period,
-        source: latestReading ? "HUNONIC_READING" : "HUNONIC_MAPPING",
+        source: "HUNONIC_PERIOD_DELTA",
         calculationSource:
           pricing?.currentMode === "custom"
             ? "CUSTOM_RATE"
@@ -7370,6 +7498,90 @@ export class ContractsService extends BaseCrudService<Contract> {
           : null,
       },
       water: null,
+    };
+  }
+
+  private resolveSettlementMoveInDate(contract: any): Date | null {
+    const snapshotDate = contract?.moveInSnapshot?.capturedAt;
+    const candidate = snapshotDate || contract?.activatedAt || contract?.startDate;
+    if (!candidate) return null;
+    const date = new Date(candidate);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  private assertSettlementElectricityOverride(
+    settlement: any,
+    input: ContractSettlementInput,
+  ) {
+    if (
+      settlement?.utilitySnapshot?.electricity?.manualRequired &&
+      input.electricityAmount == null &&
+      (input.electricityClosingKwh == null ||
+        settlement.utilitySnapshot.electricity.calculatedAmountVnd == null)
+    ) {
+      throw new BadRequestException("SETTLEMENT_ELECTRICITY_MANUAL_REQUIRED");
+    }
+  }
+
+  private async findSettlementElectricityBaseline(
+    client: any,
+    tenantId: string,
+    meterMappingId: string,
+    period: string,
+    boundary: Date,
+    moveInSnapshot: any,
+  ) {
+    const moveInReadingId = String(moveInSnapshot?.meterReadingId || "").trim();
+    if (moveInReadingId && moveInSnapshot?.capturedAt &&
+        new Date(moveInSnapshot.capturedAt).getTime() === boundary.getTime()) {
+      const captured = await client.hunonicMeterReading.findFirst({
+        where: {
+          id: moveInReadingId,
+          tenantId,
+          meterMappingId,
+          sourcePeriod: period,
+          aggregateBasis: "MONTHLY_AGGREGATE_V1",
+          readingAt: { lte: boundary },
+        },
+      });
+      if (captured) return captured;
+    }
+    return client.hunonicMeterReading.findFirst({
+      where: {
+        tenantId,
+        meterMappingId,
+        sourcePeriod: period,
+        aggregateBasis: "MONTHLY_AGGREGATE_V1",
+        readingAt: boundary,
+      },
+      orderBy: [{ readingAt: "desc" }, { createdAt: "desc" }],
+    });
+  }
+
+  private buildManualElectricityRequiredSnapshot(
+    mapping: any,
+    period: string,
+    reason: string,
+    pricing: Awaited<ReturnType<HunonicService["getRoomElectricityPricing"]>> | null,
+    boundary?: Date,
+  ) {
+    return {
+      meterId: mapping.id,
+      providerMeterId: mapping.providerMeterId,
+      displayName: mapping.displayName,
+      deviceName: mapping.deviceName,
+      status: mapping.lastStatus,
+      currentMonth: period,
+      monthKwh: null,
+      monthAmountVnd: null,
+      calculatedAmountVnd: null,
+      rateMode: pricing?.currentMode || null,
+      customRateVnd: pricing?.customRateVnd ?? null,
+      residentialSteps: pricing?.residentialSteps || [],
+      source: "MANUAL_REQUIRED",
+      manualRequired: true,
+      manualRequiredReason: reason,
+      billingBoundaryAt: boundary || null,
     };
   }
 
@@ -7398,7 +7610,8 @@ export class ContractsService extends BaseCrudService<Contract> {
       ReturnType<HunonicService["getRoomElectricityPricing"]>
     > | null,
   ) {
-    if (!pricing || !Number.isFinite(monthKwh) || monthKwh <= 0) return null;
+    if (!Number.isFinite(monthKwh) || monthKwh < 0) return null;
+    if (!pricing) return null;
 
     if (pricing.currentMode === "custom") {
       const customRateVnd = Number(pricing.customRateVnd || 0);
@@ -7457,8 +7670,15 @@ export class ContractsService extends BaseCrudService<Contract> {
     closingKwh: number,
   ) {
     const normalizedClosingKwh = this.roundMoney(Number(closingKwh || 0));
+    const requiresManualOverride = Boolean(electricitySnapshot?.manualRequired);
+    if (!Number.isFinite(normalizedClosingKwh) || normalizedClosingKwh < 0) {
+      throw new BadRequestException("SETTLEMENT_ELECTRICITY_READING_INVALID");
+    }
+    // This input is the customer's billable period usage, including shared
+    // allocation, rather than the meter's raw month-to-date counter.
+    const usageKwh = normalizedClosingKwh;
     const calculatedAmountVnd = this.calculateElectricityAmount(
-      normalizedClosingKwh,
+      usageKwh,
       {
         currentMode:
           electricitySnapshot?.rateMode === "custom"
@@ -7471,19 +7691,18 @@ export class ContractsService extends BaseCrudService<Contract> {
       } as Awaited<ReturnType<HunonicService["getRoomElectricityPricing"]>>,
     );
 
+    const amount = calculatedAmountVnd ?? (
+      !requiresManualOverride && normalizedClosingKwh === Number(electricitySnapshot.monthKwh)
+        ? electricitySnapshot.calculatedAmountVnd ?? electricitySnapshot.monthAmountVnd : null
+    );
     return {
       ...electricitySnapshot,
       closingKwh: normalizedClosingKwh,
-      monthKwh: normalizedClosingKwh,
-      calculatedAmountVnd:
-        calculatedAmountVnd !== null && calculatedAmountVnd !== undefined
-          ? calculatedAmountVnd
-          : Number(
-              electricitySnapshot?.calculatedAmountVnd ||
-                electricitySnapshot?.monthAmountVnd ||
-                0,
-            ),
+      monthKwh: usageKwh,
+      calculatedAmountVnd: amount,
+      manualRequired: requiresManualOverride || amount == null,
       source: "MANUAL_MOVE_OUT_READING",
+      manualOverride: requiresManualOverride,
       readingAt: electricitySnapshot?.readingAt || new Date(),
     };
   }
@@ -7513,6 +7732,9 @@ export class ContractsService extends BaseCrudService<Contract> {
               utilitySnapshot.electricity.closingKwh ??
                 (utilitySnapshot.electricity.monthKwh || 0),
             ),
+            baselineKwh: Number(utilitySnapshot.electricity.baselineKwh || 0),
+            baselineReadingId: utilitySnapshot.electricity.baselineReadingId || null,
+            billingBoundaryAt: utilitySnapshot.electricity.billingBoundaryAt || null,
             monthKwh: Number(utilitySnapshot.electricity.monthKwh || 0),
             monthAmountVnd: Number(
               utilitySnapshot.electricity.monthAmountVnd || 0,
@@ -7529,6 +7751,9 @@ export class ContractsService extends BaseCrudService<Contract> {
             ),
             readingAt: utilitySnapshot.electricity.readingAt,
             source: utilitySnapshot.electricity.source,
+            manualRequired: Boolean(utilitySnapshot.electricity.manualRequired),
+            manualRequiredReason:
+              utilitySnapshot.electricity.manualRequiredReason || null,
             calculationSource: utilitySnapshot.electricity.calculationSource,
           }
         : null,
@@ -7546,7 +7771,20 @@ export class ContractsService extends BaseCrudService<Contract> {
   }
 
   private getSettlementPeriod(moveOutDate: Date) {
-    return `${moveOutDate.getFullYear()}-${String(moveOutDate.getMonth() + 1).padStart(2, "0")}`;
+    const vietnamDate = new Date(moveOutDate.getTime() + 7 * 60 * 60 * 1000);
+    return `${vietnamDate.getUTCFullYear()}-${String(vietnamDate.getUTCMonth() + 1).padStart(2, "0")}`;
+  }
+
+  private getVietnamMonthStart(date: Date) {
+    const vietnamDate = new Date(date.getTime() + 7 * 60 * 60 * 1000);
+    return new Date(
+      Date.UTC(vietnamDate.getUTCFullYear(), vietnamDate.getUTCMonth(), 1) -
+        7 * 60 * 60 * 1000,
+    );
+  }
+
+  private getServerSettlementDate() {
+    return new Date();
   }
 
   private buildRefundReceiptCode(contractCode: string) {

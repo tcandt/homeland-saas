@@ -25,6 +25,7 @@ import {
   ContractSettlementInput,
   ConvertBookingHoldInput,
   CreateBookingHoldInput,
+  ImportExistingContractInput,
   MoveOutOccupantInput,
   PaginatedResult,
   RenewContractInput,
@@ -47,6 +48,7 @@ import { InvoicesService } from "../invoices/invoices.service";
 import { COMBINED_ENTRY_POLICY, ENTRY_SECURITY_PERIOD, ENTRY_TRANSFER_PERIOD, getCombinedEntryInvoice, assertCombinedEntryInvoice } from "../invoices/combined-entry-invoice";
 import { buildRoomContext } from "../shared/context/room-context";
 import { createHash } from "crypto";
+import { LEGACY_OPENING_POLICY, legacyImportMarker, missingLegacyDocuments, parseLegacyDate } from "./legacy-rental-import";
 
 export function calculateFirstBillingPeriod(
   monthlyRent: number,
@@ -153,6 +155,139 @@ export class ContractsService extends BaseCrudService<Contract> {
       await this.syncContractDeposit(created);
     }
     return created;
+  }
+
+  async importExisting(
+    input: ImportExistingContractInput,
+    userId: string,
+    tenantId: string,
+    idempotencyKey?: string,
+  ): Promise<any> {
+    const key = String(idempotencyKey || '').trim();
+    if (!tenantId || !userId || key.length < 8 || key.length > 128 || key !== input.idempotencyKey) {
+      throw new BadRequestException('LEGACY_IMPORT_COMMAND_REQUIRED');
+    }
+    const startDate = parseLegacyDate(input.startDate);
+    const endDate = parseLegacyDate(input.endDate);
+    const signedAt = parseLegacyDate(input.signedAt || input.startDate);
+    const paidThroughDate = parseLegacyDate(input.paidThrough);
+    const nextBillingDate = new Date(paidThroughDate);
+    nextBillingDate.setUTCDate(nextBillingDate.getUTCDate() + 1);
+    if (nextBillingDate.getUTCDate() !== 1 || endDate <= startDate ||
+        paidThroughDate < startDate || input.paidThrough.slice(0, 7) > input.endDate.slice(0, 7)) {
+      throw new BadRequestException('LEGACY_IMPORT_DATE_RANGE_INVALID');
+    }
+    const normalized = { ...input, signedAt: input.signedAt || input.startDate,
+      memberCount: input.memberCount || 1, attachments: [...new Set(input.attachments || [])].sort() };
+    const requestHash = createHash('sha256').update(JSON.stringify(normalized)).digest('hex');
+    return this.runBookingSerializable(async (tx: any) => {
+      await this.lockBookingCommand(tx, tenantId, `legacy-import:${key}`);
+      const existing = await tx.contract.findFirst({ where: {
+        tenantId, activationIdempotencyKey: key,
+      } });
+      if (existing) {
+        const marker = legacyImportMarker(existing);
+        if (!marker || marker.requestHash !== requestHash || existing.deletedAt) {
+          throw new ConflictException('LEGACY_IMPORT_IDEMPOTENCY_KEY_REUSED');
+        }
+        return { contract: existing, replayed: true, paidThrough: marker.paidThrough,
+          nextBillingDate: marker.nextBillingDate, missingDocuments: marker.missingDocuments };
+      }
+      const today = new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      if (input.startDate > today || input.endDate <= today || normalized.signedAt > today || input.paidThrough < today) {
+        throw new BadRequestException('LEGACY_IMPORT_REQUIRES_CURRENT_RENTAL');
+      }
+      // Monthly close takes the same usage-period locks before freezing its roster.
+      // Acquire these before room/customer locks so neither command can pass a stale roster.
+      const usageMonth = new Date(startDate);
+      usageMonth.setUTCDate(1);
+      while (usageMonth <= endDate) {
+        const usagePeriod = usageMonth.toISOString().slice(0, 7);
+        const evidenceKey = `${tenantId}:billing-evidence:${input.roomId}:${usagePeriod}`;
+        await tx.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${evidenceKey}))::text AS "lock"`);
+        usageMonth.setUTCMonth(usageMonth.getUTCMonth() + 1);
+      }
+      await this.lockRoomLifecycle(tx, tenantId, input.roomId);
+      await this.lockCustomerLifecycle(tx, tenantId, input.customerId);
+      const room = await tx.room.findFirst({ where: {
+        id: input.roomId, tenantId, deletedAt: null,
+        building: { tenantId, deletedAt: null }, floor: { tenantId, deletedAt: null },
+      } });
+      const customer = await tx.customer.findFirst({ where: { id: input.customerId, tenantId, deletedAt: null } });
+      if (!room || !customer) throw new NotFoundException('LEGACY_IMPORT_SCOPE_NOT_FOUND');
+      for (const attachment of normalized.attachments) {
+        const path = attachment.replace(/^document-storage:\/\//, '');
+        const owned = await tx.documentVersion.findFirst({ where: {
+          filePath: { in: [path, `document-storage://${path}`] },
+          document: { tenantId, deletedAt: null },
+        }, select: { id: true } });
+        if (!owned) throw new BadRequestException('LEGACY_IMPORT_ATTACHMENT_NOT_OWNED');
+      }
+      if (customer.roomId && customer.roomId !== room.id) throw new ConflictException('LEGACY_IMPORT_CUSTOMER_ALREADY_BOUND');
+      const occupied = await tx.occupancy.findFirst({ where: { tenantId, customerId: customer.id, leftAt: null } });
+      const pending = await tx.contract.findFirst({ where: { tenantId, customerId: customer.id, deletedAt: null,
+        status: { in: [ContractStatus.DRAFT, ContractStatus.PENDING_APPROVAL, ContractStatus.APPROVED, ContractStatus.ACTIVE, ContractStatus.EXPIRING] } } });
+      const customerCycle = await tx.rentalCycle.findFirst({ where: { tenantId, customerId: customer.id,
+        status: { in: [RentalCycleStatus.PLANNED, RentalCycleStatus.RESERVED, RentalCycleStatus.ACTIVE] } } });
+      if (occupied || pending || customerCycle) throw new ConflictException('LEGACY_IMPORT_CUSTOMER_HAS_RENTAL');
+      if ((room.rentalType === 'WHOLE' && room.status !== RoomStatus.AVAILABLE) ||
+          ![RoomStatus.AVAILABLE, RoomStatus.OCCUPIED].includes(room.status)) {
+        throw new ConflictException('LEGACY_IMPORT_ROOM_UNAVAILABLE');
+      }
+      await this.assertTransferTargetCapacity(tx, tenantId, room);
+      const openCount = await tx.occupancy.count({ where: { tenantId, roomId: room.id, leftAt: null } });
+      const heldCount = await tx.roomHold.count({ where: { tenantId, roomId: room.id, status: 'ACTIVE', expiresAt: { gt: new Date() } } });
+      if (openCount + heldCount + normalized.memberCount > Math.max(1, Number(room.capacity || 1))) {
+        throw new ConflictException('LEGACY_IMPORT_CAPACITY_EXCEEDED');
+      }
+      if (room.rentalType === 'SHARED' && normalized.memberCount !== 1) {
+        throw new BadRequestException('LEGACY_IMPORT_SHARED_REQUIRES_ONE_OCCUPANT');
+      }
+      // A historical occupancy must never rewrite an immutable monthly roster.
+      const lockedSnapshot = await tx.billingSnapshot.findFirst({ where: { tenantId, roomId: room.id,
+        usagePeriod: { gte: input.startDate.slice(0, 7) } } });
+      if (lockedSnapshot) throw new ConflictException('LEGACY_IMPORT_LOCKED_PERIOD_REQUIRES_RECONCILIATION');
+      const now = new Date();
+      const missingDocuments = missingLegacyDocuments(customer, normalized.attachments);
+      const marker = { policyVersion: LEGACY_OPENING_POLICY, requestHash, idempotencyKey: key,
+        paidThrough: input.paidThrough, nextBillingDate: nextBillingDate.toISOString().slice(0, 10),
+        importedAt: now.toISOString(), approvedBy: userId, missingDocuments,
+        openingReceivable: 0, openingDeposit: input.depositAmount };
+      const cycle = await tx.rentalCycle.create({ data: { tenantId, customerId: customer.id, roomId: room.id,
+        status: RentalCycleStatus.ACTIVE, expectedMoveInAt: startDate, actualMoveInAt: startDate } });
+      const snapshot = this.asJson({ id: customer.id, fullName: customer.fullName, phone: customer.phone,
+        identityNo: customer.identityNo, idImages: customer.idImages, idImageProvenance: customer.idImageProvenance });
+      const contract = await tx.contract.create({ data: { tenantId, roomId: room.id, customerId: customer.id,
+        rentalCycleId: cycle.id, code: input.contractCode || `HD-CU-${createHash('sha256').update(`${tenantId}:${key}`).digest('hex').slice(0, 20)}`,
+        status: ContractStatus.ACTIVE, startDate, endDate, signedAt, firstPaymentDate: nextBillingDate,
+        monthlyRent: input.rentAmount, depositMoney: input.depositAmount, memberCount: normalized.memberCount,
+        attachments: normalized.attachments, activationIdempotencyKey: key, activatedAt: now,
+        customerSnapshot: snapshot, roomSnapshot: this.asJson(room),
+        termsSnapshot: this.asJson({ legacyImport: marker }),
+        moveInSnapshot: this.asJson({ policyVersion: LEGACY_OPENING_POLICY, capturedAt: now, actualMoveInAt: startDate }),
+      } });
+      if (input.depositAmount > 0) {
+        const deposit = await tx.deposit.create({ data: { tenantId, roomId: room.id, customerId: customer.id,
+          rentalCycleId: cycle.id, contractId: contract.id, code: `DC-CU-${contract.id}`, type: DepositType.SECURITY,
+          status: DepositStatus.CONVERTED_TO_CONTRACT, amount: input.depositAmount,
+          note: 'Reviewed opening balance; no new cash receipt' } });
+        const operation = await tx.depositOperation.create({ data: { tenantId, rentalCycleId: cycle.id,
+          sourceDepositId: deposit.id, contractId: contract.id, type: DepositOperationType.CREATE,
+          status: DepositOperationStatus.COMPLETED, idempotencyKey: `legacy:${key}`, requestHash, createdBy: userId,
+          completedAt: now, result: this.asJson({ depositId: deposit.id, sourceType: 'REVIEWED_OPENING_BALANCE' }) } });
+        await tx.depositLedgerEntry.create({ data: { tenantId, rentalCycleId: cycle.id, depositId: deposit.id,
+          contractId: contract.id, operationId: operation.id, type: DepositLedgerEntryType.CASH_IN,
+          amount: input.depositAmount, balanceEffect: input.depositAmount, idempotencyKey: `legacy:${key}`,
+          sourceType: 'REVIEWED_OPENING_BALANCE', sourceId: contract.id, createdBy: userId,
+          metadata: this.asJson({ importedAt: now, cashflow: false, paidThrough: input.paidThrough }) } });
+      }
+      await this.syncContractHistory(contract, tx);
+      await tx.room.update({ where: { id: room.id, tenantId }, data: { status: RoomStatus.OCCUPIED } });
+      await tx.auditLog.create({ data: { tenantId, userId, action: 'CREATE', entity: 'Contract',
+        entityId: contract.id, module: 'LegacyRentalImport', after: this.asJson({ contract, openingBalance: marker }) } });
+      return { contract, replayed: false, paidThrough: input.paidThrough,
+        nextBillingDate: marker.nextBillingDate, missingDocuments };
+    });
   }
 
   /**

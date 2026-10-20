@@ -56,6 +56,33 @@ describe("MonthlySettlementService", () => {
     expect(bounds.end.toISOString()).toBe("2026-09-30T16:59:59.999Z");
   });
 
+  it('shows imported coverage as paid and skips monthly issuance and notifications until the next month', async () => {
+    const rooms = await prisma.room.findMany();
+    rooms[0].contracts[0].termsSnapshot = { legacyImport: {
+      policyVersion: 'LEGACY_OPENING_V1', paidThrough: '2026-10-31',
+    } };
+    prisma.room.findMany.mockResolvedValue(rooms);
+    prisma.contract.findMany.mockResolvedValue([{ id: 'contract-1' }]);
+    const covered = await service.getOverview('tenant-1', { period: '2026-10' });
+    expect(covered.items[0]).toMatchObject({ paymentStatus: 'PAID', openingBalanceCovered: true });
+    expect(covered.stats.totalPaidAmount).toBe(0);
+    expect(covered.stats.totalAmount).toBe(0);
+    expect(covered.stats.collectionRate).toBe(0);
+    const close = await service.closeMonth('tenant-1', 'user-1', { period: '2026-10' });
+    expect(prisma.invoice.create).not.toHaveBeenCalled();
+    expect(close).toBeDefined();
+    const sent = await service.sendNotifications('tenant-1', 'user-1', { period: '2026-10' });
+    expect(sent.sentCount).toBe(0);
+    const next = await service.getOverview('tenant-1', { period: '2026-11' });
+    expect(next.items[0].openingBalanceCovered).toBe(false);
+    expect(next.items[0]).toMatchObject({ openingUsageCovered: true, electricityAmount: 0, waterAmount: 0, serviceAmount: 0 });
+    expect(next.items[0].roomPrice).toBe(3500000);
+    await service.closeMonth('tenant-1', 'user-1', { period: '2026-11' });
+    const createdItems = prisma.invoice.create.mock.calls[0][0].data.items.create;
+    expect(createdItems).toHaveLength(1);
+    expect(createdItems[0].type).toBe('RENT');
+  });
+
   beforeEach(() => {
     storedBillingSnapshot = null;
     prisma = {
@@ -67,6 +94,7 @@ describe("MonthlySettlementService", () => {
         findFirst: vi.fn().mockResolvedValue({
           id: "contract-1", roomId: "room-1", rentalCycleId: null,
         }),
+        findMany: vi.fn().mockResolvedValue([]),
       },
       appSetting: {
         findUnique: vi.fn().mockResolvedValue(null),
@@ -922,6 +950,33 @@ describe("MonthlySettlementService", () => {
       ).rejects.toThrow("MONTHLY_INVOICE_CONTRACT_SCOPE_MISMATCH");
 
       expect(prisma.invoice.create).not.toHaveBeenCalled();
+    });
+
+    it("retries rather than freezing an invoice when a legacy import commits after overview projection", async () => {
+      // getOverview observed no legacy contract; the transactional re-read sees
+      // one after it takes the same room/usage-period advisory lock.
+      prisma.contract.findMany.mockResolvedValue([{ id: "legacy-imported-after-projection" }]);
+
+      await expect(
+        service.closeMonth("tenant-1", "user-1", {
+          period: "2026-09",
+          autoSend: false,
+        }),
+      ).rejects.toThrow("MONTHLY_ROSTER_CHANGED_RETRY");
+
+      expect(prisma.contract.findMany).toHaveBeenCalledWith({
+        where: {
+          tenantId: "tenant-1",
+          roomId: "room-1",
+          termsSnapshot: {
+            path: ["legacyImport", "policyVersion"],
+            equals: "LEGACY_OPENING_V1",
+          },
+        },
+        select: { id: true },
+      });
+      expect(prisma.invoice.create).not.toHaveBeenCalled();
+      expect(prisma.billingSnapshot.createMany).not.toHaveBeenCalled();
     });
 
     it("stores monthly aggregates with null register endpoints and canonical provenance", async () => {

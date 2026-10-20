@@ -79,6 +79,7 @@ function createService(options: { rooms?: any[]; snapshots?: any[]; invoices?: a
       findFirst: vi.fn().mockResolvedValue({
         id: "contract-lock", roomId: "room-1", rentalCycleId: null,
       }),
+      findMany: vi.fn().mockResolvedValue([]),
     },
     building: { findMany: vi.fn().mockResolvedValue([]) },
     room: { findMany: vi.fn().mockResolvedValue(options.rooms || []) },

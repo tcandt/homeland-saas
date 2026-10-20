@@ -20,6 +20,7 @@ import { RequirePermissions } from "../shared/decorators/require-permissions.dec
 import { CurrentUser } from "../shared/decorators/current-user.decorator";
 import {
   CreateContractSchema,
+  ImportExistingContractSchema,
   CreateBookingHoldSchema,
   UpdateContractSchema,
   PaginationSchema,
@@ -179,6 +180,20 @@ export class ContractsController {
       CreateBookingHoldSchema.parse(body),
       userId,
       tenantId,
+    );
+  }
+
+  @Post("import-existing")
+  @RequirePermissions("contract.create", "contract.approve", "contract.activate", "deposit.create", "deposit.collect")
+  @ApiOperation({ summary: "Import an existing rental with reviewed opening balances" })
+  importExisting(
+    @Body() body: any,
+    @CurrentUser("id") userId: string,
+    @CurrentUser("tenantId") tenantId: string,
+    @Headers("idempotency-key") idempotencyKey?: string,
+  ) {
+    return this.contractsService.importExisting(
+      ImportExistingContractSchema.parse(body), userId, tenantId, idempotencyKey,
     );
   }
 

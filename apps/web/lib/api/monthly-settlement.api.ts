@@ -99,6 +99,7 @@ export interface RoomSettlementItem {
   notificationSentAt: string | null;
   notificationError: string | null;
   paymentStatus: string;
+  openingBalanceCovered?: boolean;
   paidAmount: number;
 }
 

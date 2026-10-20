@@ -30,6 +30,61 @@ function callsIn(name: string) {
   return calls;
 }
 
+function legacyImportBranch() {
+  let branch: ts.IfStatement | undefined;
+  const visit = (node: ts.Node) => {
+    if (ts.isIfStatement(node) && node.expression.getText(source) === 'rentalIntentMode === "LEGACY"' && node.thenStatement.getText(source).includes("contractsApi.importExisting(")) {
+      branch = node;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  expect(branch, "Missing legacy import branch").toBeDefined();
+  return branch!;
+}
+
+async function finishLegacyImport({ waitForZalo = false, currentContext = true }: { waitForZalo?: boolean; currentContext?: boolean } = {}) {
+  const importExisting = vi.fn().mockResolvedValue({
+    contract: { id: "legacy-contract-uat", code: "HD-CU-101-uat", status: "ACTIVE" },
+    missingDocuments: ["CCCD_FRONT", "CCCD_BACK", "CONTRACT_FILE"],
+    nextBillingDate: "2026-11-01",
+  });
+  const setRoomData = vi.fn((recipe: (previous: any) => any) => recipe({ code: "P101", status: "vacant" }));
+  const closeTenantModal = vi.fn();
+  const beginZaloWaitingIfNeeded = vi.fn(() => waitForZalo);
+  const showToast = vi.fn();
+  const dependencies = {
+    rentalIntentMode: "LEGACY",
+    contractDraft: { ngayBatDau: "2026-01-01", ngayKetThuc: "2027-10-15", ngayKyhopdong: "", tienThue: "3.000.000 đ", tienCoc: "6.000.000 đ" },
+    legacyPaidThrough: "2026-10-31",
+    normalizeStrictYmdDate: (value: string) => value,
+    getEndOfMonthYmd: () => "2026-10-31",
+    getLocalYMD: () => "2026-10-20",
+    customerId: "customer-uat",
+    roomContext: { roomId: "room-uat" },
+    roomData: { code: "P101" },
+    expectedGeneration: 7,
+    legacyAttachments: [],
+    contractsApi: { importExisting },
+    tenantSelectionContext: { current: currentContext ? { generation: 7, roomId: "room-uat" } : { generation: 8, roomId: "other-room" } },
+    setLegacyMissingDocuments: vi.fn(),
+    queryClient: { invalidateQueries: vi.fn().mockResolvedValue(undefined) },
+    setRoomData,
+    savedTenantInfo: { name: "Old tenant" },
+    remainingContractDays: vi.fn(() => 360),
+    setActiveTab: vi.fn(),
+    formatYmdForVietnamDisplay: (value: string) => value,
+    showToast,
+    beginZaloWaitingIfNeeded,
+    closeTenantModal,
+  };
+  const body = ts.transpileModule(legacyImportBranch().getText(source), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None },
+  }).outputText;
+  await new Function("deps", `const { ${Object.keys(dependencies).join(",")} } = deps; return (async () => { ${body} })();`)(dependencies);
+  return { ...dependencies, importExisting };
+}
+
 describe("Rental draft lifecycle", () => {
   // Run the production booking branch with controlled API/UI dependencies.
   // In particular, a QR failure happens AFTER the booking was persisted.
@@ -84,6 +139,55 @@ describe("Rental draft lifecycle", () => {
   it("preserves the Zalo linking step only when it is actually opened", async () => {
     const result = await finishBooking({ id: "qr-uat" }, true);
     expect(result.closeTenantModal).not.toHaveBeenCalled();
+  });
+
+  it("imports a paid legacy tenancy once without creating an entry invoice or QR", async () => {
+    const result = await finishLegacyImport();
+    expect(result.importExisting).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      idempotencyKey: "room-flow:legacy:room-uat:customer-uat:7",
+      customerId: "customer-uat", roomId: "room-uat", startDate: "2026-01-01", endDate: "2027-10-15",
+      signedAt: "2026-01-01", paidThrough: "2026-10-31", rentAmount: 3000000, depositAmount: 6000000,
+      attachments: [],
+    }));
+    expect(result.setLegacyMissingDocuments).toHaveBeenCalledWith(["CCCD_FRONT", "CCCD_BACK", "CONTRACT_FILE"]);
+    expect(result.setRoomData).toHaveBeenCalledOnce();
+    expect(result.setActiveTab).toHaveBeenCalledWith("rental_flow");
+    expect(result.beginZaloWaitingIfNeeded).toHaveBeenCalledExactlyOnceWith("customer-uat");
+    expect(result.closeTenantModal).toHaveBeenCalledExactlyOnceWith(true);
+    expect(result.showToast).toHaveBeenCalledWith(expect.stringContaining("thu từ tháng sau"), "success");
+    const calls = (() => {
+      const found: string[] = [];
+      const visit = (node: ts.Node) => {
+        if (ts.isCallExpression(node)) found.push(node.expression.getText(source));
+        ts.forEachChild(node, visit);
+      };
+      visit(legacyImportBranch());
+      return found;
+    })();
+    expect(calls).toContain("contractsApi.importExisting");
+    expect(calls).not.toContain("createInitialInvoiceForContract");
+    expect(calls).not.toContain("paymentsApi.sendInvoiceToZalo");
+  });
+
+  it("keeps missing-document warnings nonblocking and opens Zalo completion only once", async () => {
+    const result = await finishLegacyImport({ waitForZalo: true });
+    expect(result.setLegacyMissingDocuments).toHaveBeenCalledOnce();
+    expect(result.beginZaloWaitingIfNeeded).toHaveBeenCalledExactlyOnceWith("customer-uat");
+    expect(result.closeTenantModal).not.toHaveBeenCalled();
+    expect(source.getText()).toContain("Hồ sơ còn thiếu, vẫn có thể đồng bộ");
+    expect(source.getText()).toContain("Thiếu CCCD mặt trước đã duyệt.");
+    expect(source.getText()).toContain("Thiếu CCCD mặt sau đã duyệt.");
+    expect(source.getText()).toContain("Chưa có tệp hợp đồng.");
+  });
+
+  it("does not transition the UI or request Zalo when the room context changed during import", async () => {
+    const result = await finishLegacyImport({ currentContext: false });
+    expect(result.importExisting).toHaveBeenCalledOnce();
+    expect(result.setLegacyMissingDocuments).not.toHaveBeenCalled();
+    expect(result.setRoomData).not.toHaveBeenCalled();
+    expect(result.beginZaloWaitingIfNeeded).not.toHaveBeenCalled();
+    expect(result.closeTenantModal).not.toHaveBeenCalled();
+    expect(result.showToast).toHaveBeenCalledWith(expect.stringContaining("Ngữ cảnh phòng đã thay đổi"), "info");
   });
 
   it("uses balance-based payment labels in the room invoice table", () => {

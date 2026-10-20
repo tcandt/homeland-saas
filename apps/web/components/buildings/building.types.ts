@@ -47,6 +47,8 @@ export interface Contract {
   signedAt?: string;
   purpose?: string;
   status?: string;
+  termsSnapshot?: { legacyImport?: { policyVersion: string; paidThrough: string; missingDocuments?: string[] } };
+  attachments?: string[];
 }
 
 export interface SharedTenant extends Tenant {

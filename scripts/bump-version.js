@@ -5,15 +5,20 @@ const path = require('path');
 const rootDir = path.resolve(__dirname, '..');
 
 // 1. Determine new version
-let newVersion = process.argv[2];
+let newVersion = process.argv[2] || 'patch';
 
 const rootPkgPath = path.join(rootDir, 'package.json');
 const rootPkg = JSON.parse(fs.readFileSync(rootPkgPath, 'utf8'));
+if (!/^\d+\.\d+\.\d+$/.test(rootPkg.version)) throw new Error('Current version must be a stable major.minor.patch version.');
+const lockPath = path.join(rootDir, 'package-lock.json');
+const lock = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+for (const key of ['', 'apps/api', 'apps/web']) {
+  if (!lock.packages?.[key]) throw new Error(`Missing lockfile package: ${key}`);
+}
 
-if (!newVersion) {
-  // If no argument passed, sync based on current root package.json version
+if (newVersion === 'sync') {
   newVersion = rootPkg.version;
-  console.log(`[Version Sync] No target version provided. Syncing from root package.json (${newVersion})...`);
+  console.log(`[Version Sync] Explicit metadata sync from root package.json (${newVersion})...`);
 } else if (newVersion === 'patch' || newVersion === 'minor' || newVersion === 'major') {
   const parts = rootPkg.version.split('.').map(Number);
   if (newVersion === 'patch') parts[2] = (parts[2] || 0) + 1;
@@ -26,6 +31,13 @@ if (!newVersion) {
 }
 
 const vTag = `v${newVersion}`;
+if (!/^\d+\.\d+\.\d+$/.test(newVersion)) throw new Error('Expected a stable major.minor.patch version.');
+if (process.argv[2] !== 'sync') {
+  const before = rootPkg.version.split('.').map(Number);
+  const after = newVersion.split('.').map(Number);
+  const comparison = after.reduce((result, value, index) => result || Math.sign(value - before[index]), 0);
+  if (comparison <= 0) throw new Error('A release version must increase; use sync only to repair metadata.');
+}
 console.log(`\x1b[34m[Version Sync] Setting version to ${newVersion} (${vTag})...\x1b[0m`);
 
 // 2. Update JSON files
@@ -44,6 +56,12 @@ for (const rel of jsonFiles) {
     console.log(`  ✓ Updated ${rel}`);
   }
 }
+
+lock.version = newVersion;
+for (const key of ['', 'apps/api', 'apps/web']) {
+  lock.packages[key].version = newVersion;
+}
+fs.writeFileSync(lockPath, JSON.stringify(lock, null, 2) + '\n', 'utf8');
 
 // 3. Update docker compose and env template files
 const textReplacements = [

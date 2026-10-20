@@ -55,6 +55,23 @@ export const CreateBookingHoldSchema = z.object({
 
 export const UpdateContractSchema = CreateContractSchema.partial();
 
+export const ImportExistingContractSchema = z.object({
+  idempotencyKey: z.string().trim().min(8).max(128),
+  customerId: z.string().trim().min(1),
+  roomId: z.string().trim().min(1),
+  contractCode: z.string().trim().min(1).max(200).optional(),
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  signedAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  paidThrough: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  rentAmount: z.number().finite().min(0).max(999999999999),
+  depositAmount: z.number().finite().min(0).max(999999999999),
+  memberCount: z.number().int().min(1).default(1),
+  attachments: z.array(z.string().trim().min(1).max(2048)).max(20).default([]),
+});
+
+export type ImportExistingContractInput = z.infer<typeof ImportExistingContractSchema>;
+
 /** A renewal is a new contract version, never an update to the source. */
 export const RenewContractSchema = z.object({
   idempotencyKey: z.string().min(8).max(128).optional(),

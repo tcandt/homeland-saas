@@ -15,6 +15,7 @@ import {
   PaginatedResult,
 } from "@homeland/shared";
 import { PrismaService } from "../prisma.service";
+import { isLegacyBillingCovered, legacyImportMarker } from "../contracts/legacy-rental-import";
 import { buildRoomContext } from "../shared/context/room-context";
 import { createHash } from "node:crypto";
 import { buildDepositBillingDocument } from "./deposit-billing-document";
@@ -940,7 +941,7 @@ export class InvoicesService extends BaseCrudService<Invoice> {
             roomId,
             deletedAt: null,
           },
-          select: { rentalCycleId: true },
+          select: { rentalCycleId: true, termsSnapshot: true },
         }),
         tx.customer.findFirst({
           where: { id: customerId, tenantId, deletedAt: null },
@@ -953,6 +954,23 @@ export class InvoicesService extends BaseCrudService<Invoice> {
       ]);
       if (!contract || !customer || !room) {
         throw new BadRequestException("INVOICE_CREATE_SCOPE_MISMATCH");
+      }
+      if (legacyImportMarker(contract)) {
+        const period = String((data as any).period || '');
+        if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period) ||
+            isLegacyBillingCovered(contract, period) || (data as any).billingKind === 'ENTRY') {
+          throw new ConflictException('LEGACY_IMPORT_PERIOD_ALREADY_PAID');
+        }
+        const items = (data as any).items?.create;
+        for (const item of Array.isArray(items) ? items : items ? [items] : []) {
+          const servicePeriod = item.servicePeriod === undefined ? period : String(item.servicePeriod);
+          const cutoff = String(legacyImportMarker(contract).paidThrough).slice(0, 7);
+          // The opening declaration covers every charge through the selected month.
+          if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(servicePeriod) ||
+              (Number(item.amount) > 0 && servicePeriod <= cutoff)) {
+            throw new ConflictException('LEGACY_IMPORT_SERVICE_PERIOD_ALREADY_PAID');
+          }
+        }
       }
 
       const expectedRentalCycleId = String(scope?.rentalCycleId || "").trim();

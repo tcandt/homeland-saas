@@ -136,7 +136,7 @@ export default function TenantSourcePickerModal({
       headerContent={flowIntentLabel ? (
         <TenantJourneyHeader
           currentStep={2}
-          intent={flowIntentLabel === "Cọc giữ phòng" ? "BOOKING" : "IMMEDIATE"}
+          intent={flowIntentLabel === "Cọc giữ phòng" ? "BOOKING" : flowIntentLabel === "Cập nhật khách hàng cũ" ? "LEGACY" : "IMMEDIATE"}
           onBack={view === "existing" && !selectingCustomerId
             ? () => setView("choose")
             : canNavigateBackToIntent ? onBackToIntent : undefined}

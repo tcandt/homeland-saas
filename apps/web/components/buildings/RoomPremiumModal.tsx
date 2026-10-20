@@ -80,6 +80,7 @@ import {
 } from "@/lib/mutations/contracts.mutations";
 import { useDeleteRoomMutation } from "@/lib/mutations/rooms.mutations";
 import { customersApi } from "@/lib/api/customers.api";
+import { ApiError } from "@/lib/api/client";
 import { roomsApi } from "@/lib/api/rooms.api";
 import { contractsApi } from "@/lib/api/contracts.api";
 import { depositsApi } from "@/lib/api/deposits.api";
@@ -99,8 +100,10 @@ import TenantSourcePickerModal, {
   type ExistingCustomerOption,
 } from "../tenants/TenantSourcePickerModal";
 import { TenantJourneyHeader } from "../tenants/TenantJourneyHeader";
+import { RefundProofUploader } from "../common/RefundProofUploader";
 import MoveOutOccupantModal from "../tenants/MoveOutOccupantModal";
 import { adaptRoom } from "@/lib/adapters/building.adapter";
+import { remainingContractDays } from "@/lib/rentals/contract-days";
 import {
   useRentalCycleFinanceSummaryQuery,
   useRoomFinanceSummaryQuery,
@@ -467,6 +470,12 @@ const getLocalYMD = (date: Date = new Date()) => {
   return `${get("year")}-${get("month")}-${get("day")}`;
 };
 
+const getEndOfMonthYmd = (ymd: string = getLocalYMD()) => {
+  const normalized = normalizeStrictYmdDate(ymd) || getLocalYMD();
+  const [year, month] = normalized.split("-").map(Number);
+  return `${year}-${String(month).padStart(2, "0")}-${String(new Date(Date.UTC(year, month, 0)).getUTCDate()).padStart(2, "0")}`;
+};
+
 const vietnamDateToIso = (ymd: string, endOfDay = false) => {
   const normalized = normalizeStrictYmdDate(ymd);
   if (!normalized) return new Date().toISOString();
@@ -527,7 +536,7 @@ export default function RoomPremiumModal({
   const [isTenantSourceModalOpen, setIsTenantSourceModalOpen] = useState(false);
   const [isRentalIntentModalOpen, setIsRentalIntentModalOpen] = useState(false);
   const [isIntentContractFlow, setIsIntentContractFlow] = useState(false);
-  const [rentalIntentMode, setRentalIntentMode] = useState<"BOOKING" | "IMMEDIATE" | null>(null);
+  const [rentalIntentMode, setRentalIntentMode] = useState<"BOOKING" | "IMMEDIATE" | "LEGACY" | null>(null);
   const [rentalIntentContext, setRentalIntentContext] =
     useState<RentalIntentContext | null>(null);
 
@@ -715,6 +724,11 @@ export default function RoomPremiumModal({
   const [contractEndDate, setContractEndDate] = useState("");
   const [contractRent, setContractRent] = useState<number>(0);
   const [contractDeposit, setContractDeposit] = useState<number>(0);
+  const [legacyPaidThrough, setLegacyPaidThrough] = useState(getEndOfMonthYmd());
+  const [isLegacyUploading, setIsLegacyUploading] = useState(false);
+  const [legacyAttachments, setLegacyAttachments] = useState<string[]>([]);
+  const [legacyApprovedIdentitySides, setLegacyApprovedIdentitySides] = useState<Array<"front" | "back">>([]);
+  const [legacyMissingDocuments, setLegacyMissingDocuments] = useState<string[]>([]);
   const [selectedRentalCycleId, setSelectedRentalCycleId] = useState<
     string | null
   >(null);
@@ -1083,7 +1097,7 @@ export default function RoomPremiumModal({
     }
   };
 
-  const openTenantSourceForIntent = (mode: "BOOKING" | "IMMEDIATE") => {
+  const openTenantSourceForIntent = (mode: "BOOKING" | "IMMEDIATE" | "LEGACY") => {
     preserveNewTenantDraftOnBackRef.current = false;
     setRentalIntentMode(mode);
     setIsRentalIntentModalOpen(false);
@@ -1107,6 +1121,8 @@ export default function RoomPremiumModal({
     preserveNewTenantDraftOnBackRef.current = false;
     setTenantFieldErrors({});
     setDuplicateWarning(null);
+    setLegacyApprovedIdentitySides([]);
+    setLegacyMissingDocuments([]);
     setIsTenantSourceModalOpen(false);
     setIsTenantModalOpen(true);
   };
@@ -1213,6 +1229,12 @@ export default function RoomPremiumModal({
         zaloUserId: customer.zaloUserId || "",
         notes: customer.notes || "",
       });
+      setLegacyApprovedIdentitySides(
+        Array.from(new Set((Array.isArray(customer.idImageProvenance) ? customer.idImageProvenance : [])
+          .filter((entry: any) => entry?.status === "APPROVED" && (entry?.side === "front" || entry?.side === "back"))
+          .map((entry: any) => entry.side))) as Array<"front" | "back">,
+      );
+      setLegacyMissingDocuments([]);
       setTenantFieldErrors({});
       setDuplicateWarning(null);
       setTenantModalStep(1);
@@ -2467,6 +2489,77 @@ export default function RoomPremiumModal({
           generation: expectedGeneration,
         });
         setRentalIntentContext(intentContext);
+        if (rentalIntentMode === "LEGACY") {
+          const startDate = normalizeStrictYmdDate(contractDraft.ngayBatDau);
+          const endDate = normalizeStrictYmdDate(contractDraft.ngayKetThuc);
+          const signedAt = normalizeStrictYmdDate(contractDraft.ngayKyhopdong) || startDate;
+          const paidThrough = normalizeStrictYmdDate(legacyPaidThrough);
+          const currentMonthEnd = getEndOfMonthYmd();
+          const rentAmount = Number(contractDraft.tienThue.replace(/\D/g, ""));
+          const depositAmount = Number(contractDraft.tienCoc.replace(/\D/g, ""));
+          if (!startDate || !endDate || !paidThrough || !signedAt || startDate >= getLocalYMD() || endDate <= getLocalYMD()) {
+            showToast("Khách cũ cần có ngày bắt đầu trong quá khứ và ngày kết thúc trong tương lai.", "error");
+            return;
+          }
+          if (paidThrough < currentMonthEnd || paidThrough.slice(0, 7) > endDate.slice(0, 7)) {
+            showToast("Mốc đã thanh toán phải là cuối tháng hiện tại hoặc tháng sau, và không sau tháng kết thúc hợp đồng.", "error");
+            return;
+          }
+          if (!Number.isFinite(rentAmount) || rentAmount <= 0 || !Number.isFinite(depositAmount) || depositAmount < 0) {
+            showToast("Vui lòng nhập giá thuê và tiền cọc thực tế đang giữ.", "error");
+            return;
+          }
+          const commandKey = `room-flow:legacy:${roomContext.roomId}:${customerId}:${expectedGeneration}`;
+          const importedResponse: any = await contractsApi.importExisting({
+            idempotencyKey: commandKey,
+            customerId,
+            roomId: roomContext.roomId,
+            contractCode: `HD-CU-${roomData?.code || roomData?.name || roomContext.roomId}-${customerId.slice(-6)}`,
+            startDate,
+            endDate,
+            signedAt,
+            rentAmount,
+            depositAmount,
+            memberCount: 1,
+            attachments: legacyAttachments,
+            paidThrough,
+          });
+          const imported = importedResponse?.data || importedResponse;
+          if (
+            tenantSelectionContext.current.generation !== expectedGeneration ||
+            tenantSelectionContext.current.roomId !== roomContext.roomId
+          ) {
+            showToast("Đã đồng bộ hợp đồng cũ. Ngữ cảnh phòng đã thay đổi, vui lòng mở lại phòng để xem.", "info");
+            return;
+          }
+          const importedContract = imported?.contract?.data || imported?.contract || {};
+          const remainingDays = remainingContractDays(endDate);
+          setLegacyMissingDocuments(Array.isArray(imported?.missingDocuments) ? imported.missingDocuments : []);
+          await Promise.all([
+            queryClient.invalidateQueries({ queryKey: ["rooms"] }),
+            queryClient.invalidateQueries({ queryKey: ["buildings"] }),
+            queryClient.invalidateQueries({ queryKey: ["customers"] }),
+            queryClient.invalidateQueries({ queryKey: ["contracts"] }),
+            queryClient.invalidateQueries({ queryKey: ["deposits"] }),
+            queryClient.invalidateQueries({ queryKey: ["invoices"] }),
+            queryClient.invalidateQueries({ queryKey: ["room-finance-summary", roomContext.roomId] }),
+            queryClient.invalidateQueries({ queryKey: ["rental-cycle-finance-summary"] }),
+            queryClient.invalidateQueries({ queryKey: ["finance"] }),
+            queryClient.invalidateQueries({ queryKey: ["monthly-settlement"] }),
+            queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
+            queryClient.invalidateQueries({ queryKey: ["reports"] }),
+          ]);
+          setRoomData((previous) => previous ? {
+            ...previous,
+            status: "occupied",
+            tenant: { ...savedTenantInfo, id: customerId, idImages: [], tempResidence: false, remainingDays, startDate, endDate, deposit: depositAmount, rentPrice: rentAmount },
+            contract: { id: importedContract.id || "", code: importedContract.code || "", startDate, endDate, signedAt, deposit: depositAmount, rentPrice: rentAmount, status: importedContract.status || "ACTIVE", termsSnapshot: { legacyImport: { policyVersion: "LEGACY_OPENING_V1", paidThrough, nextBillingDate: imported?.nextBillingDate, missingDocuments: imported?.missingDocuments || [] } } },
+          } : previous);
+          setActiveTab("rental_flow");
+          showToast(`Đã đồng bộ khách cũ. Đã trả hết đến ${formatYmdForVietnamDisplay(paidThrough)}; hệ thống sẽ thu từ tháng sau.`, "success");
+          if (!beginZaloWaitingIfNeeded(customerId)) closeTenantModal(true);
+          return;
+        }
         if (rentalIntentMode === "BOOKING") {
           const bookingResult = await createBookingHoldFlow(customerId, {
             ...roomContext,
@@ -2916,7 +3009,9 @@ export default function RoomPremiumModal({
       showToast(
         error instanceof Error && error.message.startsWith("BOOKING_INTENT_")
           ? "Không thể tiếp tục lệnh cọc giữ phòng an toàn. Vui lòng giữ nguyên thông tin để thử lại."
-          : "Không thể hoàn tất thao tác. Vui lòng thử lại.",
+          : error instanceof ApiError
+              ? error.message
+              : "Không thể hoàn tất thao tác. Vui lòng thử lại.",
         "error",
       );
     } finally {
@@ -3063,7 +3158,7 @@ export default function RoomPremiumModal({
     setDuplicateWarning(null);
 
     if (isContractRepresentative && tenantModalStep === 1) {
-      if (rentalIntentMode === "BOOKING" && !contractDraft.tienCoc.trim()) {
+      if ((rentalIntentMode === "BOOKING" || rentalIntentMode === "LEGACY") && !contractDraft.tienCoc.trim()) {
         setContractDraft((previous) => ({
           ...previous,
           tienCoc: previous.tienCoc || "",
@@ -3073,8 +3168,14 @@ export default function RoomPremiumModal({
           tienCocHopDong:
             previous.tienCocHopDong ||
             (roomData?.monthlyPrice ? (Number(roomData.monthlyPrice) * 2).toLocaleString("vi-VN") : ""),
-          ngayBatDau: previous.ngayBatDau || getLocalYMD(),
+          ngayBatDau: previous.ngayBatDau || (rentalIntentMode === "LEGACY" ? "" : getLocalYMD()),
+          ngayKyhopdong: previous.ngayKyhopdong || (rentalIntentMode === "LEGACY" ? "" : getLocalYMD()),
         }));
+        if (rentalIntentMode === "LEGACY") {
+          setLegacyPaidThrough(getEndOfMonthYmd());
+          setLegacyAttachments([]);
+          setLegacyMissingDocuments([]);
+        }
       }
       setTenantModalStep(2);
       return;
@@ -3094,6 +3195,19 @@ export default function RoomPremiumModal({
         }
         if (!isValidYmdDate(contractDraft.ngayBatDau)) {
           showToast("Ngày dự kiến vào ở không hợp lệ. Vui lòng nhập đúng dạng DD/MM/YYYY.", "error");
+          return;
+        }
+      }
+      if (rentalIntentMode === "LEGACY") {
+        const startDate = normalizeStrictYmdDate(contractDraft.ngayBatDau);
+        const endDate = normalizeStrictYmdDate(contractDraft.ngayKetThuc);
+        const paidThrough = normalizeStrictYmdDate(legacyPaidThrough);
+        if (!startDate || !endDate || startDate >= getLocalYMD() || endDate <= getLocalYMD()) {
+          showToast("Nhập ngày bắt đầu thực tế trong quá khứ và ngày kết thúc trong tương lai.", "error");
+          return;
+        }
+        if (!paidThrough || paidThrough < getEndOfMonthYmd() || paidThrough.slice(0, 7) > endDate.slice(0, 7)) {
+          showToast("Chọn tháng đã thanh toán đầy đủ, không sau tháng kết thúc hợp đồng.", "error");
           return;
         }
       }
@@ -3209,6 +3323,22 @@ export default function RoomPremiumModal({
   const occupantsCount = getOccupantsList().length;
   const visibleOccupantsCount =
     occupantsCount > 0 ? occupantsCount : financeRoomIdentity ? 1 : 0;
+  const legacyContracts = roomContractsList.filter((contract: any) =>
+    contract.termsSnapshot?.legacyImport?.policyVersion === "LEGACY_OPENING_V1" &&
+    ["ACTIVE", "EXPIRING"].includes(String(contract.status).toUpperCase()));
+  const legacyImport = legacyContracts.length > 0 || roomData.contract?.termsSnapshot?.legacyImport;
+  const legacyRoomMissingDocuments: string[] = legacyContracts.length > 0
+    ? Array.from(new Set(legacyContracts.flatMap((contract: any) => {
+        const customer = contract.customer;
+        const approved = (Array.isArray(customer?.idImageProvenance) ? customer.idImageProvenance : [])
+          .filter((image: any) => image?.status === "APPROVED" && image.approvedBy && customer?.idImages?.includes(image.url));
+        return [
+          ...(!approved.some((image: any) => image.side === "front") ? ["CCCD_FRONT"] : []),
+          ...(!approved.some((image: any) => image.side === "back") ? ["CCCD_BACK"] : []),
+          ...(!contract.attachments?.length ? ["CONTRACT_FILE"] : []),
+        ];
+      })))
+    : roomData.contract?.termsSnapshot?.legacyImport?.missingDocuments || [];
 
   const tabs = [
     {
@@ -3545,6 +3675,16 @@ export default function RoomPremiumModal({
 
                     return (
                       <>
+                        {legacyImport && legacyRoomMissingDocuments.length > 0 ? (
+                          <div className="mb-1 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-3 text-xs leading-5 text-amber-900 dark:text-amber-100">
+                            <span className="font-black">Hồ sơ khách cũ còn thiếu: </span>
+                            {legacyRoomMissingDocuments.map((code) => ({
+                              CCCD_FRONT: "CCCD mặt trước",
+                              CCCD_BACK: "CCCD mặt sau",
+                              CONTRACT_FILE: "tệp hợp đồng",
+                            }[code] || code)).join(", ")}. Có thể bổ sung trong hồ sơ hợp đồng.
+                          </div>
+                        ) : null}
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <div className="flex items-center gap-2">
                             <h4 className="font-black text-[14px] uppercase text-text tracking-wide">
@@ -5576,7 +5716,9 @@ export default function RoomPremiumModal({
               ? "Cọc giữ phòng"
               : isContractRepresentative && rentalIntentMode === "IMMEDIATE"
                 ? "Thuê ở ngay"
-                : undefined
+                : isContractRepresentative && rentalIntentMode === "LEGACY"
+                  ? "Cập nhật khách hàng cũ"
+                  : undefined
           }
           onBackToIntent={isContractRepresentative && rentalIntentMode ? handleBackToRentalIntent : undefined}
           onClose={() => {
@@ -5681,7 +5823,7 @@ export default function RoomPremiumModal({
                 </Button>
                 <Button
                   onClick={handleSaveTenant}
-                  disabled={isExporting || isCheckingDuplicate}
+                  disabled={isExporting || isCheckingDuplicate || isLegacyUploading}
                 >
                   {isExporting || isCheckingDuplicate ? (
                     <Loader2 className="animate-spin mr-2" size={16} />
@@ -5689,9 +5831,13 @@ export default function RoomPremiumModal({
                   {tenantModalStep === 1 && isContractRepresentative
                     ? rentalIntentMode === "BOOKING"
                       ? "Tiếp tục nhập cọc"
+                      : rentalIntentMode === "LEGACY"
+                        ? "Tiếp tục đồng bộ"
                       : "Tiếp tục"
                     : rentalIntentMode === "BOOKING"
                       ? "Lưu cọc giữ phòng"
+                      : rentalIntentMode === "LEGACY"
+                        ? "Đồng bộ khách cũ"
                       : "Lưu khách thuê"}
                 </Button>
               </>
@@ -6276,7 +6422,71 @@ export default function RoomPremiumModal({
           )}
 
           {!zaloWaiting && tenantModalStep === 2 && (
-            rentalIntentMode === "BOOKING" ? (
+            rentalIntentMode === "LEGACY" ? (
+              <div className="flex flex-col gap-4 animate-in fade-in slide-in-from-right-4">
+                <div className="rounded-2xl border border-sky-500/20 bg-sky-500/10 p-4">
+                  <div className="text-[11px] font-black uppercase tracking-wide text-sky-700 dark:text-sky-300">
+                    Cập nhật khách hàng cũ
+                  </div>
+                  <div className="mt-1 text-sm font-bold text-text">
+                    Đồng bộ hợp đồng đang ở sang Homeland. Số dư đầu kỳ chỉ ghi nhận khách đã trả hết tháng đã chọn; hệ thống thu từ tháng kế tiếp.
+                  </div>
+                  <div className="mt-2 text-xs text-muted">
+                    Khách: <b>{tenantDraft.name || "Khách thuê"}</b> • Phòng: <b>{getRoomDisplayName(roomData)}</b>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[11px] font-black text-muted uppercase">Giá thuê (VNĐ/tháng) *</label>
+                    <Input type="text" placeholder="Nhập giá thuê tháng" value={contractDraft.tienThue} onChange={(event) => {
+                      const digits = event.target.value.replace(/\D/g, "");
+                      setContractDraft((previous) => ({ ...previous, tienThue: digits ? Number(digits).toLocaleString("en-US") : "" }));
+                    }} />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[11px] font-black text-muted uppercase">Tiền cọc đang giữ (VNĐ) *</label>
+                    <Input type="text" placeholder="0 nếu không giữ cọc" value={contractDraft.tienCoc} onChange={(event) => {
+                      const digits = event.target.value.replace(/\D/g, "");
+                      setContractDraft((previous) => ({ ...previous, tienCoc: digits ? Number(digits).toLocaleString("en-US") : "" }));
+                    }} />
+                    <span className="text-[10px] text-muted">Đây là số cọc thực tế đang giữ, không phát sinh khoản thu mới.</span>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[11px] font-black text-muted uppercase">Ngày bắt đầu thực tế *</label>
+                    <DateMaskInput value={contractDraft.ngayBatDau} onChange={(value) => setContractDraft((previous) => ({ ...previous, ngayBatDau: value, ngayKyhopdong: previous.ngayKyhopdong || value }))} />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[11px] font-black text-muted uppercase">Ngày kết thúc *</label>
+                    <DateMaskInput value={contractDraft.ngayKetThuc} onChange={(value) => setContractDraft((previous) => ({ ...previous, ngayKetThuc: value }))} />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[11px] font-black text-muted uppercase">Ngày ký hợp đồng</label>
+                    <DateMaskInput value={contractDraft.ngayKyhopdong} onChange={(value) => setContractDraft((previous) => ({ ...previous, ngayKyhopdong: value }))} />
+                    <span className="text-[10px] text-muted">Để trống sẽ dùng ngày bắt đầu thực tế.</span>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[11px] font-black text-muted uppercase">Đã thanh toán hết tháng *</label>
+                    <Input type="month" value={legacyPaidThrough.slice(0, 7)} min={getEndOfMonthYmd().slice(0, 7)} onChange={(event) => setLegacyPaidThrough(getEndOfMonthYmd(`${event.target.value}-01`))} />
+                    <span className="text-[10px] text-muted">Đã trả hết đến {formatYmdForVietnamDisplay(legacyPaidThrough)}. Kỳ tiếp theo sẽ thu từ tháng sau.</span>
+                  </div>
+                </div>
+
+                <RefundProofUploader value={legacyAttachments} onChange={setLegacyAttachments} folder="contracts" onUploadingChange={setIsLegacyUploading} />
+
+                {!legacyApprovedIdentitySides.includes("front") || !legacyApprovedIdentitySides.includes("back") || legacyAttachments.length === 0 || legacyMissingDocuments.length > 0 ? (
+                  <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-3 text-xs leading-5 text-amber-900 dark:text-amber-100">
+                    <div className="font-black">Hồ sơ còn thiếu, vẫn có thể đồng bộ</div>
+                    <ul className="mt-1 list-disc pl-4">
+                      {!legacyApprovedIdentitySides.includes("front") ? <li>Thiếu CCCD mặt trước đã duyệt.</li> : null}
+                      {!legacyApprovedIdentitySides.includes("back") ? <li>Thiếu CCCD mặt sau đã duyệt.</li> : null}
+                      {legacyAttachments.length === 0 ? <li>Chưa có tệp hợp đồng.</li> : null}
+                      {legacyMissingDocuments.map((document) => <li key={document}>{document}</li>)}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
+            ) : rentalIntentMode === "BOOKING" ? (
               <div className="flex flex-col gap-4 animate-in fade-in slide-in-from-right-4">
                 <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4">
                   <div className="text-[11px] font-black uppercase tracking-wide text-amber-700 dark:text-amber-300">
@@ -6662,7 +6872,7 @@ export default function RoomPremiumModal({
             Chọn một hình thức để tiếp tục. Các bước sau sẽ hướng dẫn chọn khách, nhập hồ sơ và thiết lập khoản thanh toán.
           </p>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           <button
             type="button"
             className="group relative flex min-h-[190px] flex-col rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 via-orange-50/60 to-white p-5 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-amber-400 hover:shadow-lg hover:shadow-amber-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 motion-reduce:transform-none dark:border-amber-500/25 dark:from-amber-950/30 dark:via-orange-950/10 dark:to-card"
@@ -6677,6 +6887,22 @@ export default function RoomPremiumModal({
             </span>
             <span className="mt-auto inline-flex items-center gap-1.5 pt-5 text-xs font-black text-amber-700 dark:text-amber-300">
               Bắt đầu giữ phòng <ArrowRight size={15} className="transition-transform group-hover:translate-x-1 motion-reduce:transform-none" aria-hidden="true" />
+            </span>
+          </button>
+          <button
+            type="button"
+            className="group relative flex min-h-[190px] flex-col rounded-2xl border border-sky-200 bg-gradient-to-br from-sky-50 via-cyan-50/50 to-white p-5 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-sky-400 hover:shadow-lg hover:shadow-sky-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 motion-reduce:transform-none dark:border-sky-500/25 dark:from-sky-950/30 dark:via-cyan-950/10 dark:to-card"
+            onClick={() => openTenantSourceForIntent("LEGACY")}
+          >
+            <span className="mb-4 flex h-11 w-11 items-center justify-center rounded-2xl bg-sky-100 text-sky-700 ring-1 ring-sky-200 dark:bg-sky-500/15 dark:text-sky-300 dark:ring-sky-500/20">
+              <RefreshCw size={21} aria-hidden="true" />
+            </span>
+            <span className="block text-base font-black text-sky-950 dark:text-sky-100">Cập nhật khách hàng cũ</span>
+            <span className="mt-1.5 block text-sm leading-5 text-sky-900/75 dark:text-sky-100/70">
+              Đồng bộ hợp đồng đang ở, số cọc thực tế và tháng khách đã thanh toán.
+            </span>
+            <span className="mt-auto inline-flex items-center gap-1.5 pt-5 text-xs font-black text-sky-700 dark:text-sky-300">
+              Đồng bộ sổ sách <ArrowRight size={15} className="transition-transform group-hover:translate-x-1 motion-reduce:transform-none" aria-hidden="true" />
             </span>
           </button>
           <button
@@ -6698,7 +6924,7 @@ export default function RoomPremiumModal({
         </div>
         <p className="mt-4 flex items-center gap-2 rounded-xl border border-slate-200/80 bg-slate-50/70 px-3.5 py-2.5 text-xs leading-5 text-muted dark:border-white/10 dark:bg-white/[0.04]">
           <CheckCircle2 size={15} className="shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
-          Sau khi lưu, hệ thống sẽ tạo chứng từ và mã QR phù hợp với hình thức đã chọn.
+          Với khách hàng cũ, hệ thống ghi nhận số dư đầu kỳ và bắt đầu thu từ tháng sau, không tạo hóa đơn hoặc QR đầu kỳ.
         </p>
       </Modal>
 

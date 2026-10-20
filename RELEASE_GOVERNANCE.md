@@ -1,5 +1,18 @@
 # Release Governance & Workflow
 
+## NAS Application Versioning
+
+Every user-facing NAS application update must use a new version. The default
+increment is one patch (`3.2.0` -> `3.2.1` -> `3.2.2`); never redeploy changed
+application code under the previous version. Run `npm run version:bump` before
+the release commit. The command updates root/API/Web manifests, lockfile metadata
+and deployment defaults together. `sync` is for metadata repair only, not a release.
+Build both images with that exact version, record the source SHA and release notes,
+verify the displayed Web version and API build identity before handoff, and tag the
+accepted release. CI success alone does not mean NAS activation has occurred.
+
+Operational evidence-only commits do not create a new application release.
+
 > **STATUS:** DOCUMENTED / PENDING MANUAL CONFIGURATION IN GITHUB SETTINGS
 > 
 > *The workflows described below depend on Branch Protection and Environment policies that must be manually configured in GitHub.*

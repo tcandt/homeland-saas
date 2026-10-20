@@ -413,6 +413,50 @@ describe("InvoicesService", () => {
       prisma.tx.invoice.create.mockResolvedValue({ id: "invoice-1" });
     };
 
+    it('blocks a new invoice in an imported paid period but allows the next month', async () => {
+      permitExactScope();
+      prisma.tx.contract.findFirst.mockResolvedValue({ rentalCycleId: 'cycle-1',
+        termsSnapshot: { legacyImport: { policyVersion: 'LEGACY_OPENING_V1', paidThrough: '2026-10-31' } } });
+      await expect(service.create({ ...data(), period: '2026-10' } as any, 'user-1', 'Invoices', scope))
+        .rejects.toThrow('LEGACY_IMPORT_PERIOD_ALREADY_PAID');
+      expect(prisma.tx.invoice.create).not.toHaveBeenCalled();
+      await service.create({ ...data(), period: '2026-11' } as any, 'user-1', 'Invoices', scope);
+      expect(prisma.tx.invoice.create).toHaveBeenCalledOnce();
+    });
+
+    it.each(['RENT', 'UTILITY_ELECTRICITY', 'UTILITY_WATER', 'SERVICE', 'PENALTY', 'OTHER'])(
+      'blocks a positive %s charge whose service period was included in the opening balance',
+      async (type) => {
+        permitExactScope();
+        prisma.tx.contract.findFirst.mockResolvedValue({ rentalCycleId: 'cycle-1',
+          termsSnapshot: { legacyImport: { policyVersion: 'LEGACY_OPENING_V1', paidThrough: '2026-10-31' } } });
+        const input = {
+          ...data(),
+          period: '2026-11',
+          items: { create: [{ type, amount: 50, servicePeriod: '2026-10' }] },
+        };
+
+        await expect(service.create(input as any, 'user-1', 'Invoices', scope))
+          .rejects.toThrow('LEGACY_IMPORT_SERVICE_PERIOD_ALREADY_PAID');
+        expect(prisma.tx.invoice.create).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(['', '2026-13', 'October 2026'])(
+      'blocks malformed service period %s for a legacy opening contract',
+      async (servicePeriod) => {
+        permitExactScope();
+        prisma.tx.contract.findFirst.mockResolvedValue({ rentalCycleId: 'cycle-1',
+          termsSnapshot: { legacyImport: { policyVersion: 'LEGACY_OPENING_V1', paidThrough: '2026-10-31' } } });
+
+        await expect(service.create({
+          ...data(), period: '2026-11',
+          items: { create: [{ type: 'SERVICE', amount: 50, servicePeriod }] },
+        } as any, 'user-1', 'Invoices', scope)).rejects.toThrow('LEGACY_IMPORT_SERVICE_PERIOD_ALREADY_PAID');
+        expect(prisma.tx.invoice.create).not.toHaveBeenCalled();
+      },
+    );
+
     it("persists an exact authenticated scope as a DRAFT without mutating caller input", async () => {
       permitExactScope();
       const input = data();
@@ -428,7 +472,7 @@ describe("InvoicesService", () => {
           roomId: "room-1",
           deletedAt: null,
         },
-        select: { rentalCycleId: true },
+        select: { rentalCycleId: true, termsSnapshot: true },
       });
       expect(prisma.tx.rentalCycle.findFirst).toHaveBeenCalledWith({
         where: {

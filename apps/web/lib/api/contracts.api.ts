@@ -76,6 +76,28 @@ export type CreateBookingHoldResult = {
   paymentRequestError: string | null;
 };
 
+export type ImportExistingContractPayload = {
+  idempotencyKey: string;
+  customerId: string;
+  roomId: string;
+  contractCode?: string;
+  startDate: string;
+  endDate: string;
+  signedAt?: string;
+  rentAmount: number;
+  depositAmount: number;
+  memberCount?: number;
+  attachments?: string[];
+  paidThrough: string;
+};
+
+export type ImportExistingContractResult = {
+  contract: any;
+  replayed: boolean;
+  missingDocuments: string[];
+  paidThrough: string;
+};
+
 export type RenewContractPayload = {
   startDate: string;
   endDate: string;
@@ -124,6 +146,15 @@ export const contractsApi = {
     const commandKey = requireIdempotencyKey(payload.idempotencyKey);
     return apiClient.post<CreateBookingHoldResult>(
       "/contracts/booking-hold",
+      { ...payload, idempotencyKey: commandKey },
+      { headers: { "Idempotency-Key": commandKey } },
+    );
+  },
+
+  importExisting: (payload: ImportExistingContractPayload) => {
+    const commandKey = requireIdempotencyKey(payload.idempotencyKey);
+    return apiClient.post<ImportExistingContractResult>(
+      "/contracts/import-existing",
       { ...payload, idempotencyKey: commandKey },
       { headers: { "Idempotency-Key": commandKey } },
     );

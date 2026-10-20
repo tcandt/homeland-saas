@@ -22,6 +22,7 @@ import {
   TERMINAL_CONTRACT_STATUSES,
 } from "../contracts/contracts.adapter";
 import { createHash } from "node:crypto";
+import { isLegacyBillingCovered, legacyImportMarker, LEGACY_OPENING_POLICY } from "../contracts/legacy-rental-import";
 
 export interface MonthlySettlementSettings {
   autoCloseEnabled: boolean;
@@ -1495,6 +1496,7 @@ export class MonthlySettlementService {
         contractIndex,
         activeContract,
       ] of billingContracts.entries()) {
+        const openingUsageCovered = isLegacyBillingCovered(activeContract, usagePeriod);
         const lockedAllocation = lockedAllocations.find(
           (allocation: any) => allocation.contractId === activeContract.id,
         );
@@ -1531,13 +1533,14 @@ export class MonthlySettlementService {
                 electricityKwhShares[contractIndex],
             )
           : 0;
-        const electricityAmount = isEligibleForPreviousUsage
+        const snapshotElectricityAmount = isEligibleForPreviousUsage
           ? Number(
               lockedAllocation?.electricityAmount ??
                 electricityAmountShares[contractIndex],
             )
           : 0;
-        const serviceAmount = isEligibleForPreviousUsage
+        const electricityAmount = openingUsageCovered ? 0 : snapshotElectricityAmount;
+        const serviceAmount = !openingUsageCovered && isEligibleForPreviousUsage
           ? serviceAmountShares[contractIndex]
           : 0;
 
@@ -1545,9 +1548,11 @@ export class MonthlySettlementService {
         const membersCount = canonicalMembership.membersCount;
         const occupancySource = occupancyResolution.source;
         const roomPrice = Number(activeContract.monthlyRent || 0);
-        const waterAmount = isEligibleForPreviousUsage
+        const snapshotWaterAmount = isEligibleForPreviousUsage
           ? Number(lockedAllocation?.waterAmount ?? membersCount * 100000)
           : 0;
+
+        const waterAmount = openingUsageCovered ? 0 : snapshotWaterAmount;
 
         let totalAmount =
           roomPrice + electricityAmount + waterAmount + serviceAmount;
@@ -1724,7 +1729,8 @@ export class MonthlySettlementService {
           }
         }
 
-        const paymentStatus: string = existingInvoice
+        const openingBalanceCovered = !existingInvoice && isLegacyBillingCovered(activeContract, period);
+        const paymentStatus: string = openingBalanceCovered ? "PAID" : existingInvoice
           ? existingInvoice.status
           : "ISSUED";
         const item = {
@@ -1804,10 +1810,15 @@ export class MonthlySettlementService {
           notificationSentAt: notifSentAt,
           notificationError: notifError,
           paymentStatus,
+          openingBalanceCovered,
+          openingUsageCovered,
+          legacyImportRosterIds: room.contracts.filter(legacyImportMarker).map((contract) => contract.id).sort(),
+          snapshotElectricityAmount,
+          snapshotWaterAmount,
           paidAmount: existingInvoice
             ? Number(existingInvoice.paidAmount || 0)
             : 0,
-          settlementBlockers: [...settlementBlockers, ...invoiceSnapshotBlockers],
+          settlementBlockers: openingBalanceCovered ? [] : [...settlementBlockers, ...invoiceSnapshotBlockers],
           settlementWarnings,
         };
 
@@ -1856,12 +1867,13 @@ export class MonthlySettlementService {
       items.filter((i) => i.hasContract).map((i) => i.roomId),
     ).size;
     const billingGroups = items.length;
-    const totalAmount = items.reduce((sum, i) => sum + i.totalAmount, 0);
+    const collectibleItems = items.filter((i) => !i.openingBalanceCovered);
+    const totalAmount = collectibleItems.reduce((sum, i) => sum + i.totalAmount, 0);
     const sentZaloCount = items.filter(
       (i) => i.hasContract && i.notificationStatus === "SENT_ZALO",
     ).length;
     const pendingCount = items.filter(
-      (i) => i.hasContract && i.notificationStatus === "PENDING",
+      (i) => i.hasContract && !i.openingBalanceCovered && i.notificationStatus === "PENDING",
     ).length;
     const failedCount = items.filter(
       (i) => i.hasContract && i.notificationStatus === "FAILED",
@@ -1869,7 +1881,7 @@ export class MonthlySettlementService {
     const paidCount = items.filter(
       (i) => i.hasContract && i.paymentStatus === "PAID",
     ).length;
-    const totalPaidAmount = items.reduce((sum, i) => sum + i.paidAmount, 0);
+    const totalPaidAmount = collectibleItems.reduce((sum, i) => sum + i.paidAmount, 0);
 
     const settings = await this.getSettings(tenantId);
 
@@ -1906,7 +1918,7 @@ export class MonthlySettlementService {
     assertSettlementScopeUnambiguous(overview.items);
     const lockRowsByRoomPeriod = new Map<string, any>();
     for (const item of overview.items) {
-      if (!item.hasContract || !item.electricityEligible || !item.meterReading) continue;
+      if (!item.hasContract || item.openingBalanceCovered || !item.electricityEligible || !item.meterReading) continue;
       const row = {
         buildingCode: item.buildingCode,
         roomCode: item.roomCode,
@@ -2087,7 +2099,7 @@ export class MonthlySettlementService {
       : 5;
 
     for (const item of targetItems) {
-      if (!item.hasContract || !item.representative || item.totalAmount <= 0) {
+      if (!item.hasContract || item.openingBalanceCovered || !item.representative || item.totalAmount <= 0) {
         continue;
       }
 
@@ -2168,8 +2180,8 @@ export class MonthlySettlementService {
         memberCount: candidate.membersCount,
         eligible: candidate.electricityEligible,
         electricityKwh: candidate.electricityKwh,
-        electricityAmount: candidate.electricityAmount,
-        waterAmount: candidate.waterAmount,
+        electricityAmount: candidate.snapshotElectricityAmount ?? candidate.electricityAmount,
+        waterAmount: candidate.snapshotWaterAmount ?? candidate.waterAmount,
         shareRatio: candidate.utilityShareRatio,
         occupancySource: candidate.occupancySource,
       }));
@@ -2197,7 +2209,7 @@ export class MonthlySettlementService {
         unitRateVnd: snapshotMeter.customRateVnd ?? null,
         waterRatePerPersonVnd: 100000,
         waterAmount: roomSnapshotItems.reduce(
-          (sum, candidate) => sum + candidate.waterAmount,
+          (sum, candidate) => sum + (candidate.snapshotWaterAmount ?? candidate.waterAmount),
           0,
         ),
         occupantCount: roomSnapshotItems.reduce(
@@ -2318,6 +2330,18 @@ export class MonthlySettlementService {
             return { invoice: exactInvoice, replayed: true };
           }
 
+          // An import may have committed while the outside projection waited
+          // for the usage lock. Never freeze a roster built before that import.
+          const importedRoster = await tx.contract.findMany({
+            where: { tenantId, roomId: item.roomId,
+              termsSnapshot: { path: ['legacyImport', 'policyVersion'], equals: LEGACY_OPENING_POLICY } },
+            select: { id: true },
+          });
+          if (JSON.stringify(importedRoster.map((contract) => contract.id).sort()) !==
+              JSON.stringify(item.legacyImportRosterIds || [])) {
+            throw new ConflictException('MONTHLY_ROSTER_CHANGED_RETRY');
+          }
+
           const txAny = tx as any;
           // Invoice.customerId is an id-only FK in the current schema.  Prove
           // tenant ownership inside the same transaction before any document
@@ -2413,7 +2437,7 @@ export class MonthlySettlementService {
           }
           const expectedSnapshotSourceHash = hashSnapshotSource(snapshotSource);
           const expectedSnapshotWaterAmount = roomSnapshotItems.reduce(
-            (sum, candidate) => sum + candidate.waterAmount,
+            (sum, candidate) => sum + (candidate.snapshotWaterAmount ?? candidate.waterAmount),
             0,
           );
           const expectedSnapshotOccupantCount = roomSnapshotItems.reduce(
@@ -2709,7 +2733,7 @@ export class MonthlySettlementService {
     const period = input.period || formatVietnamPeriod();
     const overview = await this.getOverview(tenantId, { period });
     let targetItems = overview.items.filter(
-      (i) => i.hasContract && i.representative,
+      (i) => i.hasContract && i.representative && !i.openingBalanceCovered,
     );
 
     if (Array.isArray(input.roomIds) && input.roomIds.length > 0) {

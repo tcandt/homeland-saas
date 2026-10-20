@@ -106,6 +106,8 @@ export const adaptRoom = (apiRoom: any, building?: any): Room => {
     signedAt: activeContract.signedAt,
     purpose: activeContract.purpose,
     status: activeContract.status,
+    termsSnapshot: activeContract.termsSnapshot,
+    attachments: activeContract.attachments || [],
   } : undefined;
   const activeRent = contract?.rentPrice && contract.rentPrice > 0 ? contract.rentPrice : 0;
 

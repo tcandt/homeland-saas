@@ -295,6 +295,7 @@ export default function MonthlySettlementTable({
                   {/* Trạng thái thanh toán */}
                   <td className="py-3.5 px-3.5 text-center">
                     {renderPaymentStatus(item.paymentStatus, hasContract)}
+                    {item.openingBalanceCovered ? <div className="mt-1 text-[10px] text-muted">Số dư đầu kỳ</div> : null}
                   </td>
 
                   {/* Hành động */}
@@ -314,7 +315,7 @@ export default function MonthlySettlementTable({
                               size="sm"
                               onClick={() => onResendSingle(item.roomId)}
                               isLoading={isResending}
-                              disabled={!repHasZalo}
+                              disabled={!repHasZalo || item.openingBalanceCovered}
                               className={`h-8 rounded-lg px-2 text-xs font-bold gap-1 border-border ${repHasZalo
                                   ? "text-primary hover:bg-primary/10"
                                   : "text-muted opacity-40 cursor-not-allowed bg-muted/20"

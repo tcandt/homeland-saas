@@ -4,7 +4,7 @@ import { ArrowLeft, Check } from "lucide-react";
 
 type TenantJourneyHeaderProps = {
   currentStep: 1 | 2 | 3 | 4 | 5;
-  intent?: "BOOKING" | "IMMEDIATE" | null;
+  intent?: "BOOKING" | "IMMEDIATE" | "LEGACY" | null;
   onBack?: () => void;
   backLabel?: string;
 };
@@ -17,7 +17,13 @@ export function TenantJourneyHeader({
   onBack,
   backLabel = "Quay lại",
 }: TenantJourneyHeaderProps) {
-  const intentLabel = intent === "BOOKING" ? "Cọc giữ phòng" : intent === "IMMEDIATE" ? "Thuê ở ngay" : "Chọn cách bắt đầu";
+  const intentLabel = intent === "BOOKING"
+    ? "Cọc giữ phòng"
+    : intent === "IMMEDIATE"
+      ? "Thuê ở ngay"
+      : intent === "LEGACY"
+        ? "Cập nhật khách hàng cũ"
+        : "Chọn cách bắt đầu";
 
   return (
     <div className="bg-gradient-to-br from-indigo-50 via-white to-amber-50/70 px-5 py-4 dark:from-indigo-950/30 dark:via-slate-950/20 dark:to-amber-950/10 sm:px-6">

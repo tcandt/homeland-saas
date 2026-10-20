@@ -19,10 +19,18 @@ async function main() {
         floors: [{ id: 'test-floor', level: 1, name: 'Floor 1', rooms: [room] }], rooms: [room] };
       const customer = { id: 'test-customer', fullName: 'Legacy Test Customer', phone: '0901234567',
         roomId: null, contracts: [], occupancies: [], idImages: [], idImageProvenance: [] };
+      const imports = [];
       await context.route('**/api/v1/**', async route => {
         const pathname = new URL(route.request().url()).pathname;
         let data = [];
-        if (pathname.endsWith('/auth/me')) data = user;
+        if (pathname.endsWith('/contracts/import-existing')) {
+          const command = route.request().postDataJSON();
+          imports.push(command);
+          expect(route.request().headers()['idempotency-key']).toBe(command.idempotencyKey);
+          data = { contract: { id: 'test-contract', code: command.contractCode, status: 'ACTIVE' },
+            paidThrough: command.paidThrough, missingDocuments: ['CCCD_FRONT', 'CCCD_BACK', 'CONTRACT_FILE'] };
+        }
+        else if (pathname.endsWith('/auth/me')) data = user;
         else if (pathname.endsWith('/auth/security')) data = { idleTimeoutMinutes: 1440 };
         else if (pathname.endsWith('/buildings')) data = [building];
         else if (pathname.includes('/buildings/')) data = building;
@@ -51,6 +59,7 @@ async function main() {
       await page.getByRole('button', { name: /Khách thuê/ }).last().click();
       await page.getByRole('button', { name: 'Thêm khách thuê', exact: true }).click();
       await expect(page.getByRole('button').filter({ hasText: 'Cập nhật khách hàng cũ' })).toBeVisible();
+      await page.waitForTimeout(300);
       await page.screenshot({ path: path.join(output, `buildings-${width}.png`), fullPage: true });
       await page.getByRole('button').filter({ hasText: 'Cập nhật khách hàng cũ' }).click();
       await page.getByTestId('tenant-source-existing').click();
@@ -58,9 +67,18 @@ async function main() {
       await page.getByRole('button', { name: 'Tiếp tục đồng bộ', exact: true }).click();
       await expect(page.getByText('Ngày bắt đầu thực tế *', { exact: true })).toBeVisible();
       await expect(page.getByText('Đã thanh toán hết tháng *', { exact: true })).toBeVisible();
+      await page.waitForTimeout(300);
       await page.screenshot({ path: path.join(output, `legacy-form-${width}.png`), fullPage: true });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-      console.log(JSON.stringify({ width, errors, legacyCard: true, legacyForm: true, overflow: false }));
+      const field = label => page.getByText(label, { exact: true }).locator('..').locator('input');
+      await field('Giá thuê (VNĐ/tháng) *').fill('3000000');
+      await field('Tiền cọc đang giữ (VNĐ) *').fill('6000000');
+      await field('Ngày bắt đầu thực tế *').fill('01/01/2026');
+      await page.getByRole('button', { name: 'Đồng bộ khách cũ', exact: true }).click();
+      await expect.poll(() => imports.length).toBe(1);
+      expect(imports[0]).toMatchObject({ customerId: customer.id, roomId: room.id, rentAmount: 3000000,
+        depositAmount: 6000000, startDate: '2026-01-01' });
+      console.log(JSON.stringify({ width, errors, legacyCard: true, legacyForm: true, importCommand: true, overflow: false }));
       expect(errors).toEqual([]);
       await context.close();
     }

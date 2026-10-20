@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 umask 077
-r=/volume1/docker/homeland/release-321-20261021
+r=/volume1/docker/homeland/release-321-20261021-r2
 d=/usr/local/bin/docker
 node=/var/packages/Node.js_v22/target/usr/local/bin/node
 cd "$r"
@@ -12,7 +12,10 @@ const a=require("assert/strict"),fs=require("fs"),g=require("./ci-gate.json");
 a.equal(g.sha,fs.readFileSync("source.sha","utf8").trim());a.equal(g.conclusion,"success");
 for(const name of ["Lint","Type Check","Unit Test","Integration Test","Build Web","Build API","Security & Supply Chain Scan","E2E Tests"]) a.equal(g.jobs.find(x=>x.name===name)?.conclusion,"success",name);
 '
-"$node" config.cjs
+test -s compose.private.json
+test -s rollback.private.json
+# The exact private configuration must have passed the redacted Compose audit.
+sha256sum -c configuration-audit.sha >/dev/null
 for file in rollback.private.json compose.private.json api.private.env; do
   /usr/syno/bin/synoacltool -del "$r/$file" >/dev/null 2>&1 || true
   chmod 600 "$r/$file"

@@ -6,7 +6,7 @@ const vm = require('node:vm');
 const source = fs.readFileSync(path.join(__dirname, 'config.cjs'), 'utf8');
 const digest = character => `sha256:${character.repeat(64)}`;
 function configure(oldVersion = '3.2.0') {
-  const root = '/volume1/docker/homeland/release-321-20261021';
+  const root = '/volume1/docker/homeland/release-321-20261021-r2';
   const sha = 'a'.repeat(40);
   const policy = { APP_VERSION: oldVersion, DATABASE_URL: 'postgresql://preserved',
     CUSTOM_SETTING: 'preserved', RUN_DB_MIGRATIONS: 'false', SYSTEM_BACKUP_ENABLED: 'false',
@@ -67,6 +67,7 @@ test('activation never resets schema or volumes and only rolls back before publi
   a.ok(script.indexOf('published=true') < script.indexOf('up -d --no-deps web'));
   a.ok(script.indexOf('chmod 600 before-update.private.dump') < script.indexOf('pg_dump'));
   a.ok(script.includes('while test "$attempt" -lt 2'));
+  a.ok(script.indexOf('sha256sum -c configuration-audit.sha') < script.indexOf('compose stop'));
   const build = fs.readFileSync(path.join(__dirname, 'build.sh'), 'utf8');
   a.ok(build.includes('get-tar-commit-id < source.tar'));
 });

@@ -19,7 +19,7 @@ type ProviderPayload = {
 };
 
 export function assertExternalProviderAccess() {
-  if (process.env.DEPLOY_ENV === 'staging' || process.env.COMMUNICATION_EXTERNAL_DELIVERY_ENABLED === 'false') {
+  if (process.env.DEPLOY_ENV === 'staging' || process.env.COMMUNICATION_EXTERNAL_DELIVERY_ENABLED !== 'true') {
     const code = process.env.DEPLOY_ENV === 'staging'
       ? 'EXTERNAL_PROVIDER_DISABLED_IN_STAGING'
       : 'EXTERNAL_PROVIDER_DISABLED_IN_ENVIRONMENT';

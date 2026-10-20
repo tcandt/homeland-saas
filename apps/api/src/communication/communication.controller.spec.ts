@@ -1,11 +1,12 @@
 import { BadRequestException, ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommunicationController } from './communication.controller';
 import { PERMISSIONS_KEY } from '../shared/decorators/require-permissions.decorator';
 import { PermissionsGuard } from '../shared/guards/permissions.guard';
 
 describe('CommunicationController Zalo webhook', () => {
+  beforeEach(() => vi.stubEnv('COMMUNICATION_EXTERNAL_DELIVERY_ENABLED', 'true'));
   afterEach(() => vi.unstubAllEnvs());
 
   it('fails closed before staging provider actions read settings or persist cached chats', async () => {
@@ -135,18 +136,41 @@ describe('CommunicationController Zalo webhook', () => {
     ]);
 
     await expect(controller.handleZaloWebhook({ rawBody: '' }, {}, 'wrong-secret')).rejects.toBeInstanceOf(BadRequestException);
-    expect(prisma.appSetting.update).toHaveBeenCalledWith({
-      where: { id: 'setting-1' },
-      data: {
-        value: expect.objectContaining({
-          lastWebhookRejectedReason: 'SECRET_INVALID_OR_MISSING',
-          lastWebhookPreview: expect.objectContaining({
-            secretProvided: true,
-            rawBodyLength: 0,
-          }),
-        }),
-      },
-    });
+    expect(prisma.appSetting.update).not.toHaveBeenCalled();
+  });
+
+  it.each(['', 'x'.repeat(64), '\u00e9'.repeat(64)])('rejects missing, long or multibyte wrong secrets without changing settings (%#)', async (provided) => {
+    const { controller, prisma, zaloRegistrationService } = createController();
+    prisma.appSetting.findMany.mockResolvedValueOnce([
+      { id: 'setting-1', tenantId: 'tenant-1', value: { webhookSecret: 'a'.repeat(64) } },
+    ]);
+    await expect(controller.handleZaloWebhook({ rawBody: '' }, { message: { chat: { id: 'untrusted-chat' } } }, provided)).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.appSetting.update).not.toHaveBeenCalled();
+    expect(zaloRegistrationService.handleIncomingMessage).not.toHaveBeenCalled();
+  });
+
+  it('rejects ambiguous cross-tenant webhook secrets without writing either tenant', async () => {
+    const { controller, prisma, zaloRegistrationService } = createController();
+    prisma.appSetting.findMany.mockResolvedValueOnce([
+      { id: 'setting-1', tenantId: 'tenant-1', value: { webhookSecret: 'shared-secret' } },
+      { id: 'setting-2', tenantId: 'tenant-2', value: { webhookSecret: 'shared-secret' } },
+    ]);
+    await expect(controller.handleZaloWebhook({ rawBody: '' }, {}, 'shared-secret')).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.appSetting.update).not.toHaveBeenCalled();
+    expect(zaloRegistrationService.handleIncomingMessage).not.toHaveBeenCalled();
+  });
+
+  it('routes a unique webhook secret exclusively to its owning tenant', async () => {
+    const { controller, prisma, zaloRegistrationService } = createController();
+    prisma.appSetting.findMany.mockResolvedValueOnce([
+      { id: 'setting-1', tenantId: 'tenant-1', value: { webhookSecret: 'tenant-one-secret' } },
+      { id: 'setting-2', tenantId: 'tenant-2', value: { webhookSecret: 'tenant-two-secret' } },
+    ]);
+    await expect(controller.handleZaloWebhook({ rawBody: '' }, { event_name: 'follow' }, 'tenant-two-secret')).resolves.toMatchObject({ success: true });
+    expect(prisma.appSetting.update).toHaveBeenCalledOnce();
+    expect(prisma.appSetting.update).toHaveBeenCalledWith({ where: { id: 'setting-2' }, data: { value: expect.objectContaining({ webhookSecret: 'tenant-two-secret' }) } });
+    expect(zaloRegistrationService.handleIncomingMessage).toHaveBeenCalledOnce();
+    expect(zaloRegistrationService.handleIncomingMessage).toHaveBeenCalledWith('tenant-2', expect.any(Object), expect.objectContaining({ webhookSecret: 'tenant-two-secret' }));
   });
 
   it('captures recent chat ids from valid Zalo webhooks without storing raw payload', async () => {

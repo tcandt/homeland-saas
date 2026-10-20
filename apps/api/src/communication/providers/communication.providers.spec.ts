@@ -1,9 +1,11 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ZaloProvider } from './communication.providers';
 
 describe('ZaloProvider', () => {
+  beforeEach(() => vi.stubEnv('COMMUNICATION_EXTERNAL_DELIVERY_ENABLED', 'true'));
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   function createProvider(settingValue: Record<string, any>) {

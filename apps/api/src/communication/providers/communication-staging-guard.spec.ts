@@ -1,7 +1,7 @@
 import { HttpException } from '@nestjs/common';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import nodemailer from 'nodemailer';
-import { EmailProvider, TelegramProvider, ZaloProvider, SMSProvider, PushProvider, InAppProvider } from './communication.providers';
+import { EmailProvider, TelegramProvider, ZaloProvider, SMSProvider, PushProvider, InAppProvider, assertExternalProviderAccess } from './communication.providers';
 
 describe('external communication staging guard', () => {
   afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
@@ -9,6 +9,10 @@ describe('external communication staging guard', () => {
   it.each([
     { DEPLOY_ENV: 'staging', COMMUNICATION_EXTERNAL_DELIVERY_ENABLED: 'true' },
     { DEPLOY_ENV: 'production', COMMUNICATION_EXTERNAL_DELIVERY_ENABLED: 'false' },
+    { DEPLOY_ENV: 'production', COMMUNICATION_EXTERNAL_DELIVERY_ENABLED: undefined },
+    { DEPLOY_ENV: 'production', COMMUNICATION_EXTERNAL_DELIVERY_ENABLED: '' },
+    { DEPLOY_ENV: 'production', COMMUNICATION_EXTERNAL_DELIVERY_ENABLED: 'tru' },
+    { DEPLOY_ENV: 'production', COMMUNICATION_EXTERNAL_DELIVERY_ENABLED: 'TRUE' },
   ])('blocks all direct and management paths before settings or network access: %j', async (env) => {
     vi.stubEnv('DEPLOY_ENV', env.DEPLOY_ENV);
     vi.stubEnv('COMMUNICATION_EXTERNAL_DELIVERY_ENABLED', env.COMMUNICATION_EXTERNAL_DELIVERY_ENABLED);
@@ -48,5 +52,19 @@ describe('external communication staging guard', () => {
     const events = { emit: vi.fn() };
     await expect(new InAppProvider(events as any).send({ title: 'Synthetic' })).resolves.toMatchObject({ success: true });
     expect(events.emit).toHaveBeenCalledOnce();
+  });
+
+  it('allows explicitly enabled production connections without bypassing tenant configuration', async () => {
+    vi.stubEnv('DEPLOY_ENV', 'production');
+    vi.stubEnv('COMMUNICATION_EXTERNAL_DELIVERY_ENABLED', 'true');
+    expect(() => assertExternalProviderAccess()).not.toThrow();
+    const prisma = { appSetting: { findUnique: vi.fn().mockResolvedValue({ value: { botToken: 'synthetic-token' } }) } };
+    const network = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true, result: { id: 'synthetic-bot' } }), { status: 200 }));
+    vi.stubGlobal('fetch', network);
+    await expect(new ZaloProvider(prisma as any).getMe('synthetic-tenant')).resolves.toMatchObject({ ok: true });
+    expect(prisma.appSetting.findUnique).toHaveBeenCalledWith({ where: { tenantId_scope_ownerId_key: { tenantId: 'synthetic-tenant', scope: 'TENANT', ownerId: 'synthetic-tenant', key: 'zalo-provider' } } });
+    expect(network).toHaveBeenCalledOnce();
+    await expect(new ZaloProvider(prisma as any).getMe()).rejects.toThrow('Missing tenantId');
+    expect(network).toHaveBeenCalledOnce();
   });
 });

@@ -1,9 +1,11 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import nodemailer from 'nodemailer';
 import { EmailProvider } from './communication.providers';
 
 // Exercise the actual mail compiler, but never create an SMTP connection.
 const createTransport = nodemailer.createTransport.bind(nodemailer);
+beforeEach(() => vi.stubEnv('COMMUNICATION_EXTERNAL_DELIVERY_ENABLED', 'true'));
+afterEach(() => vi.unstubAllEnvs());
 const settings = {
   enabled: true,
   smtpHost: 'smtp.invalid',

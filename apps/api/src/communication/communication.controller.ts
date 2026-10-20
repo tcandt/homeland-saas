@@ -489,65 +489,19 @@ export class CommunicationController {
 
     const providedSecret = String(secretTokenHeader || legacySecretTokenHeader || rawSecretTokenHeader || '').trim();
     const provisionalNormalized = normalizeZaloUpdate(body);
-    const rejectedPreview = buildWebhookPreview(body, provisionalNormalized, {
-      contentType: contentTypeHeader,
-      userAgent: userAgentHeader,
-      rawBodyLength: String(request?.rawBody || '').length,
-      secretProvided: Boolean(providedSecret),
-    });
-    let matched = settings.find((setting) => {
+    const matches = settings.filter((setting) => {
       const expected = String((setting.value as any)?.webhookSecret || '').trim();
-      if (!expected || !providedSecret || expected.length !== providedSecret.length) return false;
-      return timingSafeEqual(Buffer.from(expected), Buffer.from(providedSecret));
+      if (!expected || !providedSecret) return false;
+      const expectedBytes = Buffer.from(expected);
+      const providedBytes = Buffer.from(providedSecret);
+      if (expectedBytes.length !== providedBytes.length) return false;
+      return timingSafeEqual(expectedBytes, providedBytes);
     });
-
-    // Auto-heal single-tenant webhook secret if Zalo sends a valid secret token
-    if (!matched && settings.length === 1 && providedSecret.length >= 32) {
-      matched = settings[0];
-      const onlyValue = ((matched?.value as any) || {});
-      await this.prisma.appSetting.update({
-        where: { id: matched.id },
-        data: {
-          value: {
-            ...onlyValue,
-            webhookSecret: providedSecret,
-          },
-        },
-      });
-      this.logger.log({
-        message: 'Auto-healed Zalo webhook secret for tenant',
-        tenantId: matched.tenantId,
-        secretLength: providedSecret.length,
-      });
-    }
-
+    const matched = matches.length === 1 ? matches[0] : undefined;
     if (!matched) {
-      if (settings.length === 1) {
-        const only = settings[0];
-        const onlyValue = ((only?.value as any) || {});
-        await this.prisma.appSetting.update({
-          where: { id: only.id },
-          data: {
-            value: {
-              ...onlyValue,
-              lastWebhookReceivedAt: new Date().toISOString(),
-              lastWebhookEventName: provisionalNormalized.eventName || null,
-              lastWebhookChatId: provisionalNormalized.chatId || null,
-              lastWebhookChatType: provisionalNormalized.chatType || 'unknown',
-              lastWebhookSenderId: provisionalNormalized.senderId || null,
-              lastWebhookRejectedReason: 'SECRET_INVALID_OR_MISSING',
-              lastWebhookPreview: rejectedPreview,
-            },
-          },
-        });
-      }
       this.logger.warn({
         message: 'Rejected Zalo webhook due to invalid secret',
         providedSecretLength: providedSecret.length,
-        eventName: provisionalNormalized.eventName,
-        payloadKeys: summarizePayloadKeys(body),
-        contentType: contentTypeHeader || null,
-        rawBodyLength: String(request?.rawBody || '').length,
       });
       throw new BadRequestException('ZALO_WEBHOOK_SECRET_INVALID');
     }

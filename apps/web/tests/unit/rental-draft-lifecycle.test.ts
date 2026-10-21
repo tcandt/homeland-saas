@@ -4,6 +4,8 @@ import ts from "typescript";
 import { describe, expect, it, vi } from "vitest";
 import { getContractDocumentStatus } from "../../lib/contracts/booking-conversion";
 
+import { getOrCreateBookingHoldIntent, markBookingHoldIntentAccepted } from "../../lib/rentals/booking-hold-intent";
+
 const sourcePath = resolve(process.cwd(), "components/buildings/RoomPremiumModal.tsx");
 const source = ts.createSourceFile(
   sourcePath,
@@ -28,6 +30,49 @@ function callsIn(name: string) {
   };
   visit(declaration!);
   return calls;
+}
+
+function bookingMoveInDateHandler() {
+  let handler: ts.ArrowFunction | undefined;
+  const visit = (node: ts.Node) => {
+    if ((ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) && node.tagName.getText(source) === "DateMaskInput") {
+      const attribute = node.attributes.properties.find((property): property is ts.JsxAttribute =>
+        ts.isJsxAttribute(property) && property.name.getText(source) === "onChange",
+      );
+      const expression = attribute?.initializer && ts.isJsxExpression(attribute.initializer)
+        ? attribute.initializer.expression
+        : undefined;
+      if (expression && ts.isArrowFunction(expression) && expression.getText(source).includes("getOneYearAfterYmd")) {
+        handler = expression;
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  expect(handler, "Missing booking move-in DateMaskInput handler").toBeDefined();
+  return handler!;
+}
+
+function runBookingMoveInDateChange(draft: { ngayBatDau: string; ngayKetThuc: string }, newStart: string) {
+  const helperNames = ["normalizeVietnameseDate", "isValidYmdDate", "normalizeStrictYmdDate", "getLocalYMD", "getOneYearAfterYmd"];
+  const helpers = new Map<string, ts.VariableDeclaration>();
+  const find = (node: ts.Node) => {
+    if (ts.isVariableDeclaration(node) && helperNames.includes(node.name.getText(source))) {
+      helpers.set(node.name.getText(source), node);
+    }
+    ts.forEachChild(node, find);
+  };
+  find(source);
+  expect([...helpers.keys()]).toEqual(helperNames);
+  let next: typeof draft | undefined;
+  const setContractDraft = (recipe: (previous: typeof draft) => typeof draft) => { next = recipe(draft); };
+  const program = ts.transpileModule(
+    `${helperNames.map((name) => `const ${name} = ${helpers.get(name)!.initializer!.getText(source)};`).join(" ")} const onChange = ${bookingMoveInDateHandler().getText(source)}; return onChange;`,
+    { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } },
+  ).outputText;
+  const onChange = new Function("setContractDraft", program)(setContractDraft) as (value: string) => void;
+  onChange(newStart);
+  return next!;
 }
 
 function legacyImportBranch() {
@@ -230,6 +275,82 @@ describe("Rental draft lifecycle", () => {
     expect(calls).not.toContain("onUpdateRoom");
     expect(calls).not.toContain("roomsApi.update");
   });
+  it("keeps a booking end date distinct from an edited move-in date, including leap-day rollover", () => {
+    const updated = runBookingMoveInDateChange(
+      { ngayBatDau: "2024-02-01", ngayKetThuc: "2024-02-01" },
+      "2024-02-29",
+    );
+    expect(updated.ngayBatDau).toBe("2024-02-29");
+    expect(updated.ngayKetThuc).toBe("2025-02-28");
+    expect(updated.ngayKetThuc).not.toBe(updated.ngayBatDau);
+  });
+
+  it("saves the step-4 booking after editing move-in and retries the same durable command", async () => {
+    const names = ["normalizeVietnameseDate", "isValidYmdDate", "normalizeStrictYmdDate", "getLocalYMD", "formatYmdForVietnamDisplay", "vietnamDateToIso", "parseMoney", "createBookingHoldFlow"];
+    const declarations = new Map<string, ts.VariableDeclaration>();
+    const visit = (node: ts.Node) => {
+      if (ts.isVariableDeclaration(node) && names.includes(node.name.getText(source))) declarations.set(node.name.getText(source), node);
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+    for (const name of names) expect(declarations.has(name), name).toBe(true);
+    const values = new Map<string, string>();
+    const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); } };
+    const createBookingHold = vi.fn().mockResolvedValue({ invoice: { id: "invoice-uat" }, paymentRequest: null });
+    const draft = { ngayBatDau: "2026-10-21", ngayKetThuc: "2026-11-01", ngayThanhToanDauTien: "", tienCoc: "1,000,000", tienThue: "7,000,000", tienCocHopDong: "3,500,000" };
+    const dependencies = {
+      contractDraft: { ...draft },
+      roomData: { monthlyPrice: 7_000_000 },
+      useAuthStore: { getState: () => ({ user: { id: "user-uat", tenantId: "tenant-uat" } }) },
+      getOrCreateBookingHoldIntent: (scope: Parameters<typeof getOrCreateBookingHoldIntent>[0], payload: Parameters<typeof getOrCreateBookingHoldIntent>[1]) => getOrCreateBookingHoldIntent(scope, payload, storage),
+      markBookingHoldIntentAccepted: (scope: Parameters<typeof markBookingHoldIntentAccepted>[0], command: Parameters<typeof markBookingHoldIntentAccepted>[1]) => markBookingHoldIntentAccepted(scope, command, storage),
+      contractsApi: { createBookingHold },
+      paymentsApi: { sendInvoiceToZalo: vi.fn() },
+      showToast: vi.fn(),
+    };
+    const program = ts.transpileModule(
+      `${names.map((name) => `const ${name} = ${declarations.get(name)!.initializer!.getText(source)};`).join("\n")} return createBookingHoldFlow;`,
+      { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } },
+    ).outputText;
+    const save = new Function("deps", `const { ${Object.keys(dependencies).join(",")} } = deps; ${program}`)(dependencies);
+    vi.stubGlobal("navigator", { locks: { request: (_key: string, _options: unknown, fn: () => unknown) => fn() } });
+    vi.stubGlobal("crypto", { randomUUID: () => "step-four-booking-uuid" });
+    try {
+      // Reproduce the old handler's equal-date failure before dispatch.
+      Object.assign(dependencies.contractDraft, { ngayBatDau: "2026-11-01", ngayKetThuc: "2026-11-01" });
+      await expect(save("customer-uat", { roomId: "room-uat" })).rejects.toThrow("BOOKING_END_DATE_REQUIRED");
+      expect(createBookingHold).not.toHaveBeenCalled();
+      Object.assign(dependencies.contractDraft, runBookingMoveInDateChange(draft, "2026-11-01"));
+      await save("customer-uat", { roomId: "room-uat" });
+      await save("customer-uat", { roomId: "room-uat" });
+      expect(createBookingHold).toHaveBeenCalledTimes(2);
+      expect(createBookingHold.mock.calls[0][0]).toEqual(createBookingHold.mock.calls[1][0]);
+      expect(createBookingHold.mock.calls[0][0]).toMatchObject({
+        startDate: "2026-11-01", endDate: "2027-11-01", bookingAmount: 1_000_000,
+        rentAmount: 7_000_000, contractDepositAmount: 3_500_000,
+        firstPaymentDate: "2026-10-31T17:00:00.000Z", expiredAt: "2026-11-01T16:59:59.999Z",
+      });
+      expect(JSON.parse([...values.values()][0]).state).toBe("ACCEPTED");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it.each([
+    ["2027-10-20", "2026-11-01", "2027-10-20"],
+    ["2026-11-01", "2026-11-01", "2027-11-01"],
+    ["2026-10-20", "2026-11-01", "2027-11-01"],
+    ["", "2026-11-01", "2027-11-01"],
+    ["2027-10-20", "", "2027-10-20"],
+  ])("keeps booking dates saveable when end=%s and move-in=%s", (end, moveIn, expectedEnd) => {
+    const updated = runBookingMoveInDateChange(
+      { ngayBatDau: "2026-10-20", ngayKetThuc: end },
+      moveIn,
+    );
+    expect(updated).toEqual({ ngayBatDau: moveIn, ngayKetThuc: expectedEnd });
+    if (moveIn) expect(updated.ngayKetThuc > updated.ngayBatDau).toBe(true);
+  });
+
 });
 
 describe("Signed document evidence", () => {

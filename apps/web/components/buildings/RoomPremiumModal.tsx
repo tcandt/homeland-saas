@@ -470,6 +470,38 @@ const getLocalYMD = (date: Date = new Date()) => {
   return `${get("year")}-${get("month")}-${get("day")}`;
 };
 
+const getOneYearAfterYmd = (ymd: string) => {
+  const normalized = normalizeStrictYmdDate(ymd);
+  if (!normalized) return getLocalYMD(new Date(new Date().setFullYear(new Date().getFullYear() + 1)));
+  const [year, month, day] = normalized.split("-").map(Number);
+  const lastDayOfTargetMonth = new Date(Date.UTC(year + 1, month, 0)).getUTCDate();
+  return getLocalYMD(new Date(Date.UTC(year + 1, month - 1, Math.min(day, lastDayOfTargetMonth))));
+};
+
+const getBookingCreateErrorMessage = (error: unknown) => {
+  const apiError = error instanceof ApiError ? error : null;
+  const responseMessage = (error as any)?.response?.data?.message;
+  const candidates = [apiError?.code, apiError?.message, responseMessage, (error as any)?.message]
+    .filter((value): value is string => typeof value === "string" && value.length > 0);
+  const messages: Record<string, string> = {
+    BOOKING_END_DATE_REQUIRED: "Ngày kết thúc hợp đồng cọc phải sau ngày dự kiến vào ở. Hãy chọn lại ngày vào ở.",
+    BOOKING_END_DATE_INVALID: "Ngày kết thúc hợp đồng cọc phải sau ngày dự kiến vào ở.",
+    BOOKING_START_DATE_INVALID: "Ngày dự kiến vào ở không hợp lệ. Hãy nhập đúng dạng DD/MM/YYYY.",
+    BOOKING_FIRST_PAYMENT_DATE_INVALID: "Ngày thanh toán đầu tiên không hợp lệ.",
+    BOOKING_EXPIRY_INVALID: "Ngày giữ phòng không hợp lệ.",
+    BOOKING_AMOUNT_INVALID: "Kiểm tra lại số tiền cọc giữ phòng và giá thuê.",
+    BOOKING_CUSTOMER_ALREADY_BOUND: "Khách này đang được gắn với một phòng khác.",
+    BOOKING_CUSTOMER_ALREADY_OCCUPIED: "Khách này đang có lịch sử ở mở tại phòng khác.",
+    BOOKING_CUSTOMER_ACTIVE_CONTRACT: "Khách này đang có hợp đồng còn hiệu lực tại phòng khác.",
+    BOOKING_IDEMPOTENCY_KEY_REUSED: "Lệnh cọc đã được dùng cho dữ liệu khác. Giữ nguyên lệnh và kiểm tra hồ sơ cọc hiện có trước khi thử lại.",
+    BOOKING_PARTIAL_REQUIRES_RECONCILIATION: "Hồ sơ cọc đang cần đối soát. Không tạo lại cọc; hãy mở hồ sơ cọc hiện có.",
+  };
+  const code = candidates.find((value) => Boolean(messages[value]));
+  if (code) return messages[code];
+  if (apiError) return apiError.message || "Không thể tạo cọc giữ phòng. Vui lòng thử lại.";
+  return "Không thể tạo cọc giữ phòng. Vui lòng thử lại.";
+};
+
 const getEndOfMonthYmd = (ymd: string = getLocalYMD()) => {
   const normalized = normalizeStrictYmdDate(ymd) || getLocalYMD();
   const [year, month] = normalized.split("-").map(Number);
@@ -3007,9 +3039,13 @@ export default function RoomPremiumModal({
     } catch (error) {
       console.error("Error in commitTenantDraft:", error);
       showToast(
-        error instanceof Error && error.message.startsWith("BOOKING_INTENT_")
+        error instanceof Error && error.message === "BOOKING_INTENT_PAYLOAD_CONFLICT"
+          ? "Thông tin khác với lệnh cọc đã lưu. Giữ nguyên lệnh và kiểm tra hồ sơ cọc hiện có trước khi thử lại."
+          : error instanceof Error && error.message.startsWith("BOOKING_INTENT_")
           ? "Không thể tiếp tục lệnh cọc giữ phòng an toàn. Vui lòng giữ nguyên thông tin để thử lại."
-          : error instanceof ApiError
+          : rentalIntentMode === "BOOKING"
+            ? getBookingCreateErrorMessage(error)
+            : error instanceof ApiError
               ? error.message
               : "Không thể hoàn tất thao tác. Vui lòng thử lại.",
         "error",
@@ -6583,7 +6619,10 @@ export default function RoomPremiumModal({
                         setContractDraft((p) => ({
                           ...p,
                           ngayBatDau: newStart,
-                          ngayKetThuc: newStart || p.ngayKetThuc,
+                          ngayKetThuc:
+                            newStart && (!p.ngayKetThuc || p.ngayKetThuc <= newStart)
+                              ? getOneYearAfterYmd(newStart)
+                              : p.ngayKetThuc,
                         }))
                       }
                     />

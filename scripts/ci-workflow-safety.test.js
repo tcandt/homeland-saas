@@ -9,6 +9,13 @@ const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 const workflowModel = () => yaml.parse(read('.github/workflows/ci-cd-pipeline.yml'), { uniqueKeys: true });
 const remoteJobs = ['deploy-staging', 'health-smoke-staging', 'core-10-04-staging-gate', 'rollback-staging', 'deploy-production', 'health-smoke-production', 'rollback-production'];
 
+test('secret scan checks out history needed by multi-commit push ranges', () => {
+  const steps = workflowModel().jobs['security-scan'].steps;
+  const checkout = steps.find(step => step.uses === 'actions/checkout@v4');
+  assert.equal(checkout.with['fetch-depth'], 0);
+  assert.ok(steps.findIndex(step => step.name === 'Gitleaks Secret Scan') > steps.indexOf(checkout));
+});
+
 test('workflow YAML has real jobs, scoped integration env and no duplicate top-level keys', () => {
   const workflow = workflowModel();
   assert.equal(workflow.env.PUPPETEER_SKIP_DOWNLOAD, 'true');

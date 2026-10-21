@@ -6,7 +6,7 @@ const vm = require('node:vm');
 const source = fs.readFileSync(path.join(__dirname, 'config.cjs'), 'utf8');
 const digest = character => `sha256:${character.repeat(64)}`;
 function configure(oldVersion = '3.2.1') {
-  const root = '/volume1/docker/homeland/release-322-20261021';
+  const root = '/volume1/docker/homeland/release-322-20261021-r2';
   const sha = 'a'.repeat(40);
   const policy = { APP_VERSION: oldVersion, DATABASE_URL: 'postgresql://preserved',
     CUSTOM_SETTING: 'preserved', RUN_DB_MIGRATIONS: 'false', SYSTEM_BACKUP_ENABLED: 'false',

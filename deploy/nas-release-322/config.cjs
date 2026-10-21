@@ -1,7 +1,7 @@
 const fs = require('node:fs');
 const cp = require('node:child_process');
 const a = require('node:assert/strict');
-const root = '/volume1/docker/homeland/release-322-20261021';
+const root = '/volume1/docker/homeland/release-322-20261021-r2';
 const docker = args => cp.execFileSync('/usr/local/bin/docker', args, { encoding: 'utf8' });
 const sha = fs.readFileSync(`${root}/source.sha`, 'utf8').trim();
 a.match(sha, /^[a-f0-9]{40}$/);

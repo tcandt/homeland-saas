@@ -73,6 +73,12 @@ async function main() {
       await page.getByRole('button', { name: 'Tiếp tục đồng bộ', exact: true }).click();
       await expect(page.getByText('Ngày bắt đầu thực tế *', { exact: true })).toBeVisible();
       await expect(page.getByText('Đã thanh toán hết tháng *', { exact: true })).toBeVisible();
+      const paidThrough = page.getByText('Đã thanh toán hết tháng *', { exact: true }).locator('..').locator('input');
+      const today = new Date(Date.now() + 7 * 3600000).toISOString().slice(0, 10);
+      const [year, month] = today.split('-').map(Number);
+      const previousMonthEnd = new Date(Date.UTC(year, month - 1, 0)).toISOString().slice(0, 10);
+      await expect(paidThrough).toHaveValue(previousMonthEnd.slice(0, 7));
+      await expect(paidThrough).toHaveAttribute('readonly', '');
       await page.waitForTimeout(300);
       await page.screenshot({ path: path.join(output, `legacy-form-${width}.png`), fullPage: true });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -83,7 +89,7 @@ async function main() {
       await page.getByRole('button', { name: 'Đồng bộ khách cũ', exact: true }).click();
       await expect.poll(() => imports.length).toBe(1);
       expect(imports[0]).toMatchObject({ customerId: customer.id, roomId: room.id, rentAmount: 3000000,
-        depositAmount: 6000000, startDate: '2026-01-01' });
+        depositAmount: 6000000, startDate: '2026-01-01', paidThrough: previousMonthEnd });
       console.log(JSON.stringify({ width, errors, legacyCard: true, legacyForm: true, importCommand: true, overflow: false }));
       expect(errors).toEqual([]);
       await context.close();

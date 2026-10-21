@@ -7,6 +7,12 @@ async function main() {
   const output = path.resolve(__dirname, 'audit');
   fs.mkdirSync(output, { recursive: true });
   try {
+    const login = await browser.newPage({ viewport: { width: 1440, height: 960 } });
+    await login.goto(`${base}/login`, { waitUntil: 'networkidle', timeout: 120000 });
+    await expect(login.getByText('v3.2.1', { exact: true })).toBeVisible();
+    await login.screenshot({ path: path.join(output, 'login-321.png'), fullPage: true });
+    console.log(JSON.stringify({ origin: base, hydratedLoginVersion: '3.2.1' }));
+    await login.close();
     for (const width of [1440, 390]) {
       const context = await browser.newContext({ viewport: { width, height: 960 } });
       const user = { id: 'mock-admin', fullName: 'Test Admin', roles: ['ADMIN'], permissions: [], mustChangePassword: false };

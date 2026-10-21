@@ -13,12 +13,15 @@ async function main() {
     const build = payload.data || payload;
     a.equal(build.commit, fs.readFileSync('/release/source.sha', 'utf8').trim());
     a.equal(build.buildId, 'nas-3.2.1');
+    a.equal(build.version, '3.2.1');
     const page = await fetch(`${origin}/login`, { signal: AbortSignal.timeout(30000) });
     a.equal(page.status, 200);
-    a.ok((await page.text()).includes('3.2.1'));
+    // The auth provider returns a loading shell until client hydration.
+    // ui.browser.cjs checks the visible Web version in a real browser.
+    a.ok((await page.text()).includes('/_next/static/'));
     const auth = await fetch(`${origin}/api/v1/contracts/import-existing`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}', signal: AbortSignal.timeout(30000) });
     a.equal(auth.status, 401);
-    checks.push({ origin, ready: 200, build: build.commit, webVersion: '3.2.1', importAuth: 401 });
+    checks.push({ origin, ready: 200, build: build.commit, apiVersion: build.version, login: 200, importAuth: 401 });
   }
   a.equal(await p.building.count({ where: { deletedAt: null } }), 4);
   a.equal(await p.room.count({ where: { deletedAt: null } }), 34);

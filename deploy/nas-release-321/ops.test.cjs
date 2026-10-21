@@ -59,6 +59,34 @@ test('blocks same-version and downgrade deployments', () => {
   a.throws(() => configure('3.2.1'), /version must increase/);
   a.throws(() => configure('3.2.2'), /version must increase/);
 });
+
+test('acceptance permits the login hydration shell but rejects incorrect API identity', async () => {
+  const script = fs.readFileSync(path.join(__dirname, 'verify.cjs'), 'utf8');
+  for (const version of ['3.2.1', '3.2.0']) {
+    const state = { exitCode: 0, env: {} };
+    const output = [];
+    class PrismaClient {
+      building = { count: async () => 4 };
+      room = { count: async () => 34 };
+      $queryRawUnsafe = async () => [{ count: 37 }];
+      $disconnect = async () => {};
+    }
+    await vm.runInNewContext(script, {
+      require: name => name === 'node:assert/strict' ? a : name === 'node:fs'
+        ? { readFileSync: () => 'a'.repeat(40) } : { PrismaClient },
+      process: state, AbortSignal,
+      console: { log: text => output.push(JSON.parse(text)), error: () => {} },
+      fetch: async url => ({
+        status: url.endsWith('/contracts/import-existing') ? 401 : 200,
+        json: async () => ({ data: { version, commit: 'a'.repeat(40), buildId: 'nas-3.2.1' } }),
+        text: async () => '<script src="/_next/static/login.js"></script><div>Loading</div>',
+      }),
+    });
+    a.equal(state.exitCode, version === '3.2.1' ? 0 : 1);
+    a.equal(output.length, version === '3.2.1' ? 1 : 0);
+    if (output.length) a.equal(output[0].checks.length, 2);
+  }
+});
 test('activation never resets schema or volumes and only rolls back before publication', () => {
   const script = fs.readFileSync(path.join(__dirname, 'activate.sh'), 'utf8');
   a.ok(!/down\b|volume rm|migrate deploy|db push|TRUNCATE|DROP TABLE/.test(script));

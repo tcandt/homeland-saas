@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 umask 077
-r=/volume1/docker/homeland/release-322-20261021-r2
+r=/volume1/docker/homeland/release-322-20261021-r3
 d=/usr/local/bin/docker
 node=/var/packages/Node.js_v22/target/usr/local/bin/node
 cd "$r"

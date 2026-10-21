@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
-r=/volume1/docker/homeland/release-322-20261021-r2
+r=/volume1/docker/homeland/release-322-20261021-r3
 d=/usr/local/bin/docker
 name=homeland_322_learning_probe
 image=$(cat "$r/web-image.id")

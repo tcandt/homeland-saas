@@ -1,4 +1,4 @@
-import { expect } from "@playwright/test";
+import { expect, type Page, type Route } from "@playwright/test";
 import { test } from "../../fixtures/admin.fixture";
 
 const sourceContract = {
@@ -25,60 +25,78 @@ const sourceContract = {
   coRepresentatives: [],
 };
 
+async function mockRenewalContractApi(
+  page: Page,
+  onRenew?: (route: Route) => Promise<void>,
+) {
+  await page.route("**/api/v1/contracts**", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const path = url.pathname;
+
+    if (request.method() === "POST" && path.endsWith("/renew")) {
+      if (onRenew) {
+        await onRenew(route);
+        return;
+      }
+      await route.fulfill({
+        status: 500,
+        body: "renewal must be disabled outside its window",
+      });
+      return;
+    }
+
+    if (request.method() === "GET" && path.endsWith("/contracts")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ success: true, data: { items: [sourceContract], total: 1 } }),
+      });
+      return;
+    }
+
+    if (request.method() === "GET" && path.endsWith(`/${sourceContract.id}`)) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ success: true, data: sourceContract }),
+      });
+      return;
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ success: true, data: [] }),
+    });
+  });
+}
+
 test.describe("Contract renewal", () => {
   test("creates a draft successor from the contract drawer with one idempotency key", async ({ admin }) => {
     const renewalRequests: Array<{ body: any; idempotencyKey: string | null }> = [];
 
-    await admin.page.route("**/api/v1/contracts**", async (route) => {
+    await admin.page.clock.setFixedTime(new Date("2026-09-01T10:00:00.000Z"));
+    await mockRenewalContractApi(admin.page, async (route) => {
       const request = route.request();
-      const url = new URL(request.url());
-      const path = url.pathname;
-
-      if (request.method() === "POST" && path.endsWith("/renew")) {
-        renewalRequests.push({
-          body: request.postDataJSON(),
-          idempotencyKey: request.headers()["idempotency-key"] || null,
-        });
-        await route.fulfill({
-          status: 201,
-          contentType: "application/json",
-          body: JSON.stringify({
-            success: true,
-            data: {
-              ...sourceContract,
-              id: "contract-renew-successor",
-              code: "RN-RENEW-001",
-              status: "DRAFT",
-              startDate: "2026-10-01T00:00:00.000Z",
-              endDate: "2027-09-30T00:00:00.000Z",
-            },
-          }),
-        });
-        return;
-      }
-
-      if (request.method() === "GET" && path.endsWith("/contracts")) {
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ success: true, data: { items: [sourceContract], total: 1 } }),
-        });
-        return;
-      }
-
-      if (request.method() === "GET" && path.endsWith(`/${sourceContract.id}`)) {
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ success: true, data: sourceContract }),
-        });
-        return;
-      }
-
+      renewalRequests.push({
+        body: request.postDataJSON(),
+        idempotencyKey: request.headers()["idempotency-key"] || null,
+      });
       await route.fulfill({
-        status: 200,
+        status: 201,
         contentType: "application/json",
-        body: JSON.stringify({ success: true, data: [] }),
+        body: JSON.stringify({
+          success: true,
+          data: {
+            ...sourceContract,
+            id: "contract-renew-successor",
+            code: "RN-RENEW-001",
+            status: "DRAFT",
+            startDate: "2026-10-01T00:00:00.000Z",
+            endDate: "2027-09-30T00:00:00.000Z",
+          },
+        }),
       });
     });
 
@@ -114,5 +132,24 @@ test.describe("Contract renewal", () => {
     });
     await expect(modal).not.toBeVisible();
     await expect(admin.page.getByText("Đã tạo hợp đồng gia hạn ở trạng thái nháp")).toBeVisible();
+  });
+
+  test("disables renewal more than 60 days before the contract expires", async ({ admin }) => {
+    await admin.page.clock.setFixedTime(new Date("2026-07-31T10:00:00.000Z"));
+    await mockRenewalContractApi(admin.page);
+
+    await admin.page.goto("/contracts");
+    const contractCard = admin.page
+      .locator('[data-testid="contract-card"]:visible')
+      .filter({ hasText: "Khach gia han E2E" })
+      .first();
+    await expect(contractCard).toBeVisible();
+    await contractCard.click();
+
+    const drawer = admin.page.getByTestId("contract-detail-drawer");
+    await expect(drawer).toBeVisible();
+    const renewButton = drawer.getByTestId("btn-renew-contract");
+    await expect(renewButton).toBeDisabled();
+    await expect(admin.page.getByTestId("contract-renewal-modal")).not.toBeVisible();
   });
 });

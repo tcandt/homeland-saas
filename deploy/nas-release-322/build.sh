@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 umask 077
-r=/volume1/docker/homeland/release-322-20261021-r2
+r=/volume1/docker/homeland/release-322-20261021-r3
 d=/usr/local/bin/docker
 sha=$1
 archive_hash=$2

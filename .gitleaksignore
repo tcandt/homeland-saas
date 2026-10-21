@@ -1,1 +1,3 @@
 # Fingerprint-only exceptions belong here. Path rules are in .gitleaks.toml.
+# Public SSH key used only to remove temporary authorized_keys entries; not a private credential.
+25ffc456083d965f5aeb9543ca57acea2c920603:deploy/nas-release-326/revoke-key.cjs:generic-api-key:3

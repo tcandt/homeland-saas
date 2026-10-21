@@ -1,6 +1,6 @@
 const fs = require('node:fs');
 const a = require('node:assert/strict');
-const key = 'AAAAC3NzaC1lZDI1NTE5AAAAIGEABPtstPfbQ7uaE0n/WPfpuikfUx2tRC7q/PdjsR88';
+const key = 'AAAAC3NzaC1lZDI1NTE5AAAAIGEABPtstPfbQ7uaE0n/WPfpuikfUx2tRC7q/PdjsR88'; // gitleaks:allow -- public SSH key, used only for revocation
 let removed = 0;
 for (const file of ['/root/.ssh/authorized_keys', '/var/services/homes/tcandt/.ssh/authorized_keys']) {
   if (!fs.existsSync(file)) continue;

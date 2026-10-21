@@ -68,6 +68,9 @@ async function main() {
       }
     }
     const page = await browser.newPage();
+    await page.route('**/api/learning/**', route => route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ samples: [], accepted: 0, rejected: 0 }),
+    }));
     const warnings = [];
     page.on('console', message => { if (message.text().includes('willReadFrequently')) warnings.push(message.text()); });
     await page.goto(`${base}/qr/index.html?embed=true`, { waitUntil: 'load' });

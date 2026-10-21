@@ -18,7 +18,7 @@ import { NotificationChannel } from '../automation/automation.constants';
 import { JournalEntryService } from '../finance/journal-entry.service';
 import { AuditService } from '../shared/audit/audit.service';
 import { buildRoomContext } from '../shared/context/room-context';
-import { createHash, createHmac, timingSafeEqual } from 'crypto';
+import { createHash, createHmac, randomUUID, timingSafeEqual } from 'crypto';
 import { ZaloProvider } from '../communication/providers/communication.providers';
 import { classifySePayWebhookBankAccount } from './sepay-bank-account.policy';
 import { COMBINED_ENTRY_POLICY, getCombinedEntryInvoice } from '../invoices/combined-entry-invoice';
@@ -834,7 +834,7 @@ export class PaymentsService {
       await tx.$queryRaw(
         Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`${tenantId}:${sourceType}:${sourceId}`}, 0))::text AS "lock"`,
       );
-      const existingPending = await tx.paymentRequest.findFirst({
+      let existingPending = await tx.paymentRequest.findFirst({
         where: {
           tenantId,
           sourceType,
@@ -844,6 +844,36 @@ export class PaymentsService {
         orderBy: { createdAt: 'desc' },
       });
       if (existingPending) {
+        // Claim/complete use the same lock. Re-read after acquiring it so a
+        // QR refresh cannot overwrite an in-flight dispatch metadata snapshot.
+        if (sourceType === PaymentSourceType.INVOICE) {
+          await tx.$queryRaw(
+            Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`${tenantId}:invoice-zalo:${existingPending.id}`}, 0))::text AS "lock"`,
+          );
+          existingPending = await tx.paymentRequest.findFirst({
+            where: { tenantId, sourceType, sourceId, status: PaymentRequestStatus.PENDING },
+            orderBy: { createdAt: 'desc' },
+          });
+        }
+        if (!existingPending) throw new ConflictException('PAYMENT_REQUEST_CONCURRENT_UPDATE');
+        const existingMetadata = existingPending.metadata && typeof existingPending.metadata === 'object'
+          ? { ...(existingPending.metadata as Record<string, unknown>) }
+          : {};
+        // A partial payment can leave this pending request representing a new
+        // balance. Its prior QR receipt is no longer the same payload and
+        // must not suppress the revised request.
+        const paymentPayloadChanged =
+          Number(existingPending.amount || 0) !== Number(amount || 0) ||
+          String(existingPending.bankName || '') !== String(bankAccount.bankName || '') ||
+          String(existingPending.bankAccountNumber || '') !== String(bankAccount.accountNumber || '') ||
+          String(existingPending.bankAccountName || '') !== String(bankAccount.accountName || '');
+        if (paymentPayloadChanged) {
+          delete existingMetadata.zaloSentAt;
+          delete existingMetadata.zaloRecipient;
+          delete existingMetadata.zaloDispatchFingerprint;
+          delete existingMetadata.zaloDispatchStartedAt;
+          delete existingMetadata.zaloDispatchClaimId;
+        }
         const qrUrl = this.buildQrUrl({
           bankName: bankAccount.bankName,
           accountNumber: bankAccount.accountNumber,
@@ -864,7 +894,7 @@ export class PaymentsService {
               bankAccountName: bankAccount.accountName,
               qrUrl,
               metadata: {
-                ...((existingPending.metadata as object) || {}),
+                ...existingMetadata,
                 ...(metadata && typeof metadata === 'object' ? metadata : {}),
                 ...roomContext,
                 sepayRoutingSource: resolved.source,
@@ -1072,10 +1102,20 @@ export class PaymentsService {
     const customerPhone = invoice.customer?.phone || '';
     const zaloRecipient = this.resolveZaloRecipient(invoice.customer);
     const request = await this.createInvoiceRequest(invoiceId, userId);
-    const dispatchClaim = options.dedupe
-      ? await this.claimInvoiceZaloDispatch(invoice.tenantId, request.id, zaloRecipient)
-      : 'CLAIMED';
-    if (dispatchClaim !== 'CLAIMED') return request;
+    const requestFingerprint = this.invoiceZaloDispatchFingerprint(request, zaloRecipient);
+    const dispatchClaim = await this.claimInvoiceZaloDispatch(
+      invoice.tenantId,
+      request.id,
+      zaloRecipient,
+      { allowRepeat: !options.dedupe, expectedFingerprint: requestFingerprint },
+    );
+    if (dispatchClaim.status === 'STALE') {
+      throw new ConflictException('QR thanh toán đã thay đổi, vui lòng tải lại và gửi lại.');
+    }
+    if (dispatchClaim.status === 'IN_FLIGHT') {
+      throw new ConflictException('Yêu cầu gửi QR đang được xử lý, chưa xác nhận giao thành công.');
+    }
+    if (dispatchClaim.status !== 'CLAIMED') return request;
     const pendingReviewAmount = await this.getPendingReviewSePayAmountForInvoice(invoice.tenantId, invoice.id);
     const confirmedPaidAmount = Number(invoice.paidAmount || 0) + Number(invoice.creditAmount || 0);
     const receivedOrSettledAmount = confirmedPaidAmount + pendingReviewAmount;
@@ -1146,6 +1186,7 @@ export class PaymentsService {
         templateCode: 'INVOICE_ZALO_PAYMENT_REQUEST',
         recipient: zaloRecipient,
         userId: invoice.customerId,
+        idempotencyKey: this.invoiceZaloQueueKey(invoice.tenantId, request.id, dispatchClaim.fingerprint),
         context: {
           invoiceCode: invoice.code,
           customerName: invoice.customer?.fullName || 'Khách hàng',
@@ -1173,10 +1214,14 @@ export class PaymentsService {
         },
       });
     } catch (error) {
-      if (options.dedupe) await this.releaseInvoiceZaloDispatchClaim(request.id);
+      await this.releaseInvoiceZaloDispatchClaim(invoice.tenantId, request.id, dispatchClaim);
       throw error;
     }
-    await this.markPaymentRequestZaloSent(request.id, zaloRecipient);
+    await this.markPaymentRequestZaloSent(request.id, zaloRecipient, {
+      tenantId: invoice.tenantId,
+      fingerprint: dispatchClaim.fingerprint,
+      claimId: dispatchClaim.claimId,
+    });
     // A payment may already have been received while the operator was
     // preparing this QR. The payment outbox remains blocked until the Zalo
     // request is actually delivered; release it immediately afterwards so the
@@ -1209,29 +1254,40 @@ export class PaymentsService {
     tenantId: string,
     paymentRequestId: string,
     recipient: string,
-  ): Promise<'CLAIMED' | 'ALREADY_SENT' | 'IN_FLIGHT'> {
+    options: { allowRepeat?: boolean; expectedFingerprint?: string } = {},
+  ): Promise<{ status: 'CLAIMED' | 'ALREADY_SENT' | 'IN_FLIGHT' | 'STALE'; fingerprint?: string; claimId?: string }> {
     const now = Date.now();
-    let result: 'CLAIMED' | 'ALREADY_SENT' | 'IN_FLIGHT' = 'CLAIMED';
+    let result: { status: 'CLAIMED' | 'ALREADY_SENT' | 'IN_FLIGHT' | 'STALE'; fingerprint?: string; claimId?: string } = { status: 'CLAIMED' };
     await this.prisma.$transaction(async (tx: any) => {
       await tx.$queryRaw(
         Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`${tenantId}:invoice-zalo:${paymentRequestId}`}, 0))::text AS "lock"`,
       );
       const current = await tx.paymentRequest.findUnique({
         where: { id: paymentRequestId },
-        select: { metadata: true },
+        select: { metadata: true, amount: true, bankName: true, bankAccountNumber: true, bankAccountName: true, paymentCode: true },
       });
       const metadata = current?.metadata && typeof current.metadata === 'object'
         ? { ...(current.metadata as Record<string, unknown>) }
         : {};
-      if (metadata.zaloSentAt) {
-        result = 'ALREADY_SENT';
+      const dispatchFingerprint = this.invoiceZaloDispatchFingerprint(current, recipient);
+      if (options.expectedFingerprint && options.expectedFingerprint !== dispatchFingerprint) {
+        result = { status: 'STALE' };
+        return;
+      }
+      const normalizedRecipient = String(recipient || '').trim();
+      const isLegacyDeliveryForRecipient = metadata.zaloSentAt
+        && !metadata.zaloDispatchFingerprint
+        && String(metadata.zaloRecipient || '').trim() === normalizedRecipient;
+      if (!options.allowRepeat && metadata.zaloSentAt && (metadata.zaloDispatchFingerprint === dispatchFingerprint || isLegacyDeliveryForRecipient)) {
+        result = { status: 'ALREADY_SENT' };
         return;
       }
       const startedAt = Date.parse(String(metadata.zaloDispatchStartedAt || ''));
       if (Number.isFinite(startedAt) && startedAt <= now && now - startedAt < 10 * 60 * 1000) {
-        result = 'IN_FLIGHT';
+        result = { status: 'IN_FLIGHT' };
         return;
       }
+      const claimId = randomUUID();
       await tx.paymentRequest.update({
         where: { id: paymentRequestId },
         data: {
@@ -1239,28 +1295,38 @@ export class PaymentsService {
             ...metadata,
             zaloDispatchStartedAt: new Date(now).toISOString(),
             zaloRecipient: String(recipient || '').trim() || null,
+            zaloDispatchFingerprint: dispatchFingerprint,
+            zaloDispatchClaimId: claimId,
           },
         },
       });
+      result = { status: 'CLAIMED', fingerprint: dispatchFingerprint, claimId };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     return result;
   }
 
-  private async releaseInvoiceZaloDispatchClaim(paymentRequestId: string) {
+  private async releaseInvoiceZaloDispatchClaim(
+    tenantId: string,
+    paymentRequestId: string,
+    claim: { fingerprint?: string; claimId?: string },
+  ) {
+    if (!claim.fingerprint || !claim.claimId) return false;
     const paymentRequestModel = (this.prisma as any).paymentRequest;
-    if (!paymentRequestModel?.findUnique || !paymentRequestModel?.update) return;
-    const current = await paymentRequestModel.findUnique({
-      where: { id: paymentRequestId },
-      select: { metadata: true },
-    });
-    const metadata = current?.metadata && typeof current.metadata === 'object'
-      ? { ...(current.metadata as Record<string, unknown>) }
-      : {};
-    delete metadata.zaloDispatchStartedAt;
-    await paymentRequestModel.update({
-      where: { id: paymentRequestId },
-      data: { metadata },
-    });
+    if (!paymentRequestModel?.findUnique || !paymentRequestModel?.update) return false;
+    return this.prisma.$transaction(async (tx: any) => {
+      await tx.$queryRaw(
+        Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`${tenantId}:invoice-zalo:${paymentRequestId}`}, 0))::text AS "lock"`,
+      );
+      const current = await tx.paymentRequest.findUnique({ where: { id: paymentRequestId }, select: { metadata: true } });
+      const metadata = current?.metadata && typeof current.metadata === 'object'
+        ? { ...(current.metadata as Record<string, unknown>) }
+        : {};
+      if (metadata.zaloDispatchFingerprint !== claim.fingerprint || metadata.zaloDispatchClaimId !== claim.claimId) return false;
+      delete metadata.zaloDispatchStartedAt;
+      delete metadata.zaloDispatchClaimId;
+      await tx.paymentRequest.update({ where: { id: paymentRequestId }, data: { metadata } });
+      return true;
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
   private async getPendingReviewSePayAmountForInvoice(tenantId: string, invoiceId: string) {
@@ -1424,12 +1490,49 @@ export class PaymentsService {
     return request;
   }
 
-  private async markPaymentRequestZaloSent(paymentRequestId: string, recipient: string) {
+  private async markPaymentRequestZaloSent(
+    paymentRequestId: string,
+    recipient: string,
+    expectedClaim?: { tenantId: string; fingerprint?: string; claimId?: string },
+  ) {
     const paymentRequestModel = (this.prisma as any).paymentRequest;
-    if (!paymentRequestModel?.findUnique || !paymentRequestModel?.update) return;
+    if (!paymentRequestModel?.findUnique || !paymentRequestModel?.update) return false;
+    if (expectedClaim?.fingerprint && expectedClaim.claimId) {
+      return this.prisma.$transaction(async (tx: any) => {
+        await tx.$queryRaw(
+          Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`${expectedClaim.tenantId}:invoice-zalo:${paymentRequestId}`}, 0))::text AS "lock"`,
+        );
+        const current = await tx.paymentRequest.findUnique({ where: { id: paymentRequestId }, select: { metadata: true } });
+        const metadata = current?.metadata && typeof current.metadata === 'object'
+          ? { ...(current.metadata as Record<string, unknown>) }
+          : {};
+        if (metadata.zaloDispatchFingerprint !== expectedClaim.fingerprint || metadata.zaloDispatchClaimId !== expectedClaim.claimId) return false;
+        delete metadata.zaloDispatchClaimId;
+        await tx.paymentRequest.update({
+          where: { id: paymentRequestId },
+          data: {
+            metadata: {
+              ...metadata,
+              zaloDispatchStartedAt: null,
+              zaloSentAt: new Date().toISOString(),
+              zaloRecipient: String(recipient || '').trim() || null,
+              zaloDispatchFingerprint: expectedClaim.fingerprint,
+            },
+          },
+        });
+        return true;
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    }
     const current = await paymentRequestModel.findUnique({
       where: { id: paymentRequestId },
-      select: { metadata: true },
+      select: {
+        metadata: true,
+        amount: true,
+        bankName: true,
+        bankAccountNumber: true,
+        bankAccountName: true,
+        paymentCode: true,
+      },
     });
     const metadata =
       current?.metadata && typeof current.metadata === 'object'
@@ -1443,9 +1546,26 @@ export class PaymentsService {
           zaloDispatchStartedAt: null,
           zaloSentAt: new Date().toISOString(),
           zaloRecipient: String(recipient || '').trim() || null,
+          zaloDispatchFingerprint: this.invoiceZaloDispatchFingerprint(current, recipient),
         },
       },
     });
+    return true;
+  }
+
+  private invoiceZaloDispatchFingerprint(request: any, recipient: string) {
+    return JSON.stringify({
+      recipient: String(recipient || '').trim(),
+      amount: Number(request?.amount || 0),
+      bankName: String(request?.bankName || '').trim(),
+      bankAccountNumber: String(request?.bankAccountNumber || '').trim(),
+      bankAccountName: String(request?.bankAccountName || '').trim(),
+      paymentCode: String(request?.paymentCode || '').trim(),
+    });
+  }
+
+  private invoiceZaloQueueKey(tenantId: string, paymentRequestId: string, fingerprint?: string) {
+    return `invoice-zalo:${tenantId}:${paymentRequestId}:${fingerprint || 'unknown'}`;
   }
 
   async getRequest(id: string, tenantId: string) {

@@ -352,17 +352,48 @@ export class DepositCoreService {
         holdId: hold?.id || null,
         adminTaskId: adminTask?.id || null,
       };
+      const [notificationCustomer, notificationRoom, notificationCycle] = await Promise.all([
+        tx.customer.findFirst({
+          where: { id: deposit.customerId, tenantId, deletedAt: null },
+          select: { fullName: true, phone: true, zaloChatId: true, zaloUserId: true },
+        }),
+        tx.room.findFirst({
+          where: { id: deposit.roomId, tenantId, deletedAt: null },
+          select: { code: true, name: true, rentalType: true, building: { select: { name: true, code: true } } },
+        }),
+        tx.rentalCycle.findFirst({
+          where: { id: rentalCycleId, tenantId },
+          select: { expectedMoveInAt: true },
+        }),
+      ]);
       await this.enqueueOutbox(tx, tenantId, operation.id, 'deposit.created', {
         tenantId,
         userId,
         customerId: deposit.customerId,
+        customerName: notificationCustomer?.fullName || null,
+        customerPhone: notificationCustomer?.phone || null,
+        customerZaloChatId: notificationCustomer?.zaloChatId || null,
+        customerZaloUserId: notificationCustomer?.zaloUserId || null,
         roomId: deposit.roomId,
+        roomCode: notificationRoom?.code || notificationRoom?.name || null,
+        buildingName: notificationRoom?.building?.name || notificationRoom?.building?.code || null,
         rentalCycleId,
         sourceId: deposit.id,
         sourceType: 'DEPOSIT',
         amount: this.toMoney(deposit.amount),
+        bookingHoldUntil: hold?.expiresAt ? new Date(hold.expiresAt).toISOString() : null,
+        expectedMoveInDate: notificationCycle?.expectedMoveInAt
+          ? new Date(notificationCycle.expectedMoveInAt).toISOString()
+          : null,
         occurredAt: new Date().toISOString(),
-        metadata: { code: deposit.code, operationId: operation.id },
+        metadata: {
+          code: deposit.code,
+          operationId: operation.id,
+          bookingHoldUntil: hold?.expiresAt ? new Date(hold.expiresAt).toISOString() : null,
+          expectedMoveInDate: notificationCycle?.expectedMoveInAt
+            ? new Date(notificationCycle.expectedMoveInAt).toISOString()
+            : null,
+        },
       });
       await this.completeOperation(tx, tenantId, operation.id, response);
       await this.writeAudit(tx, tenantId, userId, 'CREATE', deposit.id, null, response);
@@ -594,6 +625,7 @@ export class DepositCoreService {
         endDate: deposit.contract?.endDate
           ? new Date(deposit.contract.endDate).toISOString()
           : null,
+        bookingHoldUntil: hold?.expiresAt ? new Date(hold.expiresAt).toISOString() : null,
         occurredAt: new Date().toISOString(),
         metadata: {
           code: deposit.code,
@@ -605,6 +637,7 @@ export class DepositCoreService {
           sourceInvoiceId: command.input.notificationContext?.sourceInvoiceId || null,
           bookingInvoiceInstallment: bookingInstallment,
           paymentId: command.input.notificationContext?.paymentId || null,
+          bookingHoldUntil: hold?.expiresAt ? new Date(hold.expiresAt).toISOString() : null,
         },
       });
       await this.completeOperation(tx, tenantId, operation.id, response);

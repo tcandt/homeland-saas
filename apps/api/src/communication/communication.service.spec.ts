@@ -44,6 +44,7 @@ describe('CommunicationService', () => {
       },
       notification: {
         create: vi.fn().mockResolvedValue(notification),
+        findFirst: vi.fn(),
         update: vi.fn(),
         findMany: vi.fn().mockResolvedValue([
           { id: notification.id, title: 'Pay now', message: 'Please scan QR', type: 'INVOICE_ZALO_PAYMENT_REQUEST', userId: 'customer-1', createdAt: new Date() },
@@ -60,6 +61,7 @@ describe('CommunicationService', () => {
       notificationDelivery: {
         create: vi.fn(),
       },
+      $queryRaw: vi.fn().mockResolvedValue([{ lock: 'ok' }]),
       $transaction: vi.fn(async (callback) => callback({
         notificationTemplate: {
           upsert: vi.fn(),
@@ -144,6 +146,30 @@ describe('CommunicationService', () => {
     }));
   });
 
+  it('reuses one durable queue item for a repeated workflow recipient identity', async () => {
+    const prisma = createPrismaMock();
+    prisma.$transaction.mockImplementation(async (work: any) => work(prisma));
+    prisma.notification.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: 'notif-1', tenantId: 'tenant-1', userId: 'customer-1', channel: NotificationChannel.ZALO });
+    const service = new CommunicationService(prisma as any);
+    const payload = {
+      tenantId: 'tenant-1', userId: 'customer-1', channel: NotificationChannel.ZALO,
+      recipient: 'zalo-user-1', templateCode: 'INVOICE_ZALO_PAYMENT_CONFIRMATION',
+      idempotencyKey: 'workflow-zalo:outbox-1:invoice.paid:SEND_PAYMENT_CONFIRMATION_ZALO:zalo-user-1',
+      context: { title: 'Đã nhận thanh toán', message: 'Thanh toán đã được ghi nhận', customerName: 'Khách A', paymentStatusLabel: 'Đã thu đủ' },
+    };
+
+    const first = await service.dispatch(payload);
+    const second = await service.dispatch(payload);
+
+    expect(first).toEqual({ notificationId: 'notif-1', queueIds: ['queue-1'] });
+    expect(second).toEqual({ notificationId: 'notif-1', queueIds: ['queue-1'] });
+    expect(prisma.notification.create).toHaveBeenCalledTimes(1);
+    expect(prisma.notificationQueue.create).toHaveBeenCalledTimes(1);
+    expect(prisma.notification.create.mock.calls[0][0].data.metadata).toMatchObject({ dispatchId: payload.idempotencyKey });
+  });
+
   it('uses the built-in payment confirmation template when tenant template is missing', async () => {
     const prisma = createPrismaMock();
     prisma.notificationTemplate.findUnique.mockResolvedValueOnce(null);
@@ -173,6 +199,35 @@ describe('CommunicationService', () => {
         message: expect.stringContaining('Đã thu đủ qua VietQR'),
       }),
     });
+  });
+
+  it('renders payment method and booking-hold expiry in the default admin payment template', async () => {
+    const prisma = createPrismaMock();
+    prisma.notificationTemplate.findUnique.mockResolvedValueOnce(null);
+    const service = new CommunicationService(prisma as any);
+    service.registerProvider({ channel: NotificationChannel.ZALO, send: vi.fn().mockResolvedValue({ ok: true }) });
+
+    await service.dispatchDirect({
+      tenantId: 'tenant-1',
+      channel: NotificationChannel.ZALO,
+      recipient: 'admin-group-1',
+      templateCode: 'ADMIN_INVOICE_PAID',
+      context: {
+        customerName: 'Khách A',
+        roomAndBuilding: 'P.101 - Tòa A',
+        headline: '✅ THANH TOÁN',
+        primaryValue: '2.000.000 đ',
+        secondaryValue: 'Hóa đơn đã thanh toán đủ.\nPhương thức: tiền mặt\nHạn giữ phòng: 02/11/2026',
+        action: '',
+      },
+    });
+
+    expect(prisma.notification.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        message: expect.stringContaining('Phương thức: tiền mặt'),
+      }),
+    });
+    expect(prisma.notification.create.mock.calls[0][0].data.message).toContain('Hạn giữ phòng: 02/11/2026');
   });
 
   it('reuses a workflow-created payment notification identified by legacy paymentId metadata', async () => {
@@ -558,6 +613,29 @@ describe('CommunicationService', () => {
         },
       }),
     ).rejects.toThrow('Zalo unavailable');
+  });
+
+  it('reuses the same direct-dispatch queue after a provider failure', async () => {
+    const prisma = createPrismaMock();
+    prisma.$transaction.mockImplementation(async (work: any) => work(prisma));
+    prisma.notification.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: 'notif-1', tenantId: 'tenant-1', channel: NotificationChannel.ZALO, type: 'INVOICE_ZALO_PAYMENT_REQUEST' });
+    prisma.notificationQueue.findMany.mockResolvedValue([{ id: 'queue-1', status: 'FAILED', error: 'Zalo unavailable' }]);
+    const service = new CommunicationService(prisma as any);
+    service.registerProvider({ channel: NotificationChannel.ZALO, send: vi.fn().mockRejectedValue(new Error('Zalo unavailable')) });
+    const payload = {
+      tenantId: 'tenant-1', userId: 'customer-1', channel: NotificationChannel.ZALO,
+      recipient: 'zalo-user-1', templateCode: 'INVOICE_ZALO_PAYMENT_REQUEST',
+      idempotencyKey: 'invoice-zalo:tenant-1:request-1:fingerprint-1',
+      context: { title: 'Pay now', message: 'Please scan QR' },
+    };
+
+    await expect(service.dispatchDirect(payload)).rejects.toThrow('Zalo unavailable');
+    await expect(service.dispatchDirect(payload)).rejects.toThrow('Zalo unavailable');
+
+    expect(prisma.notification.create).toHaveBeenCalledTimes(1);
+    expect(prisma.notificationQueue.create).toHaveBeenCalledTimes(1);
   });
 
   it('does not send when another worker already claimed the queue item', async () => {

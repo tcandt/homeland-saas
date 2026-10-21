@@ -868,7 +868,17 @@ describe('DepositCoreService', () => {
 
   it('creates a deposit rental cycle operation and outbox event atomically', async () => {
     const { tx, service } = createHarness();
-    tx.rentalCycle.findFirst.mockResolvedValue(null);
+    tx.customer.findFirst.mockResolvedValue({
+      id: 'customer-1', roomId: null, fullName: 'Khách cọc', phone: '0901000001', zaloChatId: 'chat-1', zaloUserId: null,
+    });
+    tx.room.findFirst.mockResolvedValue({
+      id: 'room-1', tenantId: 'tenant-1', code: 'PN 31-02', name: 'PN 31-02', rentalType: RoomRentalType.WHOLE,
+      capacity: 1, status: 'AVAILABLE', building: { name: 'Tòa LK01-31', code: 'LK01-31' },
+    });
+    tx.roomHold.create.mockResolvedValue({ id: 'hold-1', expiresAt: new Date('2026-11-01T16:59:59.000Z') });
+    tx.rentalCycle.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ expectedMoveInAt: new Date('2026-11-01T00:00:00.000Z') });
     tx.deposit.create.mockResolvedValue({
       id: 'deposit-1',
       tenantId: 'tenant-1',
@@ -920,6 +930,13 @@ describe('DepositCoreService', () => {
       data: expect.objectContaining({
         eventName: 'deposit.created',
         idempotencyKey: 'deposit-operation:operation-1:deposit.created',
+        payload: expect.objectContaining({
+          customerName: 'Khách cọc',
+          roomCode: 'PN 31-02',
+          buildingName: 'Tòa LK01-31',
+          bookingHoldUntil: '2026-11-01T16:59:59.000Z',
+          expectedMoveInDate: '2026-11-01T00:00:00.000Z',
+        }),
       }),
     }));
     expect(tx.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({

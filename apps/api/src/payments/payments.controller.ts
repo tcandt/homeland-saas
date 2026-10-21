@@ -23,7 +23,7 @@ export class PaymentsController {
   @RequirePermissions('invoice.update')
   @ApiOperation({ summary: 'Send invoice QR to customer via Zalo' })
   sendInvoiceToZalo(@Param('invoiceId') invoiceId: string, @CurrentUser('id') userId: string) {
-    return this.paymentsService.sendInvoiceRequestToZalo(invoiceId, userId);
+    return this.paymentsService.sendInvoiceRequestToZalo(invoiceId, userId, { dedupe: true });
   }
 
   @Post('deposits/:depositId/request')

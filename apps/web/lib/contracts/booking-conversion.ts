@@ -42,9 +42,24 @@ export const BOOKING_CONVERTED_LABEL = "Đã chuyển sang hợp đồng thuê d
 export function getBookingDepositRefreshInterval(deposit: any, paymentRequest = deposit?.paymentRequest): number | false {
   return ["BOOKING", "RESERVATION"].includes(String(deposit?.type || "").toUpperCase()) &&
     ["DRAFT", "PENDING"].includes(String(deposit?.status || "").toUpperCase()) &&
-    ["PENDING", "CONFIRMED"].includes(String(paymentRequest?.status || "").toUpperCase())
+    (!paymentRequest || ["PENDING", "CONFIRMED"].includes(String(paymentRequest?.status || "").toUpperCase()))
     ? 5000
     : false;
+}
+
+export function getBookingCollectionProgress(source: any) {
+  const invoice = source?.bookingInvoice;
+  const status = String(source?.status || "").toUpperCase();
+  const amount = Number(source?.amount);
+  const paid = Number(invoice?.paidAmount);
+  const remaining = Number(invoice?.remainingAmount);
+  const fullyCollected = ["PAID", "CONVERTED_TO_CONTRACT"].includes(status) &&
+    (!invoice?.id || (Number.isFinite(amount) && amount > 0 &&
+      Number.isFinite(paid) && paid >= amount && remaining === 0));
+  return {
+    fullyCollected,
+    qrSent: Boolean(source?.paymentRequest?.metadata?.zaloSentAt),
+  };
 }
 
 /** Presentation only: cash received and invoice settlement are distinct values from CORE. */

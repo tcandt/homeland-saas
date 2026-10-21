@@ -1119,6 +1119,24 @@ describe("InvoicesService", () => {
       );
     });
 
+    it("flushes only the new cash-payment event and its pending issue dependency after commit", async () => {
+      const invoice = {
+        id: "inv-flush-1", code: "INV-FLUSH-1", status: InvoiceStatus.ISSUED, billingKind: "ENTRY",
+        total: 100, paidAmount: 0, creditAmount: 0, tenantId: "tenant-1", customer: {}, contract: null,
+      };
+      mockPaymentTarget(invoice);
+      prisma.tx.payment.create.mockResolvedValue({ id: "pay-flush-1", paidAt: new Date("2026-10-21T01:00:00.000Z") });
+      prisma.tx.outboxEvent.findMany.mockResolvedValue([{ id: "invoice-issued-1" }]);
+      const outboxPublisher = { drain: vi.fn().mockResolvedValue({ claimed: 1, published: 1, failed: 0 }) };
+      (service as any).depositOutboxPublisher = outboxPublisher;
+
+      await service.pay(invoice.id, 100, "MANUAL", "cash-flush-1", "user-1", "tenant-1");
+
+      expect(outboxPublisher.drain).toHaveBeenCalledWith(2, {
+        eventIds: ["invoice-issued-1", "outbox-1"],
+      });
+    });
+
     it("uses invoice credit in remaining balance", async () => {
       const invoice = {
         id: "inv-credit-1",

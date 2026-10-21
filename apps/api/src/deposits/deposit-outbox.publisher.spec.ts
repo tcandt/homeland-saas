@@ -89,4 +89,16 @@ describe('DepositOutboxPublisher', () => {
     expect(statement).toContain("request.\"providerTransactionId\" = event.\"payload\"->>'paymentRef'");
     expect(statement).toContain("request.\"metadata\"->>'zaloSentAt'");
   });
+
+  it('limits an immediate drain to the committed event ids', async () => {
+    const { tx, prisma, service } = createHarness();
+
+    await service.drain(2, { eventIds: ['invoice-issued-1', 'invoice-paid-1'] });
+
+    expect(prisma.outboxEvent.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: { in: ['invoice-issued-1', 'invoice-paid-1'] } }),
+    }));
+    const statement = (tx.$queryRaw.mock.calls[0][0] as any).strings.join('');
+    expect(statement).toContain('event."id" IN');
+  });
 });

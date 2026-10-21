@@ -168,6 +168,7 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         order: 1,
         params: {
           templateCode: 'INVOICE_ZALO_PAYMENT_CONFIRMATION',
+          continueOnError: true,
         },
       },
       {
@@ -211,6 +212,7 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
         order: 1,
         params: {
           templateCode: 'INVOICE_ZALO_PARTIAL_PAYMENT_CONFIRMATION',
+          continueOnError: true,
         },
       },
       {

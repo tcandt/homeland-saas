@@ -1,0 +1,101 @@
+const test = require('node:test');
+const a = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+const source = fs.readFileSync(path.join(__dirname, 'config.cjs'), 'utf8');
+const digest = character => `sha256:${character.repeat(64)}`;
+function configure(oldVersion = '3.2.2') {
+  const root = '/volume1/docker/homeland/release-323-20261021';
+  const sha = 'a'.repeat(40);
+  const policy = { APP_VERSION: oldVersion, DATABASE_URL: 'postgresql://preserved',
+    CUSTOM_SETTING: 'preserved', COMMUNICATION_IMMEDIATE_DELIVERY: 'true', RUN_DB_MIGRATIONS: 'false', SYSTEM_BACKUP_ENABLED: 'false',
+    SYSTEM_UPDATE_ALLOW_SWITCH: 'false', ALLOW_REGISTRATION: 'false',
+    DISABLE_SCHEDULED_JOBS: 'true', DISABLE_DEPOSIT_OUTBOX: 'true' };
+  const row = (image, environment) => ({ Image: image, State: { Status: 'running' },
+    Config: { Labels: { 'com.docker.compose.project': 'homeland_checkout_87aa2457' },
+      Env: Object.entries(environment).map(([key, value]) => `${key}=${value}`) } });
+  const oldApi = 'sha256:93b14189378d6465ca9bc5a9128ae82120f631d964c3a2d187a919b10d59906c';
+  const oldWeb = 'sha256:bb5cdc390825f7b5bd638f9ba9e4f9ef0a1182e2ae6fd35a65ebd783eefcda08';
+  const rows = { live_api: row(oldApi, policy), live_worker: row(oldApi, policy), live_web: row(oldWeb, policy),
+    [digest('b')]: row(digest('b'), { APP_VERSION: '3.2.3', COMMIT_SHA: sha, BUILD_ID: 'nas-3.2.3', BUILD_TIME: 'time' }),
+    [digest('c')]: row(digest('c'), { APP_VERSION: '3.2.3', COMMIT_SHA: sha, BUILD_ID: 'nas-3.2.3', BUILD_TIME: 'time' }) };
+  const compose = { name: 'homeland_checkout_87aa2457', services: {
+    api: { container_name: 'live_api', volumes: ['storage:/app/storage'] },
+    notification_worker: { container_name: 'live_worker', volumes: ['storage:/app/storage'] },
+    web: { container_name: 'live_web', ports: ['127.0.0.1:3002:3000'] },
+    postgres: { image: digest('d'), volumes: ['database:/var/lib/postgresql/data'] },
+    redis: { image: digest('e') },
+  }, volumes: { database: { external: true, name: 'existing-db' }, storage: { external: true, name: 'existing-storage' } } };
+  const writes = new Map();
+  const files = { [`${root}/source.sha`]: sha, [`${root}/api-image.id`]: digest('b'), [`${root}/web-image.id`]: digest('c'),
+    '/volume1/docker/homeland/release-4fc77db1/checkout-87aa2457/compose.private.json': JSON.stringify(compose) };
+  vm.runInNewContext(source, { structuredClone, console: { log() {} }, require(name) {
+    if (name === 'node:assert/strict') return a;
+    if (name === 'node:fs') return { readFileSync(file) { a.ok(file in files, file); return files[file]; },
+      writeFileSync(file, value, options) { a.equal(options.flag, 'wx'); a.equal(options.mode, 0o600); writes.set(file, value); } };
+    if (name === 'node:child_process') return { execFileSync(binary, args) {
+      a.equal(binary, '/usr/local/bin/docker'); a.equal(args[0], 'inspect'); a.ok(rows[args[1]]); return JSON.stringify([rows[args[1]]]);
+    } };
+    throw new Error(name);
+  } });
+  return { original: compose, candidate: JSON.parse(writes.get(`${root}/compose.private.json`)),
+    rollback: JSON.parse(writes.get(`${root}/rollback.private.json`)),
+    audit: JSON.parse(writes.get(`${root}/docker-compose.audit.yml`)) };
+}
+test('changes only application images and build identity, preserving live settings and volumes', () => {
+  const { original, candidate, rollback, audit } = configure();
+  a.deepEqual(candidate.volumes, original.volumes);
+  for (const name of ['postgres', 'redis']) a.deepEqual(candidate.services[name], original.services[name]);
+  for (const name of ['api', 'notification_worker', 'web']) {
+    a.equal(candidate.services[name].environment.DATABASE_URL, 'postgresql://preserved');
+    a.equal(candidate.services[name].environment.CUSTOM_SETTING, 'preserved');
+    a.equal(candidate.services[name].environment.APP_VERSION, '3.2.3');
+    a.equal(rollback.services[name].environment.APP_VERSION, '3.2.2');
+    a.ok(Object.values(audit.services[name].environment).every(value => value === 'REDACTED'));
+  }
+});
+test('blocks same-version and downgrade deployments', () => {
+  a.throws(() => configure('3.2.3'), /version must increase/);
+  a.throws(() => configure('3.2.4'), /version must increase/);
+});
+
+test('acceptance permits the login hydration shell but rejects incorrect API identity', async () => {
+  const script = fs.readFileSync(path.join(__dirname, 'verify.cjs'), 'utf8');
+  for (const version of ['3.2.3', '3.2.2']) {
+    const state = { exitCode: 0, env: {} };
+    const output = [];
+    class PrismaClient {
+      building = { count: async () => 4 };
+      room = { count: async () => 34 };
+      $queryRawUnsafe = async () => [{ count: 37 }];
+      $disconnect = async () => {};
+    }
+    await vm.runInNewContext(script, {
+      require: name => name === 'node:assert/strict' ? a : name === 'node:fs'
+        ? { readFileSync: () => 'a'.repeat(40) } : { PrismaClient },
+      process: state, AbortSignal,
+      console: { log: text => output.push(JSON.parse(text)), error: () => {} },
+      fetch: async url => ({
+        status: url.endsWith('/contracts/import-existing') ? 401 : 200,
+        json: async () => ({ data: { version, commit: 'a'.repeat(40), buildId: 'nas-3.2.3' } }),
+        text: async () => '<script src="/_next/static/login.js"></script><div>Loading</div>',
+      }),
+    });
+    a.equal(state.exitCode, version === '3.2.3' ? 0 : 1);
+    a.equal(output.length, version === '3.2.3' ? 1 : 0);
+    if (output.length) a.equal(output[0].checks.length, 2);
+  }
+});
+test('activation never resets schema or volumes and only rolls back before publication', () => {
+  const script = fs.readFileSync(path.join(__dirname, 'activate.sh'), 'utf8');
+  a.ok(!/down\b|volume rm|migrate deploy|db push|TRUNCATE|DROP TABLE/.test(script));
+  a.ok(script.includes('pg_dump'));
+  a.ok(script.includes('test "$published" = false'));
+  a.ok(script.indexOf('published=true') < script.indexOf('up -d --no-deps web'));
+  a.ok(script.indexOf('chmod 600 before-update.private.dump') < script.indexOf('pg_dump'));
+  a.ok(script.includes('while test "$attempt" -lt 2'));
+  a.ok(script.indexOf('sha256sum -c configuration-audit.sha') < script.indexOf('compose stop'));
+  const build = fs.readFileSync(path.join(__dirname, 'build.sh'), 'utf8');
+  a.ok(build.includes('get-tar-commit-id < source.tar'));
+});

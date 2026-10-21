@@ -49,6 +49,7 @@ import {
 } from "@/lib/queries/payments.queries";
 import { useDeleteInvoiceMutation } from "@/lib/mutations/invoices.mutations";
 import { getInvoiceFinancials, getInvoicePaymentPresentation } from "@/lib/invoices/invoice-financials";
+import { getInvoicePaymentHistory } from "@/lib/invoices/invoice-payment-history";
 import { getTenantAvatar } from "../tenants/TenantDetailDrawer";
 import { settingsApi } from "@/lib/api/settings.api";
 import toast from "react-hot-toast";
@@ -424,10 +425,9 @@ function OperationsBillingModalContent({
         await sendZaloMutation.mutateAsync(invoice.id);
       }
       toast.success(`Đã gửi thông báo hóa đơn kèm link thanh toán qua Zalo cho ${customerName}!`);
-    } catch {
-      const text = `Hóa đơn ${invoiceCode} phòng ${roomNumber}: Cần thanh toán ${formatVnd(amountToPay)}. Chuyển khoản với cú pháp: ${transferMemo}`;
-      navigator.clipboard.writeText(text);
-      toast.success(`Đã sao chép thông tin hóa đơn để gửi Zalo cho ${customerName}!`);
+      void detailQuery.refetch();
+    } catch (error: any) {
+      toast.error(error?.message || "Chưa gửi được hóa đơn qua Zalo. Vui lòng kiểm tra kết nối và tài khoản Zalo của khách.");
     } finally {
       setIsSendingZalo(false);
     }
@@ -498,11 +498,10 @@ function OperationsBillingModalContent({
     : [];
 
   const bankBadge = getBankBadge(activeBank.bankName);
-  const confirmedPayment = Array.isArray(invoice.payments)
-    ? invoice.payments.find((payment: any) => payment?.status === "CONFIRMED")
-    : undefined;
-  const paymentMethod = confirmedPayment?.provider || invoice.paymentMethod || "Chưa ghi nhận";
-  const paidAt = confirmedPayment?.paidAt || activeRequest?.paidAt;
+  const paymentHistory = getInvoicePaymentHistory(invoice);
+  const lastPayment = paymentHistory.at(-1);
+  const paymentMethod = lastPayment?.method || invoice.paymentMethod || "Chưa ghi nhận";
+  const paidAt = lastPayment?.paidAt || activeRequest?.paidAt;
 
   // Direct print without preview modal
   const handleDirectPrint = () => {
@@ -568,7 +567,7 @@ function OperationsBillingModalContent({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 md:p-6 overflow-y-auto">
+    <div className="fixed inset-0 z-[10050] flex items-center justify-center p-2 sm:p-4 md:p-6 overflow-y-auto">
       {/* Backdrop */}
       <div
         className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity animate-in fade-in duration-200"
@@ -1130,7 +1129,19 @@ function OperationsBillingModalContent({
                     </div>
                   </div>
 
-                  {/* Event 2: Thanh toán */}
+                  {activeRequest?.metadata?.zaloSentAt && (
+                    <div className="pb-3 pl-8 text-[11px] text-muted" data-testid="invoice-zalo-delivered">
+                      <div>{formatDateTime(String(activeRequest.metadata.zaloSentAt))}</div>
+                      <div className="font-semibold text-text">Đã gửi yêu cầu thanh toán qua Zalo</div>
+                    </div>
+                  )}
+                  {paymentHistory.map((payment) => (
+                    <div key={payment.id} className="pb-3 pl-8 text-[11px] text-muted" data-testid="invoice-payment-event">
+                      <div>{payment.paidAt ? formatDateTime(payment.paidAt) : "Chưa có thời điểm xác nhận"}</div>
+                      <div className="font-semibold text-emerald-700 dark:text-emerald-400">Đã nhận {formatVnd(payment.amount)} · {payment.method}</div>
+                    </div>
+                  ))}
+                  {/* Payment summary does not replace individual confirmed receipts. */}
                   <div className="flex gap-3 relative">
                     <div className="flex flex-col items-center shrink-0">
                       <div className="flex h-5 w-5 items-center justify-center relative">

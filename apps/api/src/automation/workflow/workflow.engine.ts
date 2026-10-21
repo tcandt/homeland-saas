@@ -252,14 +252,16 @@ export class WorkflowEngine {
           this.logger.warn('Skipping customer Zalo notification because customer Zalo chat/user id is missing');
           break;
         }
-        await this.communicationService.dispatchDirect({
+        const queued = await this.communicationService.dispatch({
           tenantId: payload.tenantId,
           channel: 'ZALO' as any,
           templateCode: params?.templateCode || 'SYSTEM_ALERT',
           recipient,
           userId: payload.customerId || null,
+          idempotencyKey: this.workflowZaloQueueKey(payload, eventName, type, recipient),
           context: this.buildZaloEventTemplateContext(payload, params, eventName),
         });
+        if (!queued?.queueIds?.length) throw new Error('ZALO_NOTIFICATION_NOT_QUEUED');
         break;
       }
       case 'SEND_PAYMENT_CONFIRMATION_ZALO':
@@ -280,17 +282,17 @@ export class WorkflowEngine {
         }
         const zaloRecipient = String(customerZalo.chatId || customerZalo.userId || '').trim();
         if (zaloRecipient) {
-          try {
             const roomContext = buildRoomContext(payload.room || payload.contract?.room, payload.contract);
             const collectedAmount = Number(payload.paidAmount ?? payload.amount ?? 0);
             const remainingAmount = this.resolveRemainingAmount(payload);
             const paymentAmount = Number(payload.paymentAmount ?? payload.amount ?? 0);
-            const result = await this.communicationService.dispatchDirect({
+            const result = await this.communicationService.dispatch({
               tenantId: payload.tenantId,
               channel: 'ZALO' as any,
               templateCode: params?.templateCode || 'PAYMENT_ZALO_CONFIRMATION',
               recipient: zaloRecipient,
               userId: payload.customerId || payload.userId || null,
+              idempotencyKey: this.workflowZaloQueueKey(payload, eventName, type, zaloRecipient),
               context: {
                 ...roomContext,
                 ...payload,
@@ -303,15 +305,10 @@ export class WorkflowEngine {
                 remainingAmount,
               },
             });
-            if (!result) {
-              this.logger.warn(`Payment Zalo notification was not queued for ${payload.metadata?.code || payload.sourceId || '-'}`);
-            }
-          } catch (error: any) {
-            this.logger.error(
-              `Payment Zalo notification failed for ${payload.metadata?.code || payload.sourceId || '-'}: ${error?.message || error}`,
-            );
-          }
+            if (!result?.queueIds?.length) throw new Error('ZALO_PAYMENT_NOTIFICATION_NOT_QUEUED');
         } else {
+          // No recipient is a data-completeness condition, not a provider
+          // delivery attempt. Direct operator sends return a typed 400 above.
           this.logger.warn('Skipping Zalo payment confirmation because customer Zalo chat/user id is missing');
         }
         break;
@@ -332,12 +329,13 @@ export class WorkflowEngine {
         try {
           const templateCode = this.resolveAdminZaloTemplateCode(payload, params, eventName);
           const templateParams = { ...params, templateCode };
-          await this.communicationService.dispatchDirect({
+          const queued = await this.communicationService.dispatch({
             tenantId: payload.tenantId,
             channel: 'ZALO' as any,
             templateCode,
             recipient: adminGroupChatId,
             userId: null,
+            idempotencyKey: this.workflowZaloQueueKey(payload, eventName, type, adminGroupChatId),
             context: {
               ...this.buildZaloEventTemplateContext(payload, templateParams, eventName),
               chatId: adminGroupChatId,
@@ -345,6 +343,7 @@ export class WorkflowEngine {
               adminGroupChatId,
             },
           });
+          if (!queued?.queueIds?.length) throw new Error('ZALO_ADMIN_NOTIFICATION_NOT_QUEUED');
         } catch (error: any) {
           this.logger.error(
             `Admin payment Zalo notification failed for ${payload.metadata?.code || payload.sourceId || '-'}: ${error?.message || error}`,
@@ -1075,7 +1074,7 @@ export class WorkflowEngine {
   private buildPaymentStatusLabel(payload: any) {
     const status = String(payload?.metadata?.paymentStatus || '').toUpperCase();
     const provider = String(payload?.paymentProvider || '').trim().toUpperCase();
-    const method = provider === 'MANUAL' ? 'tiền mặt' : 'VietQR';
+    const method = this.paymentMethodLabel(provider, payload?.paymentRef);
     if (status === 'PAID') return `Đã thu đủ bằng ${method}`;
     if (status === 'PARTIALLY_PAID') return `Đã nhận một phần bằng ${method}`;
     return `Đã nhận thanh toán bằng ${method}`;
@@ -1084,8 +1083,24 @@ export class WorkflowEngine {
   private buildPaymentReceiptMessage(payload: any, paymentAmount: number) {
     const provider = String(payload?.paymentProvider || '').trim().toUpperCase();
     const amount = Number(paymentAmount || 0).toLocaleString('vi-VN');
-    if (provider === 'MANUAL') return `Đã nhận được thanh toán bằng tiền mặt với số tiền: ${amount} VND`;
-    return `Đã nhận được thanh toán với số tiền: ${amount} VND`;
+    const holdUntil = payload?.bookingHoldUntil || payload?.metadata?.bookingHoldUntil;
+    const holdLabel = holdUntil ? `\nHạn giữ phòng: ${this.formatDateTime(holdUntil)}` : '';
+    return `Đã nhận được thanh toán bằng ${this.paymentMethodLabel(provider, payload?.paymentRef)} với số tiền: ${amount} VND${holdLabel}`;
+  }
+
+  private paymentMethodLabel(provider: string, paymentRef?: unknown) {
+    const reference = String(paymentRef || '').trim().toUpperCase();
+    if (provider === 'MANUAL' && reference.startsWith('CASH:')) return 'tiền mặt';
+    if (provider === 'MANUAL' && reference.startsWith('BANK_TRANSFER:')) return 'chuyển khoản';
+    if (provider === 'MANUAL') return 'ghi nhận thủ công';
+    if (provider === 'BANK_TRANSFER' || provider === 'TRANSFER') return 'chuyển khoản';
+    return 'VietQR/SePay';
+  }
+
+  private workflowZaloQueueKey(payload: any, eventName: string | undefined, stepType: string, recipient: string) {
+    const outboxEventId = String(payload?.outboxEventId || '').trim();
+    if (!outboxEventId) return undefined;
+    return `workflow-zalo:${outboxEventId}:${eventName || 'event'}:${stepType}:${String(recipient || '').trim()}`;
   }
 
   private buildSystemAlertContext(payload: any, params?: any, eventName?: string) {
@@ -1122,6 +1137,7 @@ export class WorkflowEngine {
     const paidAmount = Number(payload?.paidAmount ?? payload?.amount ?? 0);
     const remainingAmount = this.resolveRemainingAmount(payload);
     const expectedMoveInDate = payload?.expectedMoveInDate || payload?.moveInDate || payload?.startDate || metadata.moveInDate || metadata.startDate;
+    const bookingHoldUntil = payload?.bookingHoldUntil || metadata.bookingHoldUntil;
     const dueDate = payload?.dueDate;
     const endDate = payload?.endDate;
     const formatMoney = (value: unknown) => `${Math.max(0, Number(value || 0)).toLocaleString('vi-VN')} đ`;
@@ -1137,7 +1153,10 @@ export class WorkflowEngine {
 
     if (templateCode === 'ADMIN_DEPOSIT_CREATED') {
       headline = '✅ CỌC GIỮ PHÒNG';
-      secondaryValue = expectedMoveInDate ? `Dự kiến vào: ${formatDate(expectedMoveInDate)}` : 'Đã tạo yêu cầu cọc giữ phòng.';
+      secondaryValue = [
+        expectedMoveInDate ? `Dự kiến vào: ${formatDate(expectedMoveInDate)}` : null,
+        bookingHoldUntil ? `Hạn giữ phòng: ${formatDate(bookingHoldUntil)}` : null,
+      ].filter(Boolean).join('\n') || 'Đã tạo yêu cầu cọc giữ phòng.';
       action = 'Chuẩn bị phòng và hợp đồng.';
     } else if (templateCode === 'ADMIN_DEPOSIT_COLLECTED') {
       headline = '✅ ĐÃ NHẬN CỌC';
@@ -1210,6 +1229,17 @@ export class WorkflowEngine {
       action = templateCode.startsWith('CLIENT') ? 'Liên hệ HomeLand nếu cần hỗ trợ.' : '';
     }
 
+    if (['ADMIN_DEPOSIT_COLLECTED', 'ADMIN_INVOICE_PAID', 'ADMIN_INVOICE_PARTIAL'].includes(templateCode)) {
+      const paymentProvider = String(payload?.paymentProvider || '').trim().toUpperCase();
+      const paymentDetails = [
+        paymentProvider ? `Phương thức: ${this.paymentMethodLabel(paymentProvider, payload?.paymentRef)}` : null,
+        bookingHoldUntil ? `Hạn giữ phòng: ${formatDate(bookingHoldUntil)}` : null,
+      ].filter(Boolean);
+      if (paymentDetails.length > 0) {
+        secondaryValue = [secondaryValue, ...paymentDetails].filter(Boolean).join('\n');
+      }
+    }
+
     return {
       ...payload,
       ...roomContext,
@@ -1221,6 +1251,9 @@ export class WorkflowEngine {
       primaryValue,
       secondaryValue,
       action,
+      bookingHoldUntil,
+      bookingHoldUntilLabel: bookingHoldUntil ? this.formatDateTime(bookingHoldUntil) : '',
+      paymentMethod: this.paymentMethodLabel(String(payload?.paymentProvider || '').trim().toUpperCase(), payload?.paymentRef),
       title: params?.title || payload?.title || headline,
       message: params?.message || payload?.message || this.buildAdminZaloMessage(payload, params, eventName),
     };
@@ -1318,6 +1351,7 @@ export class WorkflowEngine {
     const memberLabel = payload.roomMemberCount ? `\nSố người: ${payload.roomMemberCount}` : '';
     const receivedAt = payload.paidAt || payload.occurredAt || new Date().toISOString();
     const moveInAt = payload.moveInDate || payload.expectedMoveInDate || payload.startDate || payload.contract?.startDate || payload.metadata?.moveInDate || payload.metadata?.startDate;
+    const holdUntil = payload.bookingHoldUntil || payload.metadata?.bookingHoldUntil;
     const receivedAtLabel = this.formatDateTime(receivedAt);
     const moveInLabel = moveInAt ? this.formatDateTime(moveInAt) : '';
     return [
@@ -1330,6 +1364,8 @@ export class WorkflowEngine {
         : null,
       receivedAtLabel ? `Thời gian nhận: ${receivedAtLabel}` : null,
       payload.paymentRef ? `Mã giao dịch: ${payload.paymentRef}` : null,
+      payload.paymentProvider ? `Phương thức: ${this.paymentMethodLabel(String(payload.paymentProvider).toUpperCase(), payload.paymentRef)}` : null,
+      holdUntil ? `Hạn giữ phòng: ${this.formatDateTime(holdUntil)}` : null,
       moveInLabel ? `Ngày vào ở/dự kiến vào ở: ${moveInLabel}` : null,
       roomLabel ? roomLabel.trimStart() : null,
       buildingLabel ? buildingLabel.trimStart() : null,

@@ -2,6 +2,15 @@ import { describe, expect, it, vi } from 'vitest';
 import { PaymentsController } from './payments.controller';
 
 describe('PaymentsController SePay admin config capabilities', () => {
+  it('uses the invoice Zalo dispatch claim for operator-triggered sends', async () => {
+    const paymentsService = { sendInvoiceRequestToZalo: vi.fn().mockResolvedValue({ id: 'request-1' }) };
+    const controller = new PaymentsController(paymentsService as any);
+
+    await controller.sendInvoiceToZalo('invoice-1', 'user-1');
+
+    expect(paymentsService.sendInvoiceRequestToZalo).toHaveBeenCalledWith('invoice-1', 'user-1', { dedupe: true });
+  });
+
   it('allows the protected Homeland administrator to edit integration secrets', async () => {
     const config = { rooms: [], routes: [], bankAccounts: [], status: {} };
     const paymentsService = {

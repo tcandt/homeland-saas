@@ -23,7 +23,11 @@ export function resolvePaymentNotificationEntityId(context: unknown): string | n
   return entityId || null;
 }
 
-export async function findOrCreateInAppNotification(prisma: any, input: InAppPaymentNotificationInput) {
+export async function findOrCreateInAppNotification(
+  prisma: any,
+  input: InAppPaymentNotificationInput,
+  transaction?: Prisma.TransactionClient,
+) {
   const lockKey = JSON.stringify([
     input.tenantId,
     input.userId,
@@ -32,7 +36,7 @@ export async function findOrCreateInAppNotification(prisma: any, input: InAppPay
     input.entityId,
   ]);
 
-  return prisma.$transaction(async (tx: any) => {
+  const findOrCreate = async (tx: any) => {
     await tx.$queryRaw(
       Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lock"`,
     );
@@ -58,5 +62,9 @@ export async function findOrCreateInAppNotification(prisma: any, input: InAppPay
 
     const notification = await tx.notification.create({ data: input.data });
     return { notification, created: true };
-  }, { isolationLevel: 'ReadCommitted' });
+  };
+  // Reuse the dispatch transaction so its identity lock and queue writes commit together.
+  return transaction
+    ? findOrCreate(transaction)
+    : prisma.$transaction(findOrCreate, { isolationLevel: 'ReadCommitted' });
 }

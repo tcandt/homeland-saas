@@ -20,6 +20,7 @@ import { buildRoomContext } from "../shared/context/room-context";
 import { createHash } from "node:crypto";
 import { buildDepositBillingDocument } from "./deposit-billing-document";
 import { DepositCoreService } from "../deposits/deposit-core.service";
+import { DepositOutboxPublisher } from "../deposits/deposit-outbox.publisher";
 import { assertCombinedEntryInvoice, getCombinedEntryInvoice } from "./combined-entry-invoice";
 
 type InvoiceTransactionClient = Prisma.TransactionClient;
@@ -68,6 +69,7 @@ export class InvoicesService extends BaseCrudService<Invoice> {
     auditService: AuditService,
     private readonly prisma: PrismaService,
     @Optional() private readonly depositCoreService?: DepositCoreService,
+    @Optional() private readonly depositOutboxPublisher?: DepositOutboxPublisher,
   ) {
     super(repository, auditService, "Invoice");
   }
@@ -1491,6 +1493,19 @@ export class InvoicesService extends BaseCrudService<Invoice> {
         newStatus === InvoiceStatus.PAID
           ? "invoice.paid"
           : "invoice.payment.recorded";
+      const bookingHold = bookingDeposit && (tx as any).roomHold?.findFirst
+        ? await (tx as any).roomHold.findFirst({
+            where: {
+              tenantId,
+              depositId: bookingDeposit.id,
+              rentalCycleId: invoice.rentalCycleId,
+              roomId: bookingDeposit.roomId,
+              status: 'ACTIVE',
+            },
+            orderBy: { expiresAt: 'desc' },
+            select: { expiresAt: true },
+          })
+        : null;
       const eventPayload = this.invoicePaymentEventPayload(
         invoice,
         tenantId,
@@ -1502,6 +1517,7 @@ export class InvoicesService extends BaseCrudService<Invoice> {
         amount,
         normalizedProvider,
         normalizedProviderRef,
+        bookingHold?.expiresAt ? new Date(bookingHold.expiresAt).toISOString() : null,
       );
       const outboxEventId = await this.writeLifecycleEvidence(tx, {
         tenantId,
@@ -1526,6 +1542,10 @@ export class InvoicesService extends BaseCrudService<Invoice> {
     // invoice.issued event when a bank webhook arrives immediately after QR
     // creation. DepositOutboxPublisher keeps the durable issue-before-payment
     // dependency across retries and concurrent workers.
+    // This is deliberately post-commit and scoped to this invoice only.  NAS
+    // may disable the scheduled drain, but a notification failure must never
+    // undo a recorded cash payment or drain another tenant's backlog.
+    await this.flushCommittedInvoicePaymentEvents(tenantId, id, operation.outboxEventId);
     return operation.result;
   }
 
@@ -1814,6 +1834,7 @@ export class InvoicesService extends BaseCrudService<Invoice> {
     paymentAmount: number,
     provider: string,
     providerRef: string,
+    bookingHoldUntil?: string | null,
   ) {
     const roomContext = buildRoomContext(
       invoice.contract?.room,
@@ -1837,6 +1858,7 @@ export class InvoicesService extends BaseCrudService<Invoice> {
         paymentJournalIdentity: 'PAYMENT_V1',
         billingKind: invoice.billingKind || null,
         bookingHoldDepositInvoice: this.isBookingHoldInvoice(invoice),
+        bookingHoldUntil: bookingHoldUntil || null,
         roomRentalType: invoice.contract?.room?.rentalType || null,
         roomRentalTypeLabel: roomContext.roomRentalTypeLabel,
         roomMemberCount: roomContext.roomMemberCount,
@@ -1857,6 +1879,7 @@ export class InvoicesService extends BaseCrudService<Invoice> {
         : invoice.contract?.firstPaymentDate
           ? new Date(invoice.contract.firstPaymentDate).toISOString()
           : null,
+      bookingHoldUntil: bookingHoldUntil || null,
       sourceId: invoice.id,
       sourceType: "INVOICE",
       amount: Number(result.paidAmount ?? newPaidAmount),
@@ -1870,6 +1893,31 @@ export class InvoicesService extends BaseCrudService<Invoice> {
         : new Date().toISOString(),
       occurredAt: new Date().toISOString(),
     };
+  }
+
+  private async flushCommittedInvoicePaymentEvents(tenantId: string, invoiceId: string, paymentEventId: string) {
+    if (!this.depositOutboxPublisher || !paymentEventId) return;
+    try {
+      const pendingIssueEvents = await this.prisma.tx.outboxEvent.findMany({
+        where: {
+          tenantId,
+          aggregateType: 'Invoice',
+          aggregateId: invoiceId,
+          eventName: 'invoice.issued',
+          status: { not: 'PUBLISHED' as any },
+        },
+        select: { id: true },
+      });
+      const eventIds = [...pendingIssueEvents.map((event: any) => event.id), paymentEventId];
+      // An issued event may unlock the payment event in the first pass.
+      for (let pass = 0; pass < 2; pass += 1) {
+        const result = await this.depositOutboxPublisher.drain(2, { eventIds });
+        if (result.claimed === 0 || result.failed > 0) break;
+      }
+    } catch {
+      // Outbox persistence is already committed. Scheduled/manual retry keeps
+      // delivery recoverable; invoice settlement must remain durable.
+    }
   }
 
   private invoiceAuditSnapshot(invoice: any) {

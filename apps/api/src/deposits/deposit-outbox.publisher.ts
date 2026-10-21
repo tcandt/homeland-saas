@@ -5,6 +5,11 @@ import { PrismaService } from '../prisma.service';
 import { DomainEventInterface } from '../shared/events/domain-event.interface';
 import { DomainEventPublisher } from '../shared/events/domain-event.publisher';
 
+export type OutboxDrainScope = {
+  /** Restrict immediate delivery to rows committed by one business operation. */
+  eventIds: string[];
+};
+
 @Injectable()
 export class DepositOutboxPublisher {
   private readonly logger = new Logger(DepositOutboxPublisher.name);
@@ -26,11 +31,18 @@ export class DepositOutboxPublisher {
     }
   }
 
-  async drain(limit = 50) {
+  async drain(limit = 50, scope?: OutboxDrainScope) {
     const batchSize = Math.min(Math.max(Number(limit) || 1, 1), 100);
+    const eventIds = Array.from(new Set((scope?.eventIds || []).map(String).filter(Boolean)));
+    if (scope && eventIds.length === 0) return { claimed: 0, published: 0, failed: 0 };
+    const scopedWhere = eventIds.length > 0 ? { id: { in: eventIds } } : {};
+    const scopeSql = eventIds.length > 0
+      ? Prisma.sql` AND event."id" IN (${Prisma.join(eventIds)})`
+      : Prisma.empty;
     const staleBefore = new Date(Date.now() - 5 * 60 * 1_000);
     await this.prisma.outboxEvent.updateMany({
       where: {
+        ...scopedWhere,
         status: OutboxEventStatus.PROCESSING,
         updatedAt: { lte: staleBefore },
       },
@@ -48,6 +60,7 @@ export class DepositOutboxPublisher {
         WHERE event."status" IN ('PENDING', 'FAILED')
           AND event."availableAt" <= NOW()
           AND event."attempts" < 10
+          ${scopeSql}
           AND (
             event."aggregateType" <> 'Invoice'
             OR event."eventName" NOT IN ('invoice.paid', 'invoice.payment.recorded')

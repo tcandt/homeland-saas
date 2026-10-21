@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, Logger, Optional } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { TemplateEngine } from './templates/template.engine';
 import { NotificationChannel } from '../automation/automation.constants';
@@ -24,6 +25,8 @@ export interface CommunicationPayload {
   moduleType?: string; // e.g. FINANCE, CONTRACT
   channel?: string;
   recipient?: string | null;
+  /** Stable event identity for a durable channel/recipient queue item. */
+  idempotencyKey?: string;
   context: any;
 }
 
@@ -406,6 +409,7 @@ export class CommunicationService {
     const channelsToUse = payload.channel
       ? [payload.channel]
       : preferences?.channels || [NotificationChannel.IN_APP, NotificationChannel.CONSOLE];
+    const idempotencyKey = String(payload.idempotencyKey || '').trim();
 
     // 3. Compile template
     let title: string;
@@ -447,21 +451,79 @@ export class CommunicationService {
       type: payload.templateCode,
       status: 'QUEUED' as const,
       metadata: paymentEntityId
-        ? { ...context, entityId: paymentEntityId, templateSnapshot }
-        : { ...context, templateSnapshot },
+        ? { ...context, entityId: paymentEntityId, ...(idempotencyKey ? { dispatchId: idempotencyKey } : {}), templateSnapshot }
+        : { ...context, ...(idempotencyKey ? { dispatchId: idempotencyKey } : {}), templateSnapshot },
     };
-    const paymentNotification = paymentEntityId
-      ? await findOrCreateInAppNotification(this.prisma, {
-          tenantId: payload.tenantId,
-          userId: payload.userId as string,
-          type: PAYMENT_RECEIVED_NOTIFICATION_TYPE,
-          entityId: paymentEntityId,
-          data: notificationData,
+    const createOrReuse = async (db: any, transaction?: Prisma.TransactionClient) => {
+      if (idempotencyKey) {
+        const existing = await db.notification.findFirst({
+          where: {
+            tenantId: payload.tenantId,
+            channel,
+            type: payload.templateCode,
+            metadata: { path: ['dispatchId'], equals: idempotencyKey },
+          },
+          select: { id: true, tenantId: true, userId: true, channel: true, type: true },
+        });
+        if (existing) {
+          const queueIds: string[] = [];
+          for (const ch of channelsToUse) {
+            const queue = await db.notificationQueue.findFirst({
+              where: { tenantId: payload.tenantId, notificationId: existing.id, channel: ch as NotificationChannel },
+              select: { id: true },
+            });
+            if (queue) queueIds.push(queue.id);
+          }
+          return { notification: existing, notificationCreated: false, queueIds };
+        }
+      }
+      const paymentNotification = paymentEntityId
+        ? await findOrCreateInAppNotification(this.prisma, {
+            tenantId: payload.tenantId,
+            userId: payload.userId as string,
+            type: PAYMENT_RECEIVED_NOTIFICATION_TYPE,
+            entityId: paymentEntityId,
+            data: notificationData,
+          }, transaction)
+        : null;
+      const notification = paymentNotification?.notification
+        || await db.notification.create({ data: notificationData });
+      const notificationCreated = paymentNotification?.created ?? true;
+      const queueIds: string[] = [];
+      for (const ch of channelsToUse) {
+        const channelEnum = ch as NotificationChannel;
+        if (!notificationCreated && channelEnum === NotificationChannel.IN_APP) continue;
+        const queueItem = await db.notificationQueue.create({
+          data: {
+            tenantId: payload.tenantId,
+            notificationId: notification.id,
+            channel: channelEnum,
+            payload: {
+              tenantId: payload.tenantId,
+              userId: payload.userId,
+              recipient: payload.recipient,
+              templateCode: payload.templateCode,
+              moduleType: payload.moduleType,
+              channel: channelEnum,
+              title,
+              message,
+              context,
+              templateSnapshot,
+            },
+            status: 'QUEUED',
+          },
+        });
+        queueIds.push(queueItem.id);
+      }
+      return { notification, notificationCreated, queueIds };
+    };
+    const created = idempotencyKey
+      ? await this.prisma.$transaction(async (tx: any) => {
+          await tx.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${`${payload.tenantId}:notification:${idempotencyKey}`}))::text AS "lock"`);
+          return createOrReuse(tx, tx);
         })
-      : null;
-    const notification = paymentNotification?.notification
-      || await this.prisma.notification.create({ data: notificationData });
-    const notificationCreated = paymentNotification?.created ?? true;
+      : await createOrReuse(this.prisma);
+    const { notification, notificationCreated, queueIds } = created;
     if (notificationCreated && notification.channel === NotificationChannel.IN_APP) {
       this.eventEmitter?.emit('notification.in_app.created', {
         tenantId: notification.tenantId,
@@ -471,36 +533,10 @@ export class CommunicationService {
       });
     }
 
-    // 5. Enqueue and dispatch to channels
-    const queueIds: string[] = [];
-    for (const ch of channelsToUse) {
-      const channelEnum = ch as NotificationChannel;
-      if (!notificationCreated && channelEnum === NotificationChannel.IN_APP) continue;
-      
-      const queueItem = await this.prisma.notificationQueue.create({
-        data: {
-          tenantId: payload.tenantId,
-          notificationId: notification.id,
-          channel: channelEnum,
-          payload: {
-            tenantId: payload.tenantId,
-            userId: payload.userId,
-            recipient: payload.recipient,
-            templateCode: payload.templateCode,
-            moduleType: payload.moduleType,
-            channel: channelEnum,
-            title,
-            message,
-            context,
-            templateSnapshot,
-          },
-          status: 'QUEUED'
-        }
-      });
-      queueIds.push(queueItem.id);
-
-      if (this.immediateDeliveryEnabled) {
-        await this.processQueueItem(queueItem.id);
+    // Immediate delivery always uses the same durable queue identity.
+    if (this.immediateDeliveryEnabled) {
+      for (const queueId of queueIds) {
+        await this.processQueueItem(queueId);
       }
     }
 

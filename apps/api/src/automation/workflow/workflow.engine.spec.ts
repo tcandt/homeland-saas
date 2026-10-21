@@ -41,7 +41,7 @@ describe('WorkflowEngine', () => {
       $transaction: vi.fn(async (callback: any) => callback(prisma)),
     };
     const communicationService = {
-      dispatch: vi.fn(),
+      dispatch: vi.fn().mockResolvedValue({ notificationId: 'notification-1', queueIds: ['queue-1'] }),
       dispatchDirect: vi.fn(),
     };
     const analyticsCache = {
@@ -90,7 +90,7 @@ describe('WorkflowEngine', () => {
       metadata: { code: 'INV-001' },
     });
 
-    expect(communicationService.dispatchDirect).toHaveBeenCalledWith(
+    expect(communicationService.dispatch).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantId: 'tenant-1',
         channel: 'ZALO',
@@ -130,7 +130,7 @@ describe('WorkflowEngine', () => {
       metadata: { code: 'HD-COC-001', bookingHoldDepositInvoice: true },
     }, undefined, 'invoice.paid');
 
-    expect(communicationService.dispatchDirect).toHaveBeenCalledWith(
+    expect(communicationService.dispatch).toHaveBeenCalledWith(
       expect.objectContaining({
         recipient: 'admin-group-from-webhook',
         context: expect.objectContaining({
@@ -139,9 +139,9 @@ describe('WorkflowEngine', () => {
         }),
       }),
     );
-    expect(communicationService.dispatchDirect.mock.calls[0][0].context.message).toContain('Mã giao dịch: TXN-1350');
-    expect(communicationService.dispatchDirect.mock.calls[0][0].context.message).toContain('Phòng: 31-01');
-    expect(communicationService.dispatchDirect.mock.calls[0][0].context.message).toContain('Tòa nhà: LK01');
+    expect(communicationService.dispatch.mock.calls[0][0].context.message).toContain('Mã giao dịch: TXN-1350');
+    expect(communicationService.dispatch.mock.calls[0][0].context.message).toContain('Phòng: 31-01');
+    expect(communicationService.dispatch.mock.calls[0][0].context.message).toContain('Tòa nhà: LK01');
   });
 
   it('uses the deposit-collected template for a booking-hold invoice payment', async () => {
@@ -158,11 +158,11 @@ describe('WorkflowEngine', () => {
       metadata: { code: 'HD-COC-001', bookingHoldDepositInvoice: true },
     }, { templateCode: 'ADMIN_INVOICE_PAID' }, 'invoice.paid');
 
-    expect(communicationService.dispatchDirect).toHaveBeenCalledWith(expect.objectContaining({
+    expect(communicationService.dispatch).toHaveBeenCalledWith(expect.objectContaining({
       templateCode: 'ADMIN_DEPOSIT_COLLECTED',
       context: expect.objectContaining({
         headline: '✅ ĐÃ NHẬN CỌC',
-        secondaryValue: 'Đã thu: 2.000.000 đ',
+        secondaryValue: expect.stringContaining('Đã thu: 2.000.000 đ'),
       }),
     }));
   });
@@ -183,7 +183,7 @@ describe('WorkflowEngine', () => {
     }, undefined, 'invoice.payment.recorded');
 
     expect(prisma.appSetting.findUnique).toHaveBeenCalledTimes(1);
-    expect(communicationService.dispatchDirect).toHaveBeenCalledWith(
+    expect(communicationService.dispatch).toHaveBeenCalledWith(
       expect.objectContaining({
         recipient: 'admin-group-1',
         context: expect.objectContaining({
@@ -208,13 +208,13 @@ describe('WorkflowEngine', () => {
       metadata: { code: 'INV-150' },
     }, undefined, 'invoice.payment.recorded')).rejects.toThrow('ZALO_ADMIN_GROUP_CHAT_ID_REQUIRED');
 
-    expect(communicationService.dispatchDirect).not.toHaveBeenCalled();
+    expect(communicationService.dispatch).not.toHaveBeenCalled();
   });
 
-  it('propagates payment admin Zalo delivery errors so the workflow records a failed step', async () => {
+  it('treats a queued admin Zalo notification as workflow success even when its provider retry is pending', async () => {
     const { engine, prisma, communicationService } = createEngine();
     prisma.appSetting.findUnique.mockResolvedValueOnce({ value: { adminGroupChatId: 'admin-group-1' } });
-    communicationService.dispatchDirect.mockRejectedValueOnce(new Error('Zalo rejected chat'));
+    communicationService.dispatch.mockResolvedValueOnce({ notificationId: 'notification-1', queueIds: ['queue-1'] });
 
     await expect((engine as any).executeStep('SEND_ADMIN_GROUP_ZALO', {
       tenantId: 'tenant-1',
@@ -223,7 +223,7 @@ describe('WorkflowEngine', () => {
       amount: 150000,
       paymentProvider: 'SEPAY',
       metadata: { code: 'INV-150' },
-    }, undefined, 'invoice.payment.recorded')).rejects.toThrow('Zalo rejected chat');
+    }, undefined, 'invoice.payment.recorded')).resolves.toBeUndefined();
   });
 
   it('skips Zalo payment confirmations when sepay.sendPaymentResultToZalo is false', async () => {
@@ -237,25 +237,25 @@ describe('WorkflowEngine', () => {
       metadata: { code: 'INV-001' },
     }, { templateCode: 'INVOICE_ZALO_PAYMENT_CONFIRMATION' });
 
-    expect(communicationService.dispatchDirect).not.toHaveBeenCalled();
+    expect(communicationService.dispatch).not.toHaveBeenCalled();
   });
 
   it('sends a cash payment confirmation to the customer even when SePay result notifications are disabled', async () => {
     const { engine, prisma, communicationService } = createEngine();
     prisma.appSetting.findUnique.mockResolvedValueOnce({ value: { sendPaymentResultToZalo: false } });
     prisma.customer.findUnique.mockResolvedValueOnce({ zaloChatId: 'cash-client-1', zaloUserId: null });
-    communicationService.dispatchDirect.mockResolvedValue({ delivered: true });
 
     await (engine as any).executeStep('SEND_PAYMENT_CONFIRMATION_ZALO', {
       tenantId: 'tenant-1',
       customerId: 'customer-1',
       paymentProvider: 'MANUAL',
+      paymentRef: 'CASH:receipt-1',
       paymentAmount: 4000000,
       amount: 4000000,
       metadata: { code: 'INV-CASH-001', paymentStatus: 'PAID' },
     }, { templateCode: 'INVOICE_ZALO_PAYMENT_CONFIRMATION' });
 
-    expect(communicationService.dispatchDirect).toHaveBeenCalledWith(expect.objectContaining({
+    expect(communicationService.dispatch).toHaveBeenCalledWith(expect.objectContaining({
       recipient: 'cash-client-1',
       context: expect.objectContaining({
         paymentStatusLabel: 'Đã thu đủ bằng tiền mặt',
@@ -264,11 +264,41 @@ describe('WorkflowEngine', () => {
     }));
   });
 
+  it('labels a manually recorded bank transfer as a transfer rather than cash', () => {
+    const { engine } = createEngine();
+    const payload = {
+      paymentProvider: 'MANUAL',
+      paymentRef: 'BANK_TRANSFER:receipt-1',
+      paymentAmount: 4000000,
+      metadata: { paymentStatus: 'PAID' },
+    };
+
+    expect((engine as any).buildPaymentStatusLabel(payload)).toBe('Đã thu đủ bằng chuyển khoản');
+    expect((engine as any).buildPaymentReceiptMessage(payload, 4000000)).toContain('bằng chuyển khoản');
+  });
+
+  it('keeps cash payment notifications retryable and includes the booking hold expiry', async () => {
+    const { engine, prisma, communicationService } = createEngine();
+    prisma.customer.findUnique.mockResolvedValueOnce({ zaloChatId: 'cash-client-1', zaloUserId: null });
+    communicationService.dispatch.mockResolvedValueOnce(null);
+
+    await expect((engine as any).executeStep('SEND_PAYMENT_CONFIRMATION_ZALO', {
+      tenantId: 'tenant-1', customerId: 'customer-1', paymentProvider: 'MANUAL', paymentRef: 'CASH:receipt-1', paymentAmount: 4000000,
+      bookingHoldUntil: '2026-11-01T16:59:59.000Z', metadata: { code: 'HD-COC-001', paymentStatus: 'PAID' },
+    }, { templateCode: 'INVOICE_ZALO_PAYMENT_CONFIRMATION' })).rejects.toThrow('ZALO_PAYMENT_NOTIFICATION_NOT_QUEUED');
+
+    expect(communicationService.dispatch).toHaveBeenCalledWith(expect.objectContaining({
+      context: expect.objectContaining({
+        paymentReceiptMessage: expect.stringContaining('tiền mặt'),
+      }),
+    }));
+    expect(communicationService.dispatch.mock.calls[0][0].context.paymentReceiptMessage).toContain('Hạn giữ phòng:');
+  });
+
   it('resolves the current customer Zalo chat after an outbox payload was created', async () => {
     const { engine, prisma, communicationService } = createEngine();
     prisma.appSetting.findUnique.mockResolvedValueOnce({ value: { sendPaymentResultToZalo: true } });
     prisma.customer.findUnique.mockResolvedValueOnce({ zaloChatId: 'current-chat-1', zaloUserId: null });
-    communicationService.dispatchDirect.mockResolvedValue({ delivered: true });
 
     await (engine as any).executeStep('SEND_PAYMENT_CONFIRMATION_ZALO', {
       tenantId: 'tenant-1',
@@ -283,7 +313,7 @@ describe('WorkflowEngine', () => {
       where: { id: 'customer-1', tenantId: 'tenant-1' },
       select: { zaloChatId: true, zaloUserId: true },
     });
-    expect(communicationService.dispatchDirect).toHaveBeenCalledWith(
+    expect(communicationService.dispatch).toHaveBeenCalledWith(
       expect.objectContaining({ recipient: 'current-chat-1' }),
     );
   });
@@ -292,7 +322,6 @@ describe('WorkflowEngine', () => {
     const { engine, prisma, communicationService } = createEngine();
     prisma.appSetting.findUnique.mockResolvedValueOnce({ value: { sendPaymentResultToZalo: true } });
     prisma.customer.findUnique.mockResolvedValueOnce({ zaloChatId: 'current-chat-1', zaloUserId: null });
-    communicationService.dispatchDirect.mockResolvedValue({ delivered: true });
 
     await (engine as any).executeStep('SEND_PAYMENT_CONFIRMATION_ZALO', {
       tenantId: 'tenant-1',
@@ -303,11 +332,34 @@ describe('WorkflowEngine', () => {
       metadata: { code: 'INV-002', grossTotal: 6850000, creditAmount: 0, paymentStatus: 'PARTIALLY_PAID' },
     }, { templateCode: 'INVOICE_ZALO_PARTIAL_PAYMENT_CONFIRMATION' });
 
-    expect(communicationService.dispatchDirect).toHaveBeenCalledWith(expect.objectContaining({
+    expect(communicationService.dispatch).toHaveBeenCalledWith(expect.objectContaining({
       templateCode: 'INVOICE_ZALO_PARTIAL_PAYMENT_CONFIRMATION',
       recipient: 'current-chat-1',
       context: expect.objectContaining({ paymentAmount: 3000000, remainingAmount: 3850000 }),
     }));
+  });
+
+  it('continues to admin notifications when customer queue creation fails', async () => {
+    const { engine, prisma, communicationService } = createEngine();
+    prisma.workflowExecution.create.mockResolvedValue({ id: 'execution-1' });
+    prisma.workflowStepExecution.create.mockImplementation(async ({ data }: any) => ({ id: `step-${data.order}` }));
+    prisma.appSetting.findUnique
+      .mockResolvedValueOnce({ value: { sendPaymentResultToZalo: true } })
+      .mockResolvedValueOnce({ value: { adminGroupChatId: 'admin-group-1' } });
+    prisma.customer.findUnique.mockResolvedValueOnce({ zaloChatId: 'customer-chat-1', zaloUserId: null });
+    prisma.user.findMany.mockResolvedValueOnce([{ id: 'admin-1', roles: [{ role: { code: 'ADMIN' } }] }]);
+    communicationService.dispatch
+      .mockRejectedValueOnce(new Error('queue storage unavailable'))
+      .mockResolvedValue({ notificationId: 'notification-1', queueIds: ['queue-1'] });
+
+    await engine.executeWorkflow('invoice.paid.workflow', 'invoice.paid', {
+      tenantId: 'tenant-1', sourceType: 'INVOICE', sourceId: 'invoice-1', customerId: 'customer-1',
+      paymentProvider: 'SEPAY', metadata: { code: 'INV-001' },
+    });
+
+    expect(communicationService.dispatch).toHaveBeenCalledWith(expect.objectContaining({ recipient: 'customer-chat-1' }));
+    expect(communicationService.dispatch).toHaveBeenCalledWith(expect.objectContaining({ userId: 'admin-1', channel: 'IN_APP' }));
+    expect(communicationService.dispatch).toHaveBeenCalledWith(expect.objectContaining({ recipient: 'admin-group-1', channel: 'ZALO' }));
   });
 
   it('uses the invoice gross total when rendering the admin remaining balance', () => {
@@ -320,6 +372,20 @@ describe('WorkflowEngine', () => {
     }, { templateCode: 'ADMIN_INVOICE_PARTIAL' }, 'invoice.payment.recorded');
 
     expect(context.secondaryValue).toBe('Còn thiếu: 3.850.000 đ');
+  });
+
+  it('renders payment method and booking-hold expiry in admin event template fields', () => {
+    const { engine } = createEngine();
+
+    const context = (engine as any).buildZaloEventTemplateContext({
+      paymentAmount: 2_000_000,
+      paymentProvider: 'MANUAL',
+      paymentRef: 'CASH:receipt-1',
+      bookingHoldUntil: '2026-11-01T16:59:59.000Z',
+    }, { templateCode: 'ADMIN_INVOICE_PAID' }, 'invoice.paid');
+
+    expect(context.secondaryValue).toContain('Phương thức: tiền mặt');
+    expect(context.secondaryValue).toContain('Hạn giữ phòng: 1/11/2026');
   });
 
   it('renders a settlement refund without assuming its payment status', () => {
@@ -408,7 +474,7 @@ describe('WorkflowEngine', () => {
     await (engine as any).executeStep('SEND_ADMIN_GROUP_ZALO', payload, params, 'contract.settlement.completed');
 
     const inAppContext = communicationService.dispatch.mock.calls[0][0].context;
-    const adminContext = communicationService.dispatchDirect.mock.calls[0][0].context;
+    const adminContext = communicationService.dispatch.mock.calls[1][0].context;
     for (const context of [inAppContext, adminContext]) {
       expect(context.title).toBe('Cập nhật quyết toán hợp đồng CT-01');
       expect(context.message).toContain('HomeLand - Quyết toán hợp đồng');
@@ -437,7 +503,6 @@ describe('WorkflowEngine', () => {
     prisma.appSetting.findUnique
       .mockResolvedValueOnce({ value: { sendPaymentResultToZalo: true } })
       .mockResolvedValueOnce({ value: { adminGroupChatId: 'group-1' } });
-    communicationService.dispatchDirect.mockResolvedValue({ delivered: true });
 
     await engine.executeWorkflow('invoice.paid.workflow', 'invoice.paid', {
       tenantId: 'tenant-1',
@@ -451,7 +516,7 @@ describe('WorkflowEngine', () => {
       metadata: { code: 'INV-001', paymentJournalIdentity: 'PAYMENT_V1' },
     });
 
-    expect(communicationService.dispatchDirect).toHaveBeenCalledWith(
+    expect(communicationService.dispatch).toHaveBeenCalledWith(
       expect.objectContaining({ recipient: 'group-1', channel: 'ZALO' }),
     );
     expect(communicationService.dispatch).toHaveBeenCalledWith(
@@ -495,7 +560,6 @@ describe('WorkflowEngine', () => {
     prisma.appSetting.findUnique
       .mockResolvedValueOnce({ value: { sendPaymentResultToZalo: true } })
       .mockResolvedValueOnce({ value: { adminGroupChatId: 'group-1' } });
-    communicationService.dispatchDirect.mockResolvedValue({ delivered: true });
 
     await expect(engine.executeWorkflow('invoice.paid.workflow', 'invoice.paid', {
       tenantId: 'tenant-1',
@@ -511,7 +575,7 @@ describe('WorkflowEngine', () => {
       outboxDelivery: true,
     })).rejects.toThrow('WORKFLOW_COMPLETED_WITH_ERRORS');
 
-    expect(communicationService.dispatchDirect).toHaveBeenCalledWith(
+    expect(communicationService.dispatch).toHaveBeenCalledWith(
       expect.objectContaining({ recipient: 'group-1', channel: 'ZALO' }),
     );
     expect(prisma.workflowExecution.update).toHaveBeenLastCalledWith(

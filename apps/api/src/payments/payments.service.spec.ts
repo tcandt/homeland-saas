@@ -694,15 +694,20 @@ describe('PaymentsService', () => {
         return request;
       });
       let releaseLock: (() => void) | undefined;
+      let advisoryLockHeld = false;
       const tx = {
         paymentRequest: { findFirst, findUnique, update, create },
         $queryRaw: vi.fn(async () => {
+          // PostgreSQL transaction advisory locks are re-entrant for the
+          // same transaction; the QR lock is nested under the source lock.
+          if (advisoryLockHeld) return [];
           const previous = lockTail;
           let release!: () => void;
           lockTail = new Promise<void>((resolve) => {
             release = resolve;
           });
           await previous;
+          advisoryLockHeld = true;
           releaseLock = release;
           return [];
         }),
@@ -728,6 +733,7 @@ describe('PaymentsService', () => {
           } finally {
             releaseLock?.();
             releaseLock = undefined;
+            advisoryLockHeld = false;
           }
         }),
       });
@@ -755,9 +761,64 @@ describe('PaymentsService', () => {
     expect(records).toHaveLength(1);
     expect(first.id).toBe(records[0].id);
     expect(second.id).toBe(records[0].id);
-    expect(clientA.tx.$queryRaw).toHaveBeenCalledTimes(1);
-    expect(clientB.tx.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(clientA.tx.$queryRaw.mock.calls.length + clientB.tx.$queryRaw.mock.calls.length).toBe(3);
     expect(clientA.create.mock.calls.length + clientB.create.mock.calls.length).toBe(1);
+  });
+
+  it('clears a delivered QR receipt when a partial payment changes the pending balance', async () => {
+    const update = vi.fn().mockImplementation(async ({ data }) => ({
+      id: 'request-partial-1',
+      tenantId: 'tenant-1',
+      sourceType: PaymentSourceType.INVOICE,
+      sourceId: 'invoice-partial-1',
+      paymentCode: 'HD31011026',
+      status: PaymentRequestStatus.PENDING,
+      provider: PaymentProvider.SEPAY,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      ...data,
+    }));
+    const { service } = createService({
+      appSetting: { findMany: vi.fn().mockResolvedValue([]), findUnique: vi.fn().mockResolvedValue(null) },
+      bankAccount: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'bank-1', ownerId: null, bankName: 'ACB', accountNumber: '123456789',
+          accountName: 'Homeland', isActive: true,
+        }),
+      },
+      paymentRequest: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'request-partial-1', tenantId: 'tenant-1', sourceType: PaymentSourceType.INVOICE,
+          sourceId: 'invoice-partial-1', paymentCode: 'HD31011026', amount: 1_000_000,
+          bankName: 'ACB', bankAccountNumber: '123456789', bankAccountName: 'Homeland',
+          metadata: {
+            zaloSentAt: '2026-10-01T01:00:00.000Z',
+            zaloRecipient: 'zalo-chat-1',
+            zaloDispatchFingerprint: 'old-qr',
+            zaloDispatchStartedAt: '2026-10-01T01:00:00.000Z',
+            preserved: 'value',
+          },
+        }),
+        update,
+      },
+    });
+
+    await (service as any).createPaymentRequest(
+      'tenant-1', PaymentSourceType.INVOICE, 'invoice-partial-1', 600_000, 'INV', 'user-1',
+    );
+
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'request-partial-1' },
+      data: expect.objectContaining({
+        amount: 600_000,
+        metadata: expect.objectContaining({ preserved: 'value' }),
+      }),
+    }));
+    const metadata = update.mock.calls[0][0].data.metadata;
+    expect(metadata).not.toHaveProperty('zaloSentAt');
+    expect(metadata).not.toHaveProperty('zaloRecipient');
+    expect(metadata).not.toHaveProperty('zaloDispatchFingerprint');
+    expect(metadata).not.toHaveProperty('zaloDispatchStartedAt');
   });
 
   it('keeps colliding HD and COC payment codes within SePay eight-digit patterns', async () => {
@@ -1554,6 +1615,7 @@ describe('PaymentsService', () => {
         .mockResolvedValueOnce({ claimed: 1, published: 1, failed: 0 })
         .mockResolvedValueOnce({ claimed: 0, published: 0, failed: 0 }),
     };
+    let persistedRequest: any = null;
     const { service, invoicesService, communicationService, auditService } = createService({
       appSetting: {
         findMany: vi.fn().mockResolvedValue([]),
@@ -1579,8 +1641,9 @@ describe('PaymentsService', () => {
       },
       paymentRequest: {
         findFirst: vi.fn(),
+        findUnique: vi.fn(({ where }: any) => where.id ? persistedRequest : null),
         update: vi.fn(),
-        create: vi.fn().mockImplementation(({ data }) => Promise.resolve({
+        create: vi.fn().mockImplementation(({ data }) => Promise.resolve(persistedRequest = {
           id: 'request-zalo-1',
           ...data,
           status: PaymentRequestStatus.PENDING,
@@ -1662,7 +1725,14 @@ describe('PaymentsService', () => {
       isActive: true,
       createdAt: new Date('2026-08-09T00:00:00.000Z'),
     };
-    const sentMetadata = { zaloSentAt: '2026-10-01T01:00:00.000Z', zaloRecipient: 'zalo-chat-1' };
+    const sentMetadata = {
+      zaloSentAt: '2026-10-01T01:00:00.000Z',
+      zaloRecipient: 'zalo-chat-1',
+      zaloDispatchFingerprint: JSON.stringify({
+        recipient: 'zalo-chat-1', amount: 400000, bankName: 'ACB',
+        bankAccountNumber: '123456789', bankAccountName: 'Owner A', paymentCode: 'HD31011026',
+      }),
+    };
     const pendingRequest = {
       id: 'request-zalo-replay-1',
       tenantId: 'tenant-1',
@@ -1688,7 +1758,7 @@ describe('PaymentsService', () => {
       bankAccount: { findFirst: vi.fn().mockResolvedValue(bankAccount) },
       paymentRequest: {
         findFirst: vi.fn().mockResolvedValue(pendingRequest),
-        findUnique: vi.fn().mockResolvedValue({ metadata: sentMetadata }),
+        findUnique: vi.fn().mockResolvedValue({ ...pendingRequest, metadata: sentMetadata }),
         update: vi.fn().mockResolvedValue(pendingRequest),
       },
     });
@@ -1709,6 +1779,34 @@ describe('PaymentsService', () => {
     expect(communicationService.dispatchDirect).not.toHaveBeenCalled();
   });
 
+  it('returns 409 instead of a false send success when the QR snapshot is stale', async () => {
+    const { service, invoicesService, communicationService } = createService();
+    invoicesService.getDetail.mockResolvedValue({
+      id: 'invoice-1', tenantId: 'tenant-1', customer: { zaloChatId: 'zalo-chat-1' },
+    });
+    vi.spyOn(service as any, 'createInvoiceRequest').mockResolvedValue({
+      id: 'request-1', amount: 500_000, bankName: 'ACB', bankAccountNumber: '123', bankAccountName: 'Owner A', paymentCode: 'HD31011026',
+    });
+    vi.spyOn(service as any, 'claimInvoiceZaloDispatch').mockResolvedValue({ status: 'STALE' });
+
+    await expect(service.sendInvoiceRequestToZalo('invoice-1', 'user-1')).rejects.toMatchObject({ status: 409 });
+    expect(communicationService.dispatchDirect).not.toHaveBeenCalled();
+  });
+
+  it('returns 409 instead of a false send success while QR delivery is in flight', async () => {
+    const { service, invoicesService, communicationService } = createService();
+    invoicesService.getDetail.mockResolvedValue({
+      id: 'invoice-1', tenantId: 'tenant-1', customer: { zaloChatId: 'zalo-chat-1' },
+    });
+    vi.spyOn(service as any, 'createInvoiceRequest').mockResolvedValue({
+      id: 'request-1', amount: 500_000, bankName: 'ACB', bankAccountNumber: '123', bankAccountName: 'Owner A', paymentCode: 'HD31011026',
+    });
+    vi.spyOn(service as any, 'claimInvoiceZaloDispatch').mockResolvedValue({ status: 'IN_FLIGHT' });
+
+    await expect(service.sendInvoiceRequestToZalo('invoice-1', 'user-1')).rejects.toMatchObject({ status: 409 });
+    expect(communicationService.dispatchDirect).not.toHaveBeenCalled();
+  });
+
   it('does not claim a fresh invoice notification already in flight', async () => {
     const paymentRequestUpdate = vi.fn();
     const { service } = createService({
@@ -1722,8 +1820,134 @@ describe('PaymentsService', () => {
 
     await expect(
       (service as any).claimInvoiceZaloDispatch('tenant-1', 'request-in-flight-1', 'zalo-chat-1'),
-    ).resolves.toBe('IN_FLIGHT');
+    ).resolves.toMatchObject({ status: 'IN_FLIGHT' });
     expect(paymentRequestUpdate).not.toHaveBeenCalled();
+  });
+
+  it('does not resend a legacy delivered QR to the same recipient without a fingerprint', async () => {
+    const paymentRequestUpdate = vi.fn();
+    const { service } = createService({
+      paymentRequest: {
+        findUnique: vi.fn().mockResolvedValue({
+          metadata: {
+            zaloSentAt: '2026-10-01T01:00:00.000Z',
+            zaloRecipient: 'zalo-chat-1',
+          },
+          amount: 1_000_000,
+          bankName: 'ACB', bankAccountNumber: '123', bankAccountName: 'Owner A', paymentCode: 'HD31011026',
+        }),
+        update: paymentRequestUpdate,
+      },
+    });
+
+    await expect((service as any).claimInvoiceZaloDispatch('tenant-1', 'request-1', 'zalo-chat-1')).resolves.toMatchObject({ status: 'ALREADY_SENT' });
+    expect(paymentRequestUpdate).not.toHaveBeenCalled();
+  });
+
+  it('reclaims a delivered QR when the invoice has a new remaining balance', async () => {
+    const paymentRequestUpdate = vi.fn().mockResolvedValue({});
+    const { service } = createService({
+      paymentRequest: {
+        findUnique: vi.fn().mockResolvedValue({
+          metadata: {
+            zaloSentAt: '2026-10-01T01:00:00.000Z',
+            zaloDispatchFingerprint: JSON.stringify({
+              recipient: 'zalo-chat-1', amount: 1_000_000, bankName: 'ACB',
+              bankAccountNumber: '123', bankAccountName: 'Owner A', paymentCode: 'HD31011026',
+            }),
+          },
+          amount: 600_000,
+          bankName: 'ACB', bankAccountNumber: '123', bankAccountName: 'Owner A', paymentCode: 'HD31011026',
+        }),
+        update: paymentRequestUpdate,
+      },
+    });
+
+    await expect((service as any).claimInvoiceZaloDispatch('tenant-1', 'request-1', 'zalo-chat-1')).resolves.toMatchObject({ status: 'CLAIMED' });
+    expect(paymentRequestUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ metadata: expect.objectContaining({ zaloDispatchStartedAt: expect.any(String) }) }),
+    }));
+  });
+
+  it('marks a delivered QR with the persisted payment fields used by its dedupe fingerprint', async () => {
+    const update = vi.fn().mockResolvedValue({});
+    const { service, prisma } = createService({
+      paymentRequest: {
+        findUnique: vi.fn().mockResolvedValue({
+          metadata: { preserved: 'value' },
+          amount: 600_000,
+          bankName: 'ACB',
+          bankAccountNumber: '123456789',
+          bankAccountName: 'Homeland',
+          paymentCode: 'HD31011026',
+        }),
+        update,
+      },
+    });
+
+    await (service as any).markPaymentRequestZaloSent('request-1', 'zalo-chat-1');
+
+    expect(prisma.paymentRequest.findUnique).toHaveBeenCalledWith({
+      where: { id: 'request-1' },
+      select: {
+        metadata: true,
+        amount: true,
+        bankName: true,
+        bankAccountNumber: true,
+        bankAccountName: true,
+        paymentCode: true,
+      },
+    });
+    expect(update.mock.calls[0][0].data.metadata.zaloDispatchFingerprint).toBe(JSON.stringify({
+      recipient: 'zalo-chat-1', amount: 600_000, bankName: 'ACB',
+      bankAccountNumber: '123456789', bankAccountName: 'Homeland', paymentCode: 'HD31011026',
+    }));
+  });
+
+  it('does not let an old QR completion clear or mark a newer claimed payload', async () => {
+    const request: any = {
+      id: 'request-race-1', amount: 1_000_000, bankName: 'ACB', bankAccountNumber: '123',
+      bankAccountName: 'Owner A', paymentCode: 'HD31011026', metadata: {},
+    };
+    const update = vi.fn(async ({ data }: any) => Object.assign(request, data));
+    const { service } = createService({
+      paymentRequest: { findUnique: vi.fn().mockImplementation(async () => request), update },
+    });
+
+    const oldClaim = await (service as any).claimInvoiceZaloDispatch('tenant-1', request.id, 'zalo-chat-1');
+    // The balance refresh owns the same lock and atomically clears its prior claim.
+    request.amount = 600_000;
+    request.metadata = {};
+    const newClaim = await (service as any).claimInvoiceZaloDispatch('tenant-1', request.id, 'zalo-chat-1');
+
+    await expect((service as any).releaseInvoiceZaloDispatchClaim('tenant-1', request.id, oldClaim)).resolves.toBe(false);
+    await expect((service as any).markPaymentRequestZaloSent('request-race-1', 'zalo-chat-1', {
+      tenantId: 'tenant-1', fingerprint: oldClaim.fingerprint, claimId: oldClaim.claimId,
+    })).resolves.toBe(false);
+    expect(request.metadata).toMatchObject({
+      zaloDispatchFingerprint: newClaim.fingerprint,
+      zaloDispatchClaimId: newClaim.claimId,
+    });
+    expect(request.metadata).not.toHaveProperty('zaloSentAt');
+  });
+
+  it('does not claim or send a QR snapshot that changed before the claim lock', async () => {
+    const request: any = {
+      id: 'request-pre-claim-race-1', amount: 1_000_000, bankName: 'ACB', bankAccountNumber: '123',
+      bankAccountName: 'Owner A', paymentCode: 'HD31011026', metadata: {},
+    };
+    const update = vi.fn();
+    const { service } = createService({
+      paymentRequest: { findUnique: vi.fn().mockImplementation(async () => request), update },
+    });
+    const staleSnapshotFingerprint = (service as any).invoiceZaloDispatchFingerprint(request, 'zalo-chat-1');
+    request.amount = 600_000;
+
+    await expect((service as any).claimInvoiceZaloDispatch(
+      'tenant-1', request.id, 'zalo-chat-1', { expectedFingerprint: staleSnapshotFingerprint },
+    )).resolves.toMatchObject({ status: 'STALE' });
+
+    expect(update).not.toHaveBeenCalled();
   });
 
   it('preserves shared-room context when sending invoice payment request to Zalo', async () => {
@@ -1736,6 +1960,7 @@ describe('PaymentsService', () => {
       isActive: true,
       createdAt: new Date('2026-08-09T00:00:00.000Z'),
     };
+    let persistedRequest: any = null;
     const { service, invoicesService, communicationService } = createService({
       appSetting: {
         findMany: vi.fn().mockResolvedValue([]),
@@ -1761,8 +1986,9 @@ describe('PaymentsService', () => {
       },
       paymentRequest: {
         findFirst: vi.fn(),
+        findUnique: vi.fn(({ where }: any) => where.id ? persistedRequest : null),
         update: vi.fn(),
-        create: vi.fn().mockImplementation(({ data }) => Promise.resolve({
+        create: vi.fn().mockImplementation(({ data }) => Promise.resolve(persistedRequest = {
           id: 'request-zalo-shared-1',
           ...data,
           status: PaymentRequestStatus.PENDING,

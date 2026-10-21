@@ -8,7 +8,7 @@ const enabled = process.env.RUN_IN_APP_NOTIFICATION_DB_TESTS === '1';
 const rawUrl = process.env.TEST_DATABASE_URL;
 const parsed = rawUrl ? new URL(rawUrl) : null;
 if (enabled && (!parsed || parsed.hostname !== '127.0.0.1'
-  || !/^\/homeland_booking_(?:cash_20261017|invoice)_test$/i.test(parsed.pathname))) {
+  || !/^\/(?:homeland_booking_(?:cash_20261017|invoice)_test|homeland_payment_notice_gate_test)$/i.test(parsed.pathname))) {
   throw new Error('In-app notification gate requires a dedicated local or CI test database.');
 }
 
@@ -46,10 +46,14 @@ const initialImmediateDelivery = process.env.COMMUNICATION_IMMEDIATE_DELIVERY;
     title: `Received ${entityId}`, message: `Recorded ${entityId}`,
     metadata: { entityId, paymentId: entityId, amount: 1_000_000 },
   });
-  const dispatch = (f: Fixture, context: Record<string, unknown> = {}) => workflow(clients[1]).dispatch({
-    tenantId: f.tenantId, userId: f.userId, channel: 'IN_APP', templateCode: 'PAYMENT_RECEIVED',
-    context: { title: 'Payment received', message: 'Payment recorded', paymentId: f.paymentId, ...context },
-  });
+  const dispatch = (f: Fixture, context: Record<string, unknown> = {}) => {
+    const { idempotencyKey, ...templateContext } = context;
+    return workflow(clients[1]).dispatch({
+      tenantId: f.tenantId, userId: f.userId, channel: 'IN_APP', templateCode: 'PAYMENT_RECEIVED',
+      ...(idempotencyKey ? { idempotencyKey: String(idempotencyKey) } : {}),
+      context: { title: 'Payment received', message: 'Payment recorded', paymentId: f.paymentId, ...templateContext },
+    });
+  };
   const masters = (f: Fixture, type = 'PAYMENT_RECEIVED') => clients[0].notification.findMany({
     where: { tenantId: f.tenantId, userId: f.userId, channel: 'IN_APP', type }, orderBy: { createdAt: 'asc' },
   });
@@ -166,4 +170,55 @@ const initialImmediateDelivery = process.env.COMMUNICATION_IMMEDIATE_DELIVERY;
     expect((await masters(f)).map((item) => item.id)).toEqual([result!.notificationId]);
     expect(await queues(f)).toBe(1);
   });
+
+  it('serializes two clients using the same dispatch fingerprint into one notification and one queue', async () => {
+    const f = await fixture('same-fingerprint');
+    const key = id('fingerprint', 'same');
+    const [first, second] = await Promise.all([
+      dispatch(f, { idempotencyKey: key }),
+      workflow(clients[0]).dispatch({
+        tenantId: f.tenantId, userId: f.userId, channel: 'IN_APP', templateCode: 'PAYMENT_RECEIVED',
+        idempotencyKey: key,
+        context: { title: 'Payment received', message: 'Payment recorded', paymentId: f.paymentId },
+      }),
+    ]);
+    expect(first!.notificationId).toBe(second!.notificationId);
+    expect(await masters(f)).toHaveLength(1);
+    expect(await queues(f)).toBe(1);
+  }, 20_000);
+
+  it('reuses a failed queue for the same dispatch fingerprint without creating a duplicate queue', async () => {
+    const f = await fixture('failed-reuse');
+    const key = id('fingerprint', 'failed');
+    const initial = await workflow(clients[0]).dispatch({
+      tenantId: f.tenantId, userId: f.userId, channel: 'IN_APP', templateCode: 'PAYMENT_RECEIVED',
+      idempotencyKey: key,
+      context: { title: 'Payment received', message: 'Payment recorded', paymentId: f.paymentId },
+    });
+    await clients[0].notificationQueue.update({ where: { id: initial!.queueIds[0] }, data: { status: 'FAILED', error: 'forced gate failure' } });
+    const retried = await workflow(clients[1]).dispatch({
+      tenantId: f.tenantId, userId: f.userId, channel: 'IN_APP', templateCode: 'PAYMENT_RECEIVED',
+      idempotencyKey: key,
+      context: { title: 'Payment received', message: 'Payment recorded', paymentId: f.paymentId },
+    });
+    expect(retried).toEqual({ notificationId: initial!.notificationId, queueIds: initial!.queueIds });
+    expect(await queues(f)).toBe(1);
+  });
+
+  it('keeps the same dispatch fingerprint isolated by tenant', async () => {
+    const one = await fixture('fingerprint-tenant-one');
+    const two = await fixture('fingerprint-tenant-two');
+    const key = id('fingerprint', 'tenant');
+    await Promise.all([workflow(clients[0]).dispatch({
+      tenantId: one.tenantId, userId: one.userId, channel: 'IN_APP', templateCode: 'PAYMENT_RECEIVED', idempotencyKey: key,
+      context: { title: 'Payment received', message: 'Payment recorded', paymentId: one.paymentId },
+    }), workflow(clients[1]).dispatch({
+      tenantId: two.tenantId, userId: two.userId, channel: 'IN_APP', templateCode: 'PAYMENT_RECEIVED', idempotencyKey: key,
+      context: { title: 'Payment received', message: 'Payment recorded', paymentId: two.paymentId },
+    })]);
+    expect(await masters(one)).toHaveLength(1);
+    expect(await masters(two)).toHaveLength(1);
+    expect(await queues(one)).toBe(1);
+    expect(await queues(two)).toBe(1);
+  }, 20_000);
 });

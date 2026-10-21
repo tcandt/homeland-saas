@@ -138,7 +138,7 @@ export function warpImageFile(
         const srcCanvas = document.createElement("canvas");
         srcCanvas.width = img.naturalWidth;
         srcCanvas.height = img.naturalHeight;
-        const srcCtx = srcCanvas.getContext("2d");
+        const srcCtx = srcCanvas.getContext("2d", { willReadFrequently: true });
         if (!srcCtx) throw new Error("Could not get source 2D context");
         srcCtx.drawImage(img, 0, 0);
         const srcData = srcCtx.getImageData(0, 0, srcCanvas.width, srcCanvas.height);
@@ -249,7 +249,7 @@ export function autoDetectDocumentCorners(canvas: HTMLCanvasElement): Point[] {
     const tempCanvas = document.createElement('canvas');
     tempCanvas.width = scanW;
     tempCanvas.height = scanH;
-    const tempCtx = tempCanvas.getContext('2d');
+    const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
     if (!tempCtx) return fallback;
 
     tempCtx.drawImage(canvas, 0, 0, scanW, scanH);

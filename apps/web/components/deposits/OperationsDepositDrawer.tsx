@@ -52,7 +52,7 @@ import { Badge } from "../ui/Badge";
 import DepositQrModal from "./DepositQrModal";
 import { getTenantAvatar } from "../tenants/TenantDetailDrawer";
 import { RefundProofUploader } from "../common/RefundProofUploader";
-import { getBookingHoldState, getBookingInvoiceCashPresentation, getBookingRecoveryErrorMessage } from "@/lib/contracts/booking-conversion";
+import { getBookingCollectionProgress, getBookingHoldState, getBookingInvoiceCashPresentation, getBookingRecoveryErrorMessage } from "@/lib/contracts/booking-conversion";
 
 const currencyFormatter = new Intl.NumberFormat("vi-VN");
 const timelineStepTitleClass =
@@ -213,7 +213,10 @@ export default function OperationsDepositDrawer({
   const hasPendingReviewReceived = !wasEverCollected && pendingReviewReceivedAmount > 0;
   const awaitingReconciliation = paymentConfirmed && isDraft;
   const bookingHold = getBookingHoldState(detailDeposit);
-  const bookingHoldReady = isConverted || bookingHold.isActive;
+  const { fullyCollected, qrSent } = getBookingCollectionProgress(detailDeposit);
+  const qrStepComplete = qrSent || fullyCollected;
+  const bookingHoldReady = isConverted || (fullyCollected && bookingHold.isActive &&
+    !bookingHold.requiresRecovery && !bookingHold.fundedInvalidAggregate);
   const requiresCoreCancellation = getDepositCancellationRoute({ isPaid, isModernBooking }) === "CORE";
   const canConvertBooking = Boolean(
     isModernBooking &&
@@ -1120,15 +1123,15 @@ export default function OperationsDepositDrawer({
                       <div className="flex flex-col items-center shrink-0 w-9">
                         <div
                           className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full shadow-xs transition-all relative ${
-                            wasEverCollected
+                            qrStepComplete
                               ? "bg-emerald-500 text-white ring-4 ring-emerald-500/15"
                               : "bg-amber-500/15 border-2 border-amber-500 text-amber-600 dark:text-amber-400 ring-4 ring-amber-500/25 shadow-md"
                           }`}
                         >
-                          {!wasEverCollected && (
+                          {!qrStepComplete && (
                             <span className="absolute -inset-1 rounded-full bg-amber-500/30 animate-ping opacity-75 pointer-events-none" />
                           )}
-                          {wasEverCollected ? (
+                          {qrStepComplete ? (
                             <Check size={15} className="stroke-[3]" />
                           ) : (
                             <Banknote size={15} className="animate-pulse" />
@@ -1137,10 +1140,10 @@ export default function OperationsDepositDrawer({
                         {/* Pipe 3 -> 4 */}
                         <div className="flex-1 w-full flex flex-col items-center justify-center my-1 min-h-[30px] relative">
                           <div
-                            className={`h-full ${wasEverCollected ? "w-[2px] bg-emerald-500" : "border-l-2 border-dashed border-slate-300 dark:border-slate-700 w-0"}`}
+                            className={`h-full ${qrStepComplete ? "w-[2px] bg-emerald-500" : "border-l-2 border-dashed border-slate-300 dark:border-slate-700 w-0"}`}
                           />
                           <div
-                            className={`absolute top-1/2 -translate-y-1/2 flex items-center justify-center w-4 h-4 rounded-full bg-card border shadow-2xs ${wasEverCollected ? "border-emerald-500/30 text-emerald-600" : "border-slate-300 dark:border-slate-700 text-slate-400 dark:text-slate-500"}`}
+                            className={`absolute top-1/2 -translate-y-1/2 flex items-center justify-center w-4 h-4 rounded-full bg-card border shadow-2xs ${qrStepComplete ? "border-emerald-500/30 text-emerald-600" : "border-slate-300 dark:border-slate-700 text-slate-400 dark:text-slate-500"}`}
                           >
                             <ChevronDown size={10} className="stroke-[2.5]" />
                           </div>
@@ -1149,34 +1152,37 @@ export default function OperationsDepositDrawer({
                       <div className="flex-1 min-w-0 pb-3">
                         <div
                           className={`p-2.5 rounded-xl transition-all ${
-                            wasEverCollected
+                            qrStepComplete
                               ? "bg-surface/50 border border-border/50"
                               : "bg-gradient-to-r from-amber-500/[0.08] via-amber-500/[0.03] to-transparent border-2 border-amber-500/50 dark:border-amber-500/40 shadow-xs"
                           }`}
                         >
                           <div className="flex items-center justify-between gap-2">
                             <span
-                              className={`min-w-0 flex-1 truncate text-xs font-black ${wasEverCollected ? "text-text" : "text-amber-900 dark:text-amber-200"}`}
+                              className={`min-w-0 flex-1 truncate text-xs font-black ${qrStepComplete ? "text-text" : "text-amber-900 dark:text-amber-200"}`}
                             >
                               3. Gửi yêu cầu thanh toán cọc
                             </span>
                             <span
                               className={`${timelineStatusBadgeClass} font-black ${
-                                wasEverCollected
+                                qrStepComplete
                                   ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
                                   : "bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-500/30 flex items-center gap-1.5"
                               }`}
                             >
-                              {paymentRequestCreated
+                              {qrSent
                                 ? "Đã gửi yêu cầu"
-                                : "Chưa gửi yêu cầu"}
+                                : fullyCollected ? "Không cần gửi"
+                                : paymentRequestCreated ? "Đã tạo QR" : "Chưa gửi yêu cầu"}
                             </span>
                           </div>
                           <p
-                            className={`text-[11px] leading-relaxed mt-0.5 ${wasEverCollected ? "text-muted" : "text-amber-900/80 dark:text-amber-200/80 font-medium"}`}
+                            className={`text-[11px] leading-relaxed mt-0.5 ${qrStepComplete ? "text-muted" : "text-amber-900/80 dark:text-amber-200/80 font-medium"}`}
                           >
-                            {paymentRequestCreated
+                            {qrSent
                                 ? `Đã tạo hóa đơn và gửi thông tin thanh toán: ${amountStr}`
+                                : fullyCollected ? "Đã thu đủ tiền cọc; không cần gửi thêm yêu cầu thanh toán."
+                                : paymentRequestCreated ? "QR thanh toán đã sẵn sàng; chưa ghi nhận gửi Zalo thành công."
                                 : "Tạo hóa đơn cọc giữ phòng và gửi QR thanh toán cho khách hàng"}
                           </p>
                         </div>
@@ -1188,12 +1194,12 @@ export default function OperationsDepositDrawer({
                       <div className="flex flex-col items-center shrink-0 w-9">
                         <div
                           className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full shadow-xs transition-all ${
-                            wasEverCollected
+                            fullyCollected
                               ? "bg-emerald-500 text-white ring-4 ring-emerald-500/15"
                               : "bg-slate-100/70 dark:bg-slate-800/50 border border-dashed border-slate-300 dark:border-slate-700 text-slate-400 dark:text-slate-600"
                           }`}
                         >
-                          {wasEverCollected ? (
+                          {fullyCollected ? (
                             <Check size={15} className="stroke-[3]" />
                           ) : (
                             <CircleDashed size={14} />
@@ -1202,10 +1208,10 @@ export default function OperationsDepositDrawer({
                         {/* Pipe 4 -> 5 */}
                         <div className="flex-1 w-full flex flex-col items-center justify-center my-1 min-h-[30px] relative">
                           <div
-                            className={`h-full ${wasEverCollected ? "w-[2px] bg-indigo-500" : "border-l-2 border-dashed border-slate-300 dark:border-slate-700 w-0"}`}
+                            className={`h-full ${fullyCollected ? "w-[2px] bg-indigo-500" : "border-l-2 border-dashed border-slate-300 dark:border-slate-700 w-0"}`}
                           />
                           <div
-                            className={`absolute top-1/2 -translate-y-1/2 flex items-center justify-center w-4 h-4 rounded-full bg-card border shadow-2xs ${wasEverCollected ? "border-indigo-500/30 text-indigo-600" : "border-slate-300 dark:border-slate-700 text-slate-400 dark:text-slate-500"}`}
+                            className={`absolute top-1/2 -translate-y-1/2 flex items-center justify-center w-4 h-4 rounded-full bg-card border shadow-2xs ${fullyCollected ? "border-indigo-500/30 text-indigo-600" : "border-slate-300 dark:border-slate-700 text-slate-400 dark:text-slate-500"}`}
                           >
                             <ChevronDown size={10} className="stroke-[2.5]" />
                           </div>
@@ -1214,39 +1220,41 @@ export default function OperationsDepositDrawer({
                       <div className="flex-1 min-w-0 pb-3">
                         <div
                           className={`p-2.5 rounded-xl transition-all ${
-                            wasEverCollected
+                            fullyCollected
                               ? "bg-surface/50 border border-border/50"
                               : "bg-slate-50/40 dark:bg-slate-900/20 border border-dashed border-slate-200 dark:border-slate-800/80 opacity-55"
                           }`}
                         >
                           <div className="flex items-center justify-between gap-2">
                             <span
-                              className={wasEverCollected ? timelineStepTitleClass : timelineStepTitleMutedClass}
+                              className={fullyCollected ? timelineStepTitleClass : timelineStepTitleMutedClass}
                             >
                               4. Xác nhận đã thu tiền cọc
                             </span>
                             <span
                               className={`${timelineStatusBadgeClass} ${
-                                wasEverCollected
+                                fullyCollected
                                   ? "font-black bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
                                   : "font-semibold bg-slate-100/70 dark:bg-slate-800/50 text-slate-400 dark:text-slate-500 border-slate-200/60 dark:border-slate-800"
                               }`}
                             >
-                              {wasEverCollected ? "Đã xác nhận thu" : paymentConfirmed ? "Đã thanh toán" : "Chờ xác nhận thu"}
+                              {fullyCollected ? "Đã thu đủ" : wasEverCollected ? "Đã thu một phần" : paymentConfirmed ? "Chờ đồng bộ cọc" : "Chờ xác nhận thu"}
                             </span>
                           </div>
                           <p
-                            className={`text-[11px] leading-relaxed mt-0.5 ${wasEverCollected ? "text-muted" : "text-slate-400/80 dark:text-slate-500/80"}`}
+                            className={`text-[11px] leading-relaxed mt-0.5 ${fullyCollected ? "text-muted" : "text-slate-400/80 dark:text-slate-500/80"}`}
                           >
-                            {wasEverCollected
+                            {fullyCollected
                               ? `Đã xác nhận thu đủ ${amountStr} tiền cọc giữ phòng`
+                              : wasEverCollected
+                                ? `Đã thu ${receivedAmountStr}; còn phải thu ${formatCurrency(Math.max(0, amount - receivedAmount))}. Hợp đồng giữ phòng chưa có hiệu lực.`
                               : paymentConfirmed
                                 ? "Thanh toán đã xác nhận, chờ đồng bộ vào sổ cọc. Không thu lại tiền."
                               : paymentRequestStatus === "PENDING"
-                                ? "Đang chờ SePay xác nhận giao dịch"
+                                ? "Chờ chuyển khoản được đối soát hoặc xác nhận thu tiền mặt trên hóa đơn cọc"
                                 : "Tự động cập nhật khi SePay xác nhận hoặc admin ghi nhận tiền mặt"}
                           </p>
-                          {wasEverCollected && (
+                          {fullyCollected && (
                             <div className="flex items-center gap-1 text-[10px] font-bold text-muted mt-1.5 pt-1.5 border-t border-border/30 font-mono">
                               <Clock3 size={11} className="text-primary/70" />
                               <span>
@@ -1311,20 +1319,20 @@ export default function OperationsDepositDrawer({
                                   : "font-semibold bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30"
                               }`}
                             >
-                              {isConverted ? "Đã chuyển HĐ thuê" : bookingHold.isActive
+                              {isConverted ? "Đã chuyển HĐ thuê" : bookingHoldReady
                                 ? "Còn hiệu lực"
-                                : wasEverCollected ? "Cần giữ phòng lại" : "Chờ xác nhận thu"}
+                                : fullyCollected ? "Cần kiểm tra giữ phòng" : "Chờ thu đủ cọc"}
                             </span>
                           </div>
                           <p
                             className="text-[11px] leading-relaxed mt-0.5 text-muted"
                           >
                             {isConverted ? "Cọc nguồn đã chuyển sang hợp đồng thuê và được lưu để tra soát."
-                              : bookingHold.isActive
+                              : bookingHoldReady
                                 ? `Phòng ${detailDeposit.roomCode || ""} đang được giữ đến ${formatDateTime(bookingHold.expiresAt)}`
-                                : wasEverCollected
+                                : fullyCollected
                                   ? "Cọc đã ghi nhận. Hệ thống kiểm tra chỗ còn khả dụng khi chuyển sang HĐ thuê."
-                                  : "Kiểm tra thanh toán và thời hạn giữ phòng trước khi chuyển HĐ thuê."}
+                                  : "Hợp đồng giữ phòng chỉ có hiệu lực sau khi xác nhận thu đủ tiền cọc."}
                           </p>
                         </div>
                       </div>
@@ -1347,7 +1355,7 @@ export default function OperationsDepositDrawer({
                                     ? "bg-rose-500 text-white ring-4 ring-rose-500/20"
                                     : isConverted
                                       ? "bg-indigo-600 text-white ring-4 ring-indigo-600/15"
-                                      : wasEverCollected
+                                      : fullyCollected
                                         ? "bg-sky-500 text-white ring-4 ring-sky-500/20"
                                         : "bg-slate-100/70 dark:bg-slate-800/50 border border-dashed border-slate-300 dark:border-slate-700 text-slate-400 dark:text-slate-600"
                               }`}
@@ -1358,7 +1366,7 @@ export default function OperationsDepositDrawer({
                                 <X size={15} />
                               ) : isConverted ? (
                                 <ShieldCheck size={16} />
-                              ) : wasEverCollected ? (
+                              ) : fullyCollected ? (
                                 <Clock3 size={15} />
                               ) : (
                                 <CircleDashed size={14} />
@@ -1368,14 +1376,14 @@ export default function OperationsDepositDrawer({
                           <div className="flex-1 min-w-0 pb-0">
                             <div
                               className={`p-2.5 rounded-xl transition-all ${
-                                isCompleted || wasEverCollected
+                                isCompleted || fullyCollected
                                   ? "bg-surface/50 border border-border/50"
                                   : "bg-slate-50/40 dark:bg-slate-900/20 border border-dashed border-slate-200 dark:border-slate-800/80 opacity-55"
                               }`}
                             >
                               <div className="flex items-center justify-between gap-2">
                                 <span
-                                  className={isCompleted || wasEverCollected ? timelineStepTitleClass : timelineStepTitleMutedClass}
+                                  className={isCompleted || fullyCollected ? timelineStepTitleClass : timelineStepTitleMutedClass}
                                 >
                                   {isRefunded
                                     ? "6. Đã hoàn cọc"
@@ -1393,7 +1401,7 @@ export default function OperationsDepositDrawer({
                                         ? "font-black bg-rose-500/10 text-rose-600 border-rose-500/20"
                                         : isConverted
                                           ? "font-black bg-indigo-500/10 text-indigo-600 border-indigo-500/20"
-                                          : wasEverCollected
+                                          : fullyCollected
                                             ? "font-bold bg-sky-500/10 text-sky-600 border-sky-500/20"
                                             : "font-semibold bg-slate-100/70 dark:bg-slate-800/50 text-slate-400 dark:text-slate-500 border-slate-200/60 dark:border-slate-800"
                                   }`}
@@ -1404,13 +1412,13 @@ export default function OperationsDepositDrawer({
                                       ? "Đã hủy"
                                       : isConverted
                                         ? "Đã chuyển đổi"
-                                        : wasEverCollected
+                                        : fullyCollected
                                           ? "Cần tiếp tục"
                                           : "Chờ thu cọc"}
                                 </span>
                               </div>
                               <p
-                                className={`text-[11px] leading-relaxed mt-0.5 ${isCompleted || wasEverCollected ? "text-muted" : "text-slate-400/80 dark:text-slate-500/80"}`}
+                                className={`text-[11px] leading-relaxed mt-0.5 ${isCompleted || fullyCollected ? "text-muted" : "text-slate-400/80 dark:text-slate-500/80"}`}
                               >
                                 {isRefunded
                                   ? "Đã hoàn lại tiền cọc giữ phòng cho khách qua kế toán"
@@ -1418,11 +1426,11 @@ export default function OperationsDepositDrawer({
                                     ? "Phiếu cọc giữ phòng đã bị hủy hoặc thu hồi"
                                     : isConverted
                                       ? `Đã chuyển phiếu cọc sang hợp đồng thuê: ${detailDeposit.contractCode || "Liên kết"}`
-                                      : wasEverCollected
+                                      : fullyCollected
                                         ? "Mở hợp đồng giữ chỗ liên kết để tạo một hợp đồng thuê dài hạn riêng biệt"
                                         : "Chỉ theo dõi sau khi nhận đủ tiền cọc giữ phòng"}
                               </p>
-                              {wasEverCollected && !isCompleted && detailDeposit.contractId && onOpenContract ? (
+                              {fullyCollected && !isCompleted && detailDeposit.contractId && onOpenContract ? (
                                 <Button
                                   data-testid="deposit-flow-open-booking-contract"
                                   size="sm"

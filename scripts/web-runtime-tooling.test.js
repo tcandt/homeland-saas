@@ -58,6 +58,7 @@ test('Web runtime Dockerfile locks the production runner to Node 22, direct Next
   assert.match(dockerfile, /RUN npm prune --omit=dev --workspace=web --include-workspace-root=false --ignore-scripts/);
   assert.match(runner, /addgroup --system --gid 1001 nodejs/);
   assert.match(runner, /adduser --system --uid 1001 nextjs/);
+  assert.match(runner, /RUN mkdir -p \/app\/apps\/web\/\.local-data\/learning \\\s*\r?\n\s*&& chown -R nextjs:nodejs \/app\/apps\/web\/\.local-data/);
   assert.match(runner, /COPY --from=builder \/app\/tai-lieu \.\/tai-lieu/);
   assert.match(runner, /COPY --from=builder \/app\/tai-lieu \.\/apps\/web\/tai-lieu/);
   assert.match(runner, /test ! -d \/app\/node_modules\/npm[\s\S]*test ! -d \/app\/node_modules\/typescript/);

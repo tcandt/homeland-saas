@@ -6,6 +6,7 @@ import PizZip from 'pizzip';
 import Docxtemplater from 'docxtemplater';
 import { execSync } from 'child_process';
 import { requireRoutePermission } from '@/lib/server/route-auth';
+import { normalizeContractIdentityTables } from '@/lib/server/contract-table-layout';
 
 function resolveTaiLieuPath(filename: string): string {
   const candidates = [
@@ -92,6 +93,8 @@ export async function POST(request: Request) {
 
     // Create a pizzip instance
     const zip = new PizZip(content);
+    const documentXml = zip.file('word/document.xml');
+    if (documentXml) zip.file('word/document.xml', normalizeContractIdentityTables(documentXml.asText()));
 
     // Create docxtemplater instance
     const doc = new Docxtemplater(zip, {

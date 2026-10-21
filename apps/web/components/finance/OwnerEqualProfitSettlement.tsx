@@ -38,6 +38,8 @@ export type OwnerEqualProfitSettlementProps = {
   buildingsData: any[];
   expenses: any[];
   isLoading: boolean;
+  depositFund?: number | null;
+  isDepositLoading?: boolean;
   onOpenCreateExpense?: () => void;
   monthRange?: MonthRange;
   onMonthRangeChange?: (range: MonthRange) => void;
@@ -109,6 +111,8 @@ export default function OwnerEqualProfitSettlement({
   buildingsData = [],
   expenses = [],
   isLoading,
+  depositFund,
+  isDepositLoading,
   onOpenCreateExpense,
   monthRange,
   onMonthRangeChange,
@@ -600,7 +604,7 @@ export default function OwnerEqualProfitSettlement({
           <div className="relative rounded-xl border border-amber-500/30 bg-amber-500/5 p-3.5 flex flex-col justify-between">
             <div className="flex items-center justify-between text-xs font-bold text-amber-700 dark:text-amber-400">
               <span className="flex items-center gap-1.5 uppercase tracking-wider text-[11px]">
-                <Minus size={14} /> (2) Chi Phí Trực Tiếp
+                <Minus size={14} /> (2) Chi Phí & Phát Sinh
               </span>
               <span className="rounded-md bg-amber-500/20 px-1.5 py-0.5 text-[10px]">
                 Theo từng tòa
@@ -608,10 +612,10 @@ export default function OwnerEqualProfitSettlement({
             </div>
             <div className="my-2">
               <div className="font-mono text-xl font-black text-amber-700 dark:text-amber-300">
-                {isLoading ? "Đang tính..." : formatVnd(financialData.totalDirectExpenses)}
+                {isLoading ? "Đang tính..." : formatVnd(financialData.totalDirectExpenses + financialData.totalIncidental)}
               </div>
               <p className="text-[11px] text-muted-foreground mt-0.5">
-                Bảo trì, sửa chữa, vệ sinh riêng tại từng tòa
+                Chi phí từng tòa và phát sinh dùng chung
               </p>
             </div>
             <div className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold border-t border-amber-500/20 pt-1.5 flex items-center justify-between">
@@ -624,23 +628,22 @@ export default function OwnerEqualProfitSettlement({
           <div className="relative rounded-xl border border-rose-500/30 bg-rose-500/5 p-3.5 flex flex-col justify-between">
             <div className="flex items-center justify-between text-xs font-bold text-rose-700 dark:text-rose-400">
               <span className="flex items-center gap-1.5 uppercase tracking-wider text-[11px]">
-                <Minus size={14} /> (3) Phát Sinh Cụm Tòa
+                <Wallet size={14} /> Tổng Quỹ Cọc
               </span>
               <span className="rounded-md bg-rose-500/20 px-1.5 py-0.5 text-[10px]">
-                Dùng chung
+                Hiện tại
               </span>
             </div>
             <div className="my-2">
               <div className="font-mono text-xl font-black text-rose-700 dark:text-rose-300">
-                {isLoading ? "Đang tính..." : formatVnd(financialData.totalIncidental)}
+                {isDepositLoading ? "Đang tải..." : depositFund == null ? "Chưa có số liệu" : formatVnd(depositFund)}
               </div>
               <p className="text-[11px] text-muted-foreground mt-0.5">
-                Cụm LK01 (31+32) & Cụm LK08 (24+25)
+                Cọc hợp đồng và cọc giữ phòng đang giữ
               </p>
             </div>
             <div className="text-[10px] text-rose-600 dark:text-rose-400 font-semibold border-t border-rose-500/20 pt-1.5 flex items-center justify-between">
-              <span>Trừ chung trước khi chia lời</span>
-              <span>Chia đều</span>
+              <span>Không tính vào doanh thu, lợi nhuận</span>
             </div>
           </div>
 

@@ -5,7 +5,7 @@ import { isLegacyBillingCovered, LEGACY_OPENING_POLICY, missingLegacyDocuments, 
 
 const command = () => ImportExistingContractSchema.parse({
   idempotencyKey: 'legacy-key-123', customerId: 'customer-1', roomId: 'room-1',
-  startDate: '2026-01-01', endDate: '2027-10-15', paidThrough: '2026-10-31',
+  startDate: '2026-01-01', endDate: '2027-10-15', paidThrough: '2026-09-30',
   rentAmount: 3000000, depositAmount: 6000000,
 });
 
@@ -44,7 +44,7 @@ describe('existing rental opening balances', () => {
       const { service, tx } = subject(); const input = command();
       const result = await service.importExisting(input, 'user-1', 'tenant-1', input.idempotencyKey);
       expect(result.contract).toMatchObject({ status: 'ACTIVE', startDate: new Date('2026-01-01'),
-        endDate: new Date('2027-10-15'), firstPaymentDate: new Date('2026-11-01') });
+        endDate: new Date('2027-10-15'), firstPaymentDate: new Date('2026-10-01') });
       expect(result.missingDocuments).toEqual(['CCCD_FRONT', 'CCCD_BACK', 'CONTRACT_FILE']);
       expect(tx.depositLedgerEntry.create).toHaveBeenCalledWith({ data: expect.objectContaining({
         balanceEffect: 6000000, sourceType: 'REVIEWED_OPENING_BALANCE', metadata: expect.objectContaining({ cashflow: false }),
@@ -92,6 +92,27 @@ describe('existing rental opening balances', () => {
     await expect(service.importExisting({ ...command(), paidThrough: '2026-10-20' }, 'u', 't', 'legacy-key-123')).rejects.toThrow('LEGACY_IMPORT_DATE_RANGE_INVALID');
     expect(() => parseLegacyDate('2026-02-30')).toThrow('LEGACY_IMPORT_DATE_INVALID');
     expect(tx.contract.create).not.toHaveBeenCalled();
+  });
+
+  it.each(['2026-08-31', '2026-10-31', '2026-11-30'])('rejects a cutoff other than last month: %s', async (paidThrough) => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-20T08:00:00Z'));
+    try {
+      const { service, tx } = subject();
+      await expect(service.importExisting({ ...command(), paidThrough }, 'u', 't', 'legacy-key-123'))
+        .rejects.toThrow('LEGACY_IMPORT_PREVIOUS_MONTH_REQUIRED');
+      expect(tx.contract.create).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('accepts current-month occupancy while leaving the current period unpaid', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-20T08:00:00Z'));
+    try {
+      const { service } = subject();
+      const result = await service.importExisting({ ...command(), startDate: '2026-10-10' }, 'u', 't', 'legacy-key-123');
+      expect(result.contract.startDate).toEqual(new Date('2026-10-10'));
+      expect(isLegacyBillingCovered(result.contract, '2026-10')).toBe(false);
+      expect(result.nextBillingDate).toBe('2026-10-01');
+    } finally { vi.useRealTimers(); }
   });
 
   it('covers imported monthly periods but resumes normal billing the following month', () => {

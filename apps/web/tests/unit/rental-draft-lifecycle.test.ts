@@ -3,7 +3,6 @@ import { resolve } from "node:path";
 import ts from "typescript";
 import { describe, expect, it, vi } from "vitest";
 import { getContractDocumentStatus } from "../../lib/contracts/booking-conversion";
-
 import { getOrCreateBookingHoldIntent, markBookingHoldIntentAccepted } from "../../lib/rentals/booking-hold-intent";
 
 const sourcePath = resolve(process.cwd(), "components/buildings/RoomPremiumModal.tsx");
@@ -92,7 +91,7 @@ async function finishLegacyImport({ waitForZalo = false, currentContext = true }
   const importExisting = vi.fn().mockResolvedValue({
     contract: { id: "legacy-contract-uat", code: "HD-CU-101-uat", status: "ACTIVE" },
     missingDocuments: ["CCCD_FRONT", "CCCD_BACK", "CONTRACT_FILE"],
-    nextBillingDate: "2026-11-01",
+    nextBillingDate: "2026-10-01",
   });
   const setRoomData = vi.fn((recipe: (previous: any) => any) => recipe({ code: "P101", status: "vacant" }));
   const closeTenantModal = vi.fn();
@@ -101,9 +100,9 @@ async function finishLegacyImport({ waitForZalo = false, currentContext = true }
   const dependencies = {
     rentalIntentMode: "LEGACY",
     contractDraft: { ngayBatDau: "2026-01-01", ngayKetThuc: "2027-10-15", ngayKyhopdong: "", tienThue: "3.000.000 đ", tienCoc: "6.000.000 đ" },
-    legacyPaidThrough: "2026-10-31",
+    legacyPaidThrough: "2026-09-30",
     normalizeStrictYmdDate: (value: string) => value,
-    getEndOfMonthYmd: () => "2026-10-31",
+    getPreviousMonthEndYmd: () => "2026-09-30",
     getLocalYMD: () => "2026-10-20",
     customerId: "customer-uat",
     roomContext: { roomId: "room-uat" },
@@ -191,7 +190,7 @@ describe("Rental draft lifecycle", () => {
     expect(result.importExisting).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
       idempotencyKey: "room-flow:legacy:room-uat:customer-uat:7",
       customerId: "customer-uat", roomId: "room-uat", startDate: "2026-01-01", endDate: "2027-10-15",
-      signedAt: "2026-01-01", paidThrough: "2026-10-31", rentAmount: 3000000, depositAmount: 6000000,
+      signedAt: "2026-01-01", paidThrough: "2026-09-30", rentAmount: 3000000, depositAmount: 6000000,
       attachments: [],
     }));
     expect(result.setLegacyMissingDocuments).toHaveBeenCalledWith(["CCCD_FRONT", "CCCD_BACK", "CONTRACT_FILE"]);
@@ -275,6 +274,7 @@ describe("Rental draft lifecycle", () => {
     expect(calls).not.toContain("onUpdateRoom");
     expect(calls).not.toContain("roomsApi.update");
   });
+
   it("keeps a booking end date distinct from an edited move-in date, including leap-day rollover", () => {
     const updated = runBookingMoveInDateChange(
       { ngayBatDau: "2024-02-01", ngayKetThuc: "2024-02-01" },

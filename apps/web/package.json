@@ -1,6 +1,6 @@
 {
   "name": "web",
-  "version": "3.2.1",
+  "version": "3.2.2",
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",
@@ -21,14 +21,15 @@
     "test": "vitest run app.test.ts components/auth/AuthGuard.test.ts components/buildings/workspace/building-profiles.test.ts components/buildings/cockpit/building-image-maps.test.ts components/buildings/cockpit/building-cockpit-data.test.ts lib/adapters/building.adapter.test.ts lib/api/client.test.ts lib/server/expense-bill-storage.test.ts lib/server-sent-events.test.ts lib/utils/learning-store.test.ts tests/unit/room-finance-rental-cycle.test.ts tests/unit/room-status-open-occupancy.test.ts tests/unit/whole-room-representative-guard.test.ts tests/unit/tenant-existing-profile.test.ts tests/unit/tenant-email-optional.test.ts tests/unit/room-contract-dedupe.test.ts tests/unit/hunonic-snapshot-presentation.test.ts tests/unit/core07-08-billing-snapshot-presentation.test.ts tests/unit/terminal-deposit-new-cycle.test.ts tests/unit/deposit-mutations-and-invariants.test.ts tests/unit/p0-rental-intent-flow.test.ts tests/unit/p1-customer-identity-isolation.test.ts tests/unit/p5-finance-cross-tab-invalidation.test.ts tests/unit/strict-listeners.test.ts"
   },
   "dependencies": {
-    "@homeland/shared": "*",
     "@google/genai": "^2.12.0",
+    "@homeland/shared": "*",
     "@hookform/resolvers": "^5.4.0",
     "@opentelemetry/api": "^1.9.1",
     "@tanstack/react-query": "^5.101.1",
     "@tanstack/react-virtual": "^3.14.4",
     "@techstark/opencv-js": "^5.0.0-release.1",
     "@vercel/otel": "^2.1.3",
+    "@xmldom/xmldom": "^0.9.12",
     "@zxing/browser": "0.1.5",
     "@zxing/library": "0.21.3",
     "axios": "1.20.0",

@@ -1,9 +1,16 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rename, stat, writeFile, appendFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { access, mkdir, readFile, rename, stat, writeFile, appendFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 
 const DEFAULT_LIMIT_BYTES = 100 * 1024 * 1024;
 const SNAPSHOT_LIMIT = 600;
+const STORAGE_ERROR_CODES = new Set(["EACCES", "EPERM", "EROFS", "ENOTDIR", "ENOENT", "ENOSPC", "EDQUOT"]);
+
+export function isLearningStorageError(error: unknown): boolean {
+  return STORAGE_ERROR_CODES.has(String((error as NodeJS.ErrnoException)?.code || ""));
+}
 const FORBIDDEN_KEYS = new Set([
   "image",
   "images",
@@ -177,6 +184,7 @@ export async function createLearningStore(options: LearningStoreOptions = {}) {
     : DEFAULT_LIMIT_BYTES;
   const filePath = path.join(dataDir, "samples.ndjson");
   await mkdir(dataDir, { recursive: true });
+  await access(dataDir, constants.W_OK);
 
   let rows: any[] = [];
   try {
@@ -196,7 +204,9 @@ export async function createLearningStore(options: LearningStoreOptions = {}) {
         (row.kind === "corner" || row.kind === "qr") &&
         typeof row.id === "string" &&
         row.payload);
-  } catch {
+    await access(filePath, constants.W_OK);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     rows = [];
   }
 
@@ -283,6 +293,21 @@ export async function createLearningStore(options: LearningStoreOptions = {}) {
     return { accepted: accepted.length, duplicates: duplicates.length, rejected };
   }
 
+  async function replaySamples(samples: any[]) {
+    // Recovery may replay a log older than the normal 20,000-item dedup
+    // window. Compare against every retained primary row for this operation.
+    const retainedIds = new Set(rows.map((row) => row.id));
+    const unseen = samples.filter((entry) => {
+      try {
+        const id = fingerprint(entry?.kind, sanitizeLearningSample(entry?.kind, entry?.payload));
+        if (retainedIds.has(id)) return false;
+        retainedIds.add(id);
+        return true;
+      } catch { return false; }
+    });
+    return addMany(unseen);
+  }
+
   function snapshot() {
     const corner = rows
       .filter((row) => row.kind === "corner")
@@ -310,13 +335,53 @@ export async function createLearningStore(options: LearningStoreOptions = {}) {
     };
   }
 
-  return { addMany, snapshot, dataDir, filePath };
+  return { addMany, replaySamples, snapshot, dataDir, filePath };
 }
 
 let globalStorePromise: ReturnType<typeof createLearningStore> | null = null;
+
+async function initializeLearningStore() {
+  const scope = createHash("sha256").update(resolveLearningDataDir()).digest("hex").slice(0, 16);
+  const fallbackDir = path.join(tmpdir(), "homeland-cccd-learning", scope);
+  try {
+    const store = await createLearningStore();
+    // Replay the complete temporary log before selecting recovered primary
+    // storage. addMany sanitizes and deduplicates it, so repeated restarts
+    // preserve accepted samples without multiplying them.
+    let temporaryRows = "";
+    try {
+      temporaryRows = await readFile(path.join(fallbackDir, "samples.ndjson"), "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    const samples = temporaryRows.split(/\r?\n/).filter(Boolean).flatMap((line) => {
+      try {
+        const row = JSON.parse(line);
+        return [{ kind: row.kind, payload: row.payload }];
+      } catch { return []; }
+    });
+    if (samples.length) await store.replaySamples(samples);
+    return store;
+  } catch (error) {
+    if (!isLearningStorageError(error)) throw error;
+    // Learning is auxiliary to QR decoding. Use writable temporary storage
+    // when the application directory or configured volume is unavailable.
+    const store = await createLearningStore({ dataDir: fallbackDir });
+    return { ...store, snapshot: () => ({ ...store.snapshot(), storage: "temporary" }) };
+  }
+}
+
 export function getLearningStore() {
   if (!globalStorePromise) {
-    globalStorePromise = createLearningStore();
+    const initializingStore = initializeLearningStore();
+    globalStorePromise = initializingStore;
+    // Do not retain a rejected initialization forever: transient writable
+    // volume failures must be recoverable by the next API request.
+    void initializingStore.catch(() => {
+      if (globalStorePromise === initializingStore) {
+        globalStorePromise = null;
+      }
+    });
   }
   return globalStorePromise;
 }

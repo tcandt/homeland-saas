@@ -174,7 +174,7 @@ export class ContractsService extends BaseCrudService<Contract> {
     const nextBillingDate = new Date(paidThroughDate);
     nextBillingDate.setUTCDate(nextBillingDate.getUTCDate() + 1);
     if (nextBillingDate.getUTCDate() !== 1 || endDate <= startDate ||
-        paidThroughDate < startDate || input.paidThrough.slice(0, 7) > input.endDate.slice(0, 7)) {
+        input.paidThrough.slice(0, 7) > input.endDate.slice(0, 7)) {
       throw new BadRequestException('LEGACY_IMPORT_DATE_RANGE_INVALID');
     }
     const normalized = { ...input, signedAt: input.signedAt || input.startDate,
@@ -194,8 +194,13 @@ export class ContractsService extends BaseCrudService<Contract> {
           nextBillingDate: marker.nextBillingDate, missingDocuments: marker.missingDocuments };
       }
       const today = new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
-      if (input.startDate > today || input.endDate <= today || normalized.signedAt > today || input.paidThrough < today) {
+      if (input.startDate > today || input.endDate <= today || normalized.signedAt > today) {
         throw new BadRequestException('LEGACY_IMPORT_REQUIRES_CURRENT_RENTAL');
+      }
+      const [year, month] = today.split('-').map(Number);
+      const previousMonthEnd = new Date(Date.UTC(year, month - 1, 0)).toISOString().slice(0, 10);
+      if (input.paidThrough !== previousMonthEnd) {
+        throw new BadRequestException('LEGACY_IMPORT_PREVIOUS_MONTH_REQUIRED');
       }
       // Monthly close takes the same usage-period locks before freezing its roster.
       // Acquire these before room/customer locks so neither command can pass a stale roster.
@@ -256,7 +261,7 @@ export class ContractsService extends BaseCrudService<Contract> {
       const cycle = await tx.rentalCycle.create({ data: { tenantId, customerId: customer.id, roomId: room.id,
         status: RentalCycleStatus.ACTIVE, expectedMoveInAt: startDate, actualMoveInAt: startDate } });
       const snapshot = this.asJson({ id: customer.id, fullName: customer.fullName, phone: customer.phone,
-        identityNo: customer.identityNo, idImages: customer.idImages, idImageProvenance: customer.idImageProvenance });
+        birthDate: customer.birthDate, identityNo: customer.identityNo, idImages: customer.idImages, idImageProvenance: customer.idImageProvenance });
       const contract = await tx.contract.create({ data: { tenantId, roomId: room.id, customerId: customer.id,
         rentalCycleId: cycle.id, code: input.contractCode || `HD-CU-${createHash('sha256').update(`${tenantId}:${key}`).digest('hex').slice(0, 20)}`,
         status: ContractStatus.ACTIVE, startDate, endDate, signedAt, firstPaymentDate: nextBillingDate,
@@ -696,6 +701,13 @@ export class ContractsService extends BaseCrudService<Contract> {
           return existing;
         }
         throw new ConflictException("RENEWAL_IDEMPOTENCY_CONFLICT");
+      }
+
+      const todayYmd = new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const sourceEndYmd = new Date(sourceEndDate.getTime() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const daysRemaining = (Date.parse(sourceEndYmd) - Date.parse(todayYmd)) / 86400000;
+      if (daysRemaining < 0 || daysRemaining > 60) {
+        throw new BadRequestException('RENEWAL_OUTSIDE_60_DAY_WINDOW');
       }
 
       const cycle = await tx.rentalCycle.create({
@@ -7638,7 +7650,10 @@ export class ContractsService extends BaseCrudService<Contract> {
 
   private resolveSettlementMoveInDate(contract: any): Date | null {
     const snapshotDate = contract?.moveInSnapshot?.capturedAt;
-    const candidate = snapshotDate || contract?.activatedAt || contract?.startDate;
+    // Import capture time is administrative, not the historical occupancy boundary.
+    const candidate = legacyImportMarker(contract)
+      ? contract?.moveInSnapshot?.actualMoveInAt || contract?.startDate
+      : snapshotDate || contract?.activatedAt || contract?.startDate;
     if (!candidate) return null;
     const date = new Date(candidate);
     return Number.isNaN(date.getTime()) ? null : date;

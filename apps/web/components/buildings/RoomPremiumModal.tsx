@@ -478,6 +478,11 @@ const getOneYearAfterYmd = (ymd: string) => {
   return getLocalYMD(new Date(Date.UTC(year + 1, month - 1, Math.min(day, lastDayOfTargetMonth))));
 };
 
+const getPreviousMonthEndYmd = () => {
+  const [year, month] = getLocalYMD().split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, 0)).toISOString().slice(0, 10);
+};
+
 const getBookingCreateErrorMessage = (error: unknown) => {
   const apiError = error instanceof ApiError ? error : null;
   const responseMessage = (error as any)?.response?.data?.message;
@@ -500,12 +505,6 @@ const getBookingCreateErrorMessage = (error: unknown) => {
   if (code) return messages[code];
   if (apiError) return apiError.message || "Không thể tạo cọc giữ phòng. Vui lòng thử lại.";
   return "Không thể tạo cọc giữ phòng. Vui lòng thử lại.";
-};
-
-const getEndOfMonthYmd = (ymd: string = getLocalYMD()) => {
-  const normalized = normalizeStrictYmdDate(ymd) || getLocalYMD();
-  const [year, month] = normalized.split("-").map(Number);
-  return `${year}-${String(month).padStart(2, "0")}-${String(new Date(Date.UTC(year, month, 0)).getUTCDate()).padStart(2, "0")}`;
 };
 
 const vietnamDateToIso = (ymd: string, endOfDay = false) => {
@@ -756,7 +755,7 @@ export default function RoomPremiumModal({
   const [contractEndDate, setContractEndDate] = useState("");
   const [contractRent, setContractRent] = useState<number>(0);
   const [contractDeposit, setContractDeposit] = useState<number>(0);
-  const [legacyPaidThrough, setLegacyPaidThrough] = useState(getEndOfMonthYmd());
+  const [legacyPaidThrough, setLegacyPaidThrough] = useState(getPreviousMonthEndYmd());
   const [isLegacyUploading, setIsLegacyUploading] = useState(false);
   const [legacyAttachments, setLegacyAttachments] = useState<string[]>([]);
   const [legacyApprovedIdentitySides, setLegacyApprovedIdentitySides] = useState<Array<"front" | "back">>([]);
@@ -2253,6 +2252,10 @@ export default function RoomPremiumModal({
       const phone = tenantDraft.phone.trim();
       const cccd = tenantDraft.cccd.trim();
       const birthDate = normalizeVietnameseDate(tenantDraft.birthDate.trim());
+      if (birthDate && (!isValidYmdDate(birthDate) || birthDate > getLocalYMD())) {
+        showToast("Ngày sinh không hợp lệ. Vui lòng nhập DD/MM/YYYY và không sau hôm nay.", "error");
+        return;
+      }
 
       const nextErrors: {
         name?: "REQUIRED" | null;
@@ -2526,15 +2529,15 @@ export default function RoomPremiumModal({
           const endDate = normalizeStrictYmdDate(contractDraft.ngayKetThuc);
           const signedAt = normalizeStrictYmdDate(contractDraft.ngayKyhopdong) || startDate;
           const paidThrough = normalizeStrictYmdDate(legacyPaidThrough);
-          const currentMonthEnd = getEndOfMonthYmd();
+          const previousMonthEnd = getPreviousMonthEndYmd();
           const rentAmount = Number(contractDraft.tienThue.replace(/\D/g, ""));
           const depositAmount = Number(contractDraft.tienCoc.replace(/\D/g, ""));
           if (!startDate || !endDate || !paidThrough || !signedAt || startDate >= getLocalYMD() || endDate <= getLocalYMD()) {
             showToast("Khách cũ cần có ngày bắt đầu trong quá khứ và ngày kết thúc trong tương lai.", "error");
             return;
           }
-          if (paidThrough < currentMonthEnd || paidThrough.slice(0, 7) > endDate.slice(0, 7)) {
-            showToast("Mốc đã thanh toán phải là cuối tháng hiện tại hoặc tháng sau, và không sau tháng kết thúc hợp đồng.", "error");
+          if (paidThrough !== previousMonthEnd) {
+            showToast("Mốc đã thanh toán phải là cuối tháng trước. Tháng hiện tại sẽ được tính riêng.", "error");
             return;
           }
           if (!Number.isFinite(rentAmount) || rentAmount <= 0 || !Number.isFinite(depositAmount) || depositAmount < 0) {
@@ -3208,7 +3211,7 @@ export default function RoomPremiumModal({
           ngayKyhopdong: previous.ngayKyhopdong || (rentalIntentMode === "LEGACY" ? "" : getLocalYMD()),
         }));
         if (rentalIntentMode === "LEGACY") {
-          setLegacyPaidThrough(getEndOfMonthYmd());
+      setLegacyPaidThrough(getPreviousMonthEndYmd());
           setLegacyAttachments([]);
           setLegacyMissingDocuments([]);
         }
@@ -3242,8 +3245,8 @@ export default function RoomPremiumModal({
           showToast("Nhập ngày bắt đầu thực tế trong quá khứ và ngày kết thúc trong tương lai.", "error");
           return;
         }
-        if (!paidThrough || paidThrough < getEndOfMonthYmd() || paidThrough.slice(0, 7) > endDate.slice(0, 7)) {
-          showToast("Chọn tháng đã thanh toán đầy đủ, không sau tháng kết thúc hợp đồng.", "error");
+        if (paidThrough !== getPreviousMonthEndYmd()) {
+          showToast("Mốc đã thanh toán phải là cuối tháng trước.", "error");
           return;
         }
       }
@@ -3332,10 +3335,7 @@ export default function RoomPremiumModal({
   if (roomData.tenant) {
     tenantName = roomData.tenant.name;
     if (roomData.contract) {
-      const diff = Math.ceil(
-        (new Date(roomData.contract.endDate).getTime() - new Date().getTime()) /
-          (1000 * 3600 * 24),
-      );
+      const diff = remainingContractDays(roomData.contract.endDate);
       daysLeft = Number.isFinite(diff) ? (diff > 0 ? `${diff}d` : "0d") : "-";
     }
   } else {
@@ -6365,7 +6365,8 @@ export default function RoomPremiumModal({
                     type="text"
                     inputMode="numeric"
                     placeholder="DD/MM/YYYY"
-                    value={formatBirthDateForDisplay(tenantDraft.birthDate)}
+                      value={tenantDraft.birthDate}
+                      onBlur={() => updateTenantDraft("birthDate", formatBirthDateForDisplay(tenantDraft.birthDate))}
                     onChange={(event) =>
                       updateTenantDraft("birthDate", event.target.value)
                     }
@@ -6503,7 +6504,7 @@ export default function RoomPremiumModal({
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="text-[11px] font-black text-muted uppercase">Đã thanh toán hết tháng *</label>
-                    <Input type="month" value={legacyPaidThrough.slice(0, 7)} min={getEndOfMonthYmd().slice(0, 7)} onChange={(event) => setLegacyPaidThrough(getEndOfMonthYmd(`${event.target.value}-01`))} />
+                    <Input type="month" value={legacyPaidThrough.slice(0, 7)} readOnly />
                     <span className="text-[10px] text-muted">Đã trả hết đến {formatYmdForVietnamDisplay(legacyPaidThrough)}. Kỳ tiếp theo sẽ thu từ tháng sau.</span>
                   </div>
                 </div>

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ContractStatus, RentalCycleStatus } from "@prisma/client";
 import { ContractsService } from "./contracts.service";
 
@@ -106,6 +106,27 @@ const input = {
 const key = "renewal-key-09-03";
 
 describe("CORE-09.03 renewal", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-15T08:00:00Z"));
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it.each([
+    ["2025-12-01T17:00:00Z", true],
+    ["2025-11-30T17:00:00Z", false],
+    ["2026-01-31T16:59:59Z", true],
+    ["2026-01-31T17:00:00Z", false],
+  ])("checks the Vietnam 0..60 day window at %s", async (now, allowed) => {
+    vi.setSystemTime(new Date(now));
+    const { service, tx } = setup();
+    const promise = service.renewContract(source.id, input, "user-a", "tenant-a", key);
+    if (allowed) await expect(promise).resolves.toMatchObject({ id: "contract-renewed" });
+    else {
+      await expect(promise).rejects.toThrow("RENEWAL_OUTSIDE_60_DAY_WINDOW");
+      expect(tx.rentalCycle.create).not.toHaveBeenCalled();
+    }
+  });
   it("creates a new DRAFT contract and PLANNED cycle without writing terminal history or finance", async () => {
     const { service, tx, oldFinancialDocuments } = setup();
     const sourceBefore = structuredClone(source);
@@ -202,6 +223,17 @@ describe("CORE-09.03 renewal", () => {
       ),
     ).rejects.toThrow("RENEWAL_IDEMPOTENCY_CONFLICT");
     expect(tx.$queryRaw).toHaveBeenCalledTimes(4); // source row lock for both contenders, collision retry, and replay
+  });
+
+  it("replays an already-created renewal before applying the later time-window gate", async () => {
+    const { service, tx } = setup();
+    const created = await service.renewContract(source.id, input, "user-a", "tenant-a", key);
+
+    vi.setSystemTime(new Date("2025-11-30T17:00:00Z"));
+    await expect(service.renewContract(source.id, input, "user-a", "tenant-a", key))
+      .resolves.toMatchObject({ id: created.id });
+    expect(tx.rentalCycle.create).toHaveBeenCalledTimes(1);
+    expect(tx.contract.create).toHaveBeenCalledTimes(1);
   });
 
   it("rejects a cross-tenant source before it can create a cycle", async () => {

@@ -87,6 +87,11 @@ ENV NEXT_PUBLIC_MAINTENANCE_MODE=${NEXT_PUBLIC_MAINTENANCE_MODE}
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
+# The CCCD scanner's privacy-preserving learning samples are stored locally
+# by the non-root Next.js process.
+RUN mkdir -p /app/apps/web/.local-data/learning \
+    && chown -R nextjs:nodejs /app/apps/web/.local-data
+
 # Set the correct permission for prerender cache
 RUN mkdir .next
 RUN chown nextjs:nodejs .next

@@ -4,6 +4,7 @@ import React, { useMemo, useState } from "react";
 import AppShell from "@/components/layout/AppShell";
 import OwnerEqualProfitSettlement from "@/components/finance/OwnerEqualProfitSettlement";
 import FinanceExportDrawer from "@/components/finance/FinanceExportDrawer";
+import { useDepositStatsQuery } from "@/lib/queries/deposits.queries";
 import { getVietnamMonthRange, getVietnamMonthRangeBounds, type ReportMonthRange } from "@/lib/utils/report-period";
 import { usePermissions } from "@/lib/hooks/usePermissions";
 import {
@@ -13,6 +14,8 @@ import {
 
 export default function FinancePage() {
   const permissions = usePermissions();
+  const depositStats = useDepositStatsQuery();
+  const depositFund = depositStats.data?.kpi?.totalFund;
 
   const [monthRange, setMonthRange] = useState<ReportMonthRange>(() => getVietnamMonthRange());
 
@@ -72,6 +75,8 @@ export default function FinancePage() {
             buildingsData={Array.isArray(buildingsData) ? buildingsData : []}
             expenses={Array.isArray(expensesData) ? expensesData : []}
             isLoading={isLoadingBuildings || isLoadingExpenses}
+            depositFund={depositStats.isError || !Number.isFinite(depositFund) ? null : depositFund}
+            isDepositLoading={depositStats.isLoading}
             monthRange={monthRange}
             onMonthRangeChange={setMonthRange}
           />}

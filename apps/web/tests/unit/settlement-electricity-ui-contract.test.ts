@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import ts from "typescript";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { settlementElectricityIssue, settlementElectricityValues } from "../../lib/contracts/settlement-electricity";
 
 const drawerText = readFileSync("components/contracts/OperationsContractDrawer.tsx", "utf8");
 const drawer = ts.createSourceFile("OperationsContractDrawer.tsx", drawerText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -34,5 +35,51 @@ describe("settlement electricity UI contract", () => {
     expect(apiText).toContain("/hunonic/rooms/${encodeURIComponent(roomId)}/sync");
     expect(drawerText).toMatch(/data-testid="contract-settlement-actual-move-out-date"[\s\S]{0,160}type="date"[\s\S]{0,160}readOnly/);
     expect(drawerText).toContain("toDateInputValue(settlementPreview.actualMoveOutDate)");
+  });
+
+  it("does not announce sync success when the refreshed preview requires manual electricity evidence", async () => {
+    const declaration = functionText("handleSyncElectricity");
+    const preview = { utilitySnapshot: { electricity: {
+      manualRequired: true,
+      manualRequiredReason: "ELECTRICITY_BASELINE_REQUIRED",
+      monthKwh: null,
+      calculatedAmountVnd: null,
+    } } };
+    const showToast = vi.fn();
+    const setSettlementForm = vi.fn((recipe) => recipe({ electricityAmount: "100", electricityClosingKwh: "10" }));
+    const dependencies = {
+      settlementSyncInFlightRef: { current: false },
+      detailContract: { id: "contract-1", roomId: "room-1" },
+      settlementSessionRef: { current: 1 },
+      settlementPreviewRequestRef: { current: 0 },
+      setIsSyncingHunonic: vi.fn(),
+      hunonicApi: { syncRoom: vi.fn().mockResolvedValue(undefined) },
+      buildSettlementPayload: vi.fn(() => ({ electricityAmount: "100", electricityClosingKwh: "10" })),
+      contractsApi: { previewSettlement: vi.fn().mockResolvedValue(preview) },
+      setSettlementPreview: vi.fn(),
+      settlementElectricityValues,
+      setSettlementForm,
+      settlementElectricityIssue,
+      showToast,
+    };
+    const output = ts.transpileModule(
+      `const ${declaration}; return handleSyncElectricity;`,
+      { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } },
+    ).outputText;
+    const handler = new Function("deps", `const { ${Object.keys(dependencies).join(",")} } = deps; ${output}`)(dependencies);
+
+    await handler();
+
+    expect(dependencies.hunonicApi.syncRoom).toHaveBeenCalledWith("room-1");
+    expect(dependencies.contractsApi.previewSettlement).toHaveBeenCalledOnce();
+    expect(setSettlementForm).toHaveBeenCalledOnce();
+    expect(showToast).toHaveBeenCalledWith(
+      expect.stringContaining("Thiếu chỉ số điện đầu kỳ"),
+      "info",
+    );
+    expect(showToast).not.toHaveBeenCalledWith(
+      "Đã đồng bộ công tơ điện và cập nhật số liệu thành công!",
+      "success",
+    );
   });
 });

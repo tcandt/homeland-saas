@@ -99,7 +99,7 @@ import {
 } from "../../lib/api/contracts.api";
 import { customersApi } from "../../lib/api/customers.api";
 import { hunonicApi } from "../../lib/api/hunonic.api";
-import { identityDocumentImages, settlementElectricityValues } from "../../lib/contracts/settlement-electricity";
+import { identityDocumentImages, settlementElectricityIssue, settlementElectricityValues } from "../../lib/contracts/settlement-electricity";
 
 function formatDate(value?: string | null) {
   if (!value) return "Chưa có";
@@ -151,6 +151,12 @@ function addYearsToYmd(value: string, years: number) {
   if (!year || !month || !day) return value;
   const date = new Date(Date.UTC(year + years, month - 1, day));
   return date.toLocaleDateString("en-CA", { timeZone: "Asia/Ho_Chi_Minh" });
+}
+
+function isWithinRenewalWindow(endDate?: string | Date | null) {
+  if (!endDate || Number.isNaN(new Date(endDate).getTime())) return false;
+  const daysLeft = (Date.parse(toDateInputValue(endDate)) - Date.parse(toDateInputValue())) / 86400000;
+  return daysLeft >= 0 && daysLeft <= 60;
 }
 
 function addDaysToYmd(value: string, days: number) {
@@ -913,7 +919,7 @@ export default function OperationsContractDrawer({
   };
 
   const handleOpenRenewalModal = () => {
-    if (!detailContract) return;
+    if (!detailContract || !isWithinRenewalWindow(detailContract.endDate)) return;
     const sourceEndDate = toDateInputValue(detailContract.endDate);
     const startDate = addDaysToYmd(sourceEndDate, 1);
     renewalIdempotencyKeyRef.current = "";
@@ -933,7 +939,7 @@ export default function OperationsContractDrawer({
   };
 
   const handleRenewContract = () => {
-    if (!detailContract?.id || renewMutation.isPending) return;
+    if (!detailContract?.id || renewMutation.isPending || !isWithinRenewalWindow(detailContract.endDate)) return;
     const startDate = new Date(`${renewalForm.startDate}T00:00:00.000Z`);
     const endDate = new Date(`${renewalForm.endDate}T00:00:00.000Z`);
     const rentAmount = Number(renewalForm.rentAmount);
@@ -1191,6 +1197,10 @@ export default function OperationsContractDrawer({
         setSettlementForm((prev) => ({ ...prev, ...(values || {
           electricityAmount: "", electricityClosingKwh: "",
         }) }));
+        if (!values) {
+          showToast(settlementElectricityIssue(preview?.utilitySnapshot?.electricity), "info");
+          return;
+        }
       }
       showToast(
         "Đã đồng bộ công tơ điện và cập nhật số liệu thành công!",
@@ -1980,6 +1990,7 @@ export default function OperationsContractDrawer({
   const { roomCode, buildingName } = getRoomLabel(detailContract);
   const memberCount = Number(detailContract.memberCount || 0);
   const termPhase = getRentalTermPhase(detailContract.status);
+  const canRenewNow = isWithinRenewalWindow(detailContract.endDate);
   const contractEndTime = new Date(detailContract.endDate).getTime();
   const remainingDays = Number.isFinite(contractEndTime)
     ? Math.max(0, Math.ceil((contractEndTime - Date.now()) / 86400000))
@@ -2274,6 +2285,8 @@ export default function OperationsContractDrawer({
                   data-testid="btn-renew-contract"
                   variant="outline"
                   onClick={handleOpenRenewalModal}
+                  disabled={!canRenewNow}
+                  title={canRenewNow ? "Gia hạn hợp đồng" : "Chỉ được gia hạn trong 60 ngày trước ngày hết hạn hợp đồng"}
                   className="rounded-xl border border-slate-200 dark:border-white/[0.1] text-slate-700 dark:text-slate-200 text-xs font-semibold px-3 py-2 shadow-2xs hover:bg-slate-50 flex items-center gap-1.5"
                 >
                   <RefreshCw size={14} /> Gia hạn
@@ -3324,7 +3337,7 @@ export default function OperationsContractDrawer({
           isOpen={isEditModalOpen}
           onClose={() => setIsEditModalOpen(false)}
           onRenew={handleOpenRenewalModal}
-          canRenew={["ACTIVE", "EXPIRING", "EXPIRED"].includes(detailContract.status) && hasPermission("contract.create")}
+          canRenew={canRenewNow && ["ACTIVE", "EXPIRING", "EXPIRED"].includes(detailContract.status) && hasPermission("contract.create")}
         />
         <ContractConversionHistoryModal
           view={detailContract.bookingConversion}
@@ -4396,7 +4409,7 @@ export default function OperationsContractDrawer({
                             Điện sử dụng kỳ trả phòng
                           </span>
                           <span className="text-base font-mono font-black text-text mt-0.5 block">
-                            {Number(
+                            {settlementPreview.utilitySnapshot.electricity.manualRequired ? "Chưa có" : Number(
                               settlementPreview.utilitySnapshot.electricity
                                 .monthKwh || 0,
                             ).toLocaleString("vi-VN")}{" "}
@@ -4408,7 +4421,7 @@ export default function OperationsContractDrawer({
                             Tiền điện tạm tính
                           </span>
                           <span className="text-base font-mono font-black text-amber-600 mt-0.5 block">
-                            {formatCurrency(
+                            {settlementPreview.utilitySnapshot.electricity.manualRequired ? "Chưa đủ số liệu" : formatCurrency(
                               settlementPreview.utilitySnapshot.electricity
                                 .calculatedAmountVnd ||
                                 settlementPreview.utilitySnapshot.electricity
@@ -4427,7 +4440,7 @@ export default function OperationsContractDrawer({
 
                     {settlementPreview.utilitySnapshot.electricity.manualRequired && (
                       <p role="alert" className="text-xs text-amber-700 dark:text-amber-300">
-                        Thiếu chỉ số điện hoặc đơn giá hợp lệ. Nhập điện sử dụng trong thời gian khách ở và số tiền điện cần thu để quyết toán.
+                        {settlementElectricityIssue(settlementPreview.utilitySnapshot.electricity)}
                       </p>
                     )}
                     <Button

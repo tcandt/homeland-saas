@@ -43,8 +43,8 @@ dbDescribe('legacy existing-rental import on isolated PostgreSQL', () => {
   const today = new Date(Date.now() + 7 * 60 * 60 * 1000);
   const year = today.getUTCFullYear();
   const month = today.getUTCMonth();
-  const paidThrough = new Date(Date.UTC(year, month + 1, 0)).toISOString().slice(0, 10);
-  const startDate = `${year}-01-01`;
+  const paidThrough = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
+  const startDate = `${year - 1}-01-01`;
   const endDate = `${year + 1}-12-31`;
 
   async function seed(label: string, roomCount: number, customerCount: number, options?: {

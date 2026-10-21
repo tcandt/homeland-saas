@@ -20,7 +20,6 @@ export function PreviewContractModal({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [progress, setProgress] = useState(0);
   const [progressStatus, setProgressStatus] = useState("Đang khởi tạo tài liệu...");
   const [error, setError] = useState<string | null>(null);
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
@@ -67,14 +66,13 @@ export function PreviewContractModal({
         URL.revokeObjectURL(pdfBlobUrl);
         setPdfBlobUrl(null);
       }
-      setProgress(0);
       return;
     }
 
     let isMounted = true;
     setIsLoading(true);
-    setProgress(12);
-    setProgressStatus("Đang đọc thông số hợp đồng...");
+    const controller = new AbortController();
+    setProgressStatus("Đang chờ máy chủ tạo hợp đồng PDF...");
     setError(null);
 
     if (pdfBlobUrl) {
@@ -82,28 +80,6 @@ export function PreviewContractModal({
       setPdfBlobUrl(null);
     }
     setCurrentBlob(null);
-
-    // Smooth percentage progress ticker
-    const timer = setInterval(() => {
-      setProgress((prev) => {
-        if (prev >= 94) return prev;
-        let step = 3;
-        if (prev < 40) step = 5;
-        else if (prev < 70) step = 3;
-        else if (prev < 88) step = 2;
-        else step = 1;
-
-        const next = Math.min(94, prev + step);
-        if (next > 25 && next < 55) {
-          setProgressStatus("Đang kết xuất văn bản & chuyển đổi PDF...");
-        } else if (next >= 55 && next < 80) {
-          setProgressStatus("Đang đồng bộ trang A4 và định dạng chuẩn...");
-        } else if (next >= 80) {
-          setProgressStatus("Sắp hoàn tất, đang chuẩn bị hiển thị...");
-        }
-        return next;
-      });
-    }, 110);
 
     async function loadContractDoc() {
       try {
@@ -152,6 +128,8 @@ export function PreviewContractModal({
             ? dayjs(contract.customer.birthDate).format("DD/MM/YYYY")
             : contract.birthDate
             ? dayjs(contract.birthDate).format("DD/MM/YYYY")
+            : contract.customerSnapshot?.birthDate
+            ? dayjs(contract.customerSnapshot.birthDate).format("DD/MM/YYYY")
             : "..........................",
           cccd:
             contract.cccd ||
@@ -235,6 +213,7 @@ export function PreviewContractModal({
           method: "POST",
           headers: { "Content-Type": "application/json", ...getAuthorizationHeader() },
           body: JSON.stringify(payloadData),
+          signal: controller.signal,
         });
 
         if (!res.ok) {
@@ -242,11 +221,11 @@ export function PreviewContractModal({
           throw new Error(errData?.error || "Không thể tạo file hợp đồng từ server");
         }
 
+        if (!isMounted) return;
+        setProgressStatus("Đang tải tài liệu từ máy chủ...");
         const blob = await res.blob();
         if (!isMounted) return;
 
-        clearInterval(timer);
-        setProgress(100);
         setProgressStatus("Hoàn tất kết xuất tài liệu!");
         setCurrentBlob(blob);
 
@@ -279,7 +258,6 @@ export function PreviewContractModal({
           }, 160);
         }
       } catch (err: any) {
-        clearInterval(timer);
         if (isMounted) {
           console.error(err);
           setError(err.message || "Lỗi khi tải file hợp đồng");
@@ -292,7 +270,7 @@ export function PreviewContractModal({
 
     return () => {
       isMounted = false;
-      clearInterval(timer);
+      controller.abort();
     };
   }, [isOpen, contract]);
 
@@ -394,25 +372,15 @@ export function PreviewContractModal({
               {/* Animated Progress Ring / Counter */}
               <div className="relative flex items-center justify-center mb-3">
                 <div className="w-16 h-16 rounded-full border-4 border-primary/20 border-t-primary animate-spin" />
-                <span className="absolute font-black text-sm text-primary font-mono">
-                  {progress}%
-                </span>
               </div>
 
               <h4 className="font-black text-[15px] text-text">
-                Đang chuẩn bị hợp đồng PDF ({progress}%)
+                Đang chuẩn bị hợp đồng PDF
               </h4>
               <p className="text-xs text-muted max-w-xs mt-1 leading-relaxed font-medium">
                 {progressStatus}
               </p>
 
-              {/* Progress bar line */}
-              <div className="w-64 max-w-full h-1.5 bg-border/50 rounded-full overflow-hidden mt-3.5 shadow-inner">
-                <div
-                  className="h-full bg-gradient-to-r from-primary via-violet-500 to-primary transition-all duration-150 ease-out"
-                  style={{ width: `${progress}%` }}
-                />
-              </div>
             </div>
           )}
 

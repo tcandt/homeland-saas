@@ -1,5 +1,16 @@
 import { NextResponse } from "next/server";
-import { getLearningStore } from "@/lib/utils/learning-store";
+import { getLearningStore, isLearningStorageError } from "@/lib/utils/learning-store";
+
+export const runtime = "nodejs";
+
+function learningFailure(error: unknown) {
+  const storageUnavailable = isLearningStorageError(error);
+  console.error("Learning API error:", error);
+  return NextResponse.json(
+    { error: storageUnavailable ? "Learning storage is temporarily unavailable" : "Learning service is temporarily unavailable" },
+    { status: storageUnavailable ? 503 : 500, headers: { "Cache-Control": "no-store" } },
+  );
+}
 
 export async function GET(
   request: Request,
@@ -32,9 +43,8 @@ export async function GET(
     }
 
     return NextResponse.json({ error: "Not found" }, { status: 404 });
-  } catch (error: any) {
-    console.error("Learning API error:", error);
-    return NextResponse.json({ error: error?.message || "Internal Server Error" }, { status: 500 });
+  } catch (error) {
+    return learningFailure(error);
   }
 }
 
@@ -49,8 +59,17 @@ export async function POST(
     return NextResponse.json({ error: "Method not allowed" }, { status: 405 });
   }
 
+  let body: any;
   try {
-    const body = await request.json();
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return NextResponse.json({ error: "Expected a learning samples object" }, { status: 400 });
+  }
+
+  try {
     const samples = Array.isArray(body.samples)
       ? body.samples
       : body.kind
@@ -75,9 +94,7 @@ export async function POST(
         },
       }
     );
-  } catch (error: any) {
-    console.error("Learning API error:", error);
-    const status = Number(error?.statusCode) || 400;
-    return NextResponse.json({ error: error?.message || "Invalid learning sample" }, { status });
+  } catch (error) {
+    return learningFailure(error);
   }
 }

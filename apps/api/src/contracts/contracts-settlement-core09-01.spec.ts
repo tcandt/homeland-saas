@@ -379,6 +379,25 @@ describe("CORE-09.01 authoritative settlement command", () => {
     }
   });
 
+  it("uses historical occupancy rather than import capture time for legacy electricity", async () => {
+    const { state, service, tx, hunonic } = createFixture();
+    tx.hunonicMeterMapping.findFirst.mockResolvedValue({ id: "meter-1", enabled: true });
+    tx.hunonicMeterReading.findFirst.mockResolvedValue({ id: "current", energyMonthKwh: 100,
+      moneyMonthVnd: 300000, readingAt: new Date("2026-10-20T09:00:00Z") });
+    hunonic.getRoomElectricityPricing.mockResolvedValue({ currentMode: "custom", customRateVnd: 3000 });
+    const imported = { ...state.contract, startDate: new Date("2025-11-01T00:00:00Z"),
+      activatedAt: new Date("2026-10-20T10:00:00Z"),
+      termsSnapshot: { legacyImport: { policyVersion: "LEGACY_OPENING_V1", paidThrough: "2026-09-30" } },
+      moveInSnapshot: { capturedAt: "2026-10-20T10:00:00Z", actualMoveInAt: "2025-11-01T00:00:00Z" } };
+    const result = await (service as any).getUtilitySnapshot(tx, "tenant-1", "room-1",
+      new Date("2026-10-20T16:59:59.999Z"), imported);
+    expect(result.electricity).toMatchObject({ monthKwh: 100, calculatedAmountVnd: 300000, baselineKwh: 0 });
+    expect(result.electricity.manualRequired).not.toBe(true);
+    expect((service as any).resolveSettlementMoveInDate({ ...imported,
+      moveInSnapshot: { ...imported.moveInSnapshot, actualMoveInAt: "2026-10-10T09:00:00Z" } }))
+      .toEqual(new Date("2026-10-10T09:00:00Z"));
+  });
+
   it("writes a complete settlement notification context to the durable outbox", async () => {
     const { state, service } = createFixture();
     await service.terminateContract("contract-1", "user-1", settlementInput, "tenant-1", "settle-notification-0001");

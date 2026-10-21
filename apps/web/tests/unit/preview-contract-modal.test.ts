@@ -14,4 +14,14 @@ describe("PreviewContractModal server-backed loading", () => {
     expect(source).not.toContain("setInterval(");
     expect(source).not.toMatch(/progress(?:Percent|Value|\s*=\s*\d+)/i);
   });
+
+  it("uses the strict DOB resolver instead of dayjs or a placeholder field", () => {
+    const roomPremiumSource = readFileSync("components/buildings/RoomPremiumModal.tsx", "utf8");
+    expect(source).toContain("const birthDate = resolvePreviewBirthDate(contract)");
+    expect(source).toContain("ngaySinh: birthDate.display");
+    expect(source).not.toContain('dayjs(contract.customer.birthDate).format("DD/MM/YYYY")');
+    expect(roomPremiumSource).toContain("const primaryCustomer = c.customer || {};");
+    expect(roomPremiumSource).toContain("customerId: primaryCustomerId");
+    expect(roomPremiumSource).toContain("customerSnapshot: c.customerSnapshot");
+  });
 });

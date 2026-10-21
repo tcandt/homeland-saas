@@ -432,7 +432,7 @@ export class ZaloRegistrationService {
       [
         'Khách đã đăng ký Zalo Bot',
         `Khách hàng: ${matchedNames}`,
-        `Căn hộ: ${roomLabel}`,
+        `Căn hộ: ${formatRoomLabel({ code: room.code, name: room.name })}`,
         `SĐT: ${matchedPhones}`,
         `Chat ID: ${update.chatId}`,
       ].join('\n'),

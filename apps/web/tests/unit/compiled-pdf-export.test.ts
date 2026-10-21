@@ -53,9 +53,9 @@ beforeAll(async () => {
 beforeEach(() => {
   state.files.clear(); state.removedDirs = []; state.renders = []; state.missing = ''; state.conversionFails = false;
   assetStatus = 200; corruptCccd = false;
-  contract = { id: 'contract-1', signedAt: '2026-10-01T00:00:00+07:00',
+  contract = { id: 'contract-1', customerId: 'customer-1', signedAt: '2026-10-01T00:00:00+07:00',
     attachments: ['document-storage://tenant/lease.pdf'],
-    customer: { fullName: 'Synthetic tenant', idImages: ['document-storage://tenant/front.png', 'document-storage://tenant/back.png'], idImageProvenance: [
+    customer: { id: 'customer-1', fullName: 'Synthetic tenant', birthDate: '2000-02-29', idImages: ['document-storage://tenant/front.png', 'document-storage://tenant/back.png'], idImageProvenance: [
       { url: 'document-storage://tenant/front.png', side: 'front', source: 'scan', status: 'APPROVED', approvedBy: 'reviewer-1' },
       { url: 'document-storage://tenant/back.png', side: 'back', source: 'upload', status: 'APPROVED', approvedBy: 'reviewer-1' },
     ] },
@@ -75,6 +75,53 @@ afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 const request = () => new Request('http://local/api/export-compiled-pdf', { method: 'POST', body: JSON.stringify({ contractId: 'contract-1' }) });
 
 describe('complete compiled dossier export', () => {
+  it('uses the same primary DOB in CT01 fields and the generated lease display', async () => {
+    contract.attachments = [];
+    contract.signedAt = null;
+    const response = await POST(request());
+
+    expect(response.status).toBe(200);
+    expect(state.renders).toHaveLength(2);
+    expect(state.renders[0]).toMatchObject({ ngaySinh: '29', thangSinh: '02', namSinh: '2000' });
+    expect(state.renders[1]).toMatchObject({ ngaySinh: '29/02/2000' });
+  });
+
+  it.each([
+    ['impossible leap date', '29/02/2025'],
+    ['future date', '2999-01-01'],
+    ['nonblank invalid current DOB', '31/04/2000'],
+  ])('fails closed before files or render for %s', async (_label, birthDate) => {
+    contract.customer.birthDate = birthDate;
+    contract.customerSnapshot = { id: 'customer-1', birthDate: '2000-02-29' };
+    const response = await POST(request());
+
+    expect(response.status).toBe(422);
+    expect(await response.json()).toMatchObject({ code: 'CUSTOMER_BIRTH_DATE_REQUIRED' });
+    expect(state.renders).toHaveLength(0);
+    expect(state.files.size).toBe(0);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses a matching primary snapshot only when the current DOB is missing', async () => {
+    contract.customer.birthDate = '';
+    contract.customerSnapshot = { id: 'customer-1', birthDate: '02/01/1999' };
+    const response = await POST(request());
+
+    expect(response.status).toBe(200);
+    expect(state.renders[0]).toMatchObject({ ngaySinh: '02', thangSinh: '01', namSinh: '1999' });
+  });
+
+  it('fails closed when a missing current DOB has a mismatched snapshot identity', async () => {
+    contract.customer.birthDate = '';
+    contract.customerSnapshot = { id: 'customer-other', birthDate: '2000-02-29' };
+    const response = await POST(request());
+
+    expect(response.status).toBe(422);
+    expect(await response.json()).toMatchObject({ code: 'CUSTOMER_BIRTH_DATE_REQUIRED' });
+    expect(state.renders).toHaveLength(0);
+    expect(state.files.size).toBe(0);
+  });
+
   it('returns all seven required synthetic sections, with private caching and own temp cleanup', async () => {
     const response = await POST(request());
     expect(response.status).toBe(200);

@@ -10,6 +10,7 @@ import dayjs from 'dayjs';
 import { numberToWordsVietnamese } from '../../../lib/utils/number-to-words';
 import { requireRoutePermission, getInternalApiBaseUrl } from '../../../lib/server/route-auth';
 import { CompiledPdfAssetError, fetchCompiledPdfAsset, resolveCompiledPdfAssetUrl } from '../../../lib/server/compiled-pdf-assets';
+import { resolveContractBirthDate } from '../../../lib/contracts/contract-birth-date';
 
 const LANDLORDS: Record<string, any> = {
   TINH: {
@@ -265,6 +266,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Contract not found' }, { status: 404 });
     }
 
+    const tenantBirthDate = resolveContractBirthDate(contract);
+    if (!tenantBirthDate) {
+      return NextResponse.json({
+        code: 'CUSTOMER_BIRTH_DATE_REQUIRED',
+        error: 'Ngày sinh khách thuê đang thiếu hoặc không hợp lệ. Vui lòng cập nhật thông tin khách thuê trước khi xuất hồ sơ hợp đồng.',
+      }, { status: 422 });
+    }
+
     // Prepare temp folder inside os temp
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'homeland-pdf-'));
     const nowTimestamp = Date.now().toString(36);
@@ -295,10 +304,9 @@ export async function POST(request: Request) {
     const ct01Doc = new Docxtemplater(ct01Zip, { paragraphLoop: true, linebreaks: true });
 
     // Split tenant birth date
-    const tBirthDate = contract.customer?.birthDate ? dayjs(contract.customer.birthDate) : null;
-    const ngaySinh = tBirthDate ? tBirthDate.format('DD') : '....';
-    const thangSinh = tBirthDate ? tBirthDate.format('MM') : '....';
-    const namSinh = tBirthDate ? tBirthDate.format('YYYY') : '......';
+    const ngaySinh = tenantBirthDate.day;
+    const thangSinh = tenantBirthDate.month;
+    const namSinh = tenantBirthDate.year;
 
     // Contract / signed date
     const signDate = contract.signedAt ? dayjs(contract.signedAt) : null;
@@ -440,7 +448,7 @@ export async function POST(request: Request) {
 
       const contractTemplateData = {
         hoTen: contract.customer?.fullName || contract.customer?.name || '..........................',
-        ngaySinh: contract.customer?.birthDate ? dayjs(contract.customer.birthDate).format('DD/MM/YYYY') : '..........................',
+        ngaySinh: tenantBirthDate.display,
         cccd: contract.customer?.identityNo || contract.customer?.citizenId || '..........................',
         diaChi: contract.customer?.address || '..........................',
         dienThoai: contract.customer?.phone || '..........................',

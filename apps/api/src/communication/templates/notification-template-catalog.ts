@@ -360,7 +360,7 @@ Cảm ơn Anh/Chị.`,
   },
   eventTemplate({
     code: 'ADMIN_DEPOSIT_CREATED', name: 'Admin - Cọc giữ phòng mới', audience: 'ADMIN', category: 'DEPOSIT',
-    sample: { headline: '✅ CỌC GIỮ PHÒNG', primaryValue: '2.000.000 đ', secondaryValue: 'Dự kiến vào: 05/10/2026', action: 'Chuẩn bị phòng và hợp đồng.' },
+    sample: { headline: 'YÊU CẦU CỌC GIỮ PHÒNG', primaryValue: '2.000.000 đ', secondaryValue: 'Hạn giữ phòng: 05/10/2026', action: 'Chờ xác nhận thu tiền cọc.' },
   }),
   eventTemplate({
     code: 'ADMIN_DEPOSIT_COLLECTED', name: 'Admin - Đã nhận tiền cọc', audience: 'ADMIN', category: 'DEPOSIT',

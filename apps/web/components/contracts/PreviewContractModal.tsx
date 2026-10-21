@@ -8,6 +8,7 @@ import { Download, Printer, X, FileText } from "lucide-react";
 import { numberToWordsVietnamese } from "../../lib/utils/number-to-words";
 import { getAuthorizationHeader } from "../../lib/auth/auth-header";
 import { resolveRoomType } from "@/lib/rooms/room-type-resolver";
+import { resolvePreviewBirthDate } from "@/lib/contracts/contract-birth-date";
 
 export function PreviewContractModal({
   isOpen,
@@ -112,6 +113,10 @@ export function PreviewContractModal({
           0
         );
 
+        const birthDate = resolvePreviewBirthDate(contract);
+        if (!birthDate) {
+          throw new Error("Ngày sinh khách thuê đang thiếu hoặc không hợp lệ. Vui lòng cập nhật thông tin khách thuê trước khi xuất hợp đồng.");
+        }
         const payloadData = {
           contractTemplate: isBookingHold ? "BOOKING_HOLD" : contract.contractTemplate || "RENTAL",
           loaiHopDong: isBookingHold ? "BOOKING_HOLD" : contract.loaiHopDong || "RENTAL",
@@ -122,15 +127,7 @@ export function PreviewContractModal({
             contract.customer?.name ||
             contract.name ||
             "..........................",
-          ngaySinh: contract.ngaySinh
-            ? contract.ngaySinh
-            : contract.customer?.birthDate
-            ? dayjs(contract.customer.birthDate).format("DD/MM/YYYY")
-            : contract.birthDate
-            ? dayjs(contract.birthDate).format("DD/MM/YYYY")
-            : contract.customerSnapshot?.birthDate
-            ? dayjs(contract.customerSnapshot.birthDate).format("DD/MM/YYYY")
-            : "..........................",
+          ngaySinh: birthDate.display,
           cccd:
             contract.cccd ||
             contract.customer?.identityNo ||

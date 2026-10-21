@@ -7,6 +7,7 @@ import Docxtemplater from 'docxtemplater';
 import { execSync } from 'child_process';
 import { requireRoutePermission } from '@/lib/server/route-auth';
 import { normalizeContractIdentityTables } from '@/lib/server/contract-table-layout';
+import { parseContractBirthDate } from '@/lib/contracts/contract-birth-date';
 
 function resolveTaiLieuPath(filename: string): string {
   const candidates = [
@@ -72,6 +73,13 @@ export async function POST(request: Request) {
     if ('response' in auth) return auth.response;
 
     const data = await request.json();
+    const birthDate = parseContractBirthDate(data.ngaySinh);
+    if (!birthDate) {
+      return NextResponse.json({
+        code: 'CUSTOMER_BIRTH_DATE_REQUIRED',
+        error: 'Ngày sinh khách thuê đang thiếu hoặc không hợp lệ. Vui lòng cập nhật thông tin khách thuê trước khi xuất hợp đồng.',
+      }, { status: 422 });
+    }
     const isBookingHoldTemplate =
       data.contractTemplate === 'BOOKING_HOLD' ||
       data.isBookingHold === true ||
@@ -141,7 +149,7 @@ export async function POST(request: Request) {
     // Map data
     const templateData = {
       hoTen: data.hoTen || '',
-      ngaySinh: data.ngaySinh || '',
+      ngaySinh: birthDate.display,
       cccd: data.cccd || '',
       diaChi: data.diaChi || '',
       dienThoai: data.dienThoai || '',

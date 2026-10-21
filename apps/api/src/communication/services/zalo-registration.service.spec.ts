@@ -41,6 +41,7 @@ describe('ZaloRegistrationService', () => {
     prisma.room.findFirst.mockResolvedValueOnce({
       id: 'room-1',
       code: '31.06',
+      building: { code: 'LK01', name: 'Tòa LK01' },
       contracts: [
         {
           id: 'contract-1',
@@ -111,8 +112,15 @@ describe('ZaloRegistrationService', () => {
         tenantId: 'tenant-1',
         recipient: 'admin-group-1',
         title: 'HomeLand - Khách đã đăng ký Zalo Bot',
+        message: expect.stringContaining('Căn hộ: Phòng 31.06'),
       }),
     );
+    const adminRegistration = zaloProvider.send.mock.calls[1][0];
+    expect(adminRegistration.message).not.toContain('LK01');
+    expect(zaloProvider.send).toHaveBeenCalledTimes(2);
+    expect(zaloProvider.send.mock.calls.some(([payload]: any[]) =>
+      String(payload.title || '').includes('thanh toán') || String(payload.message || '').includes('Đã nhận thanh toán'),
+    )).toBe(false);
   });
 
   it('binds chat id to a customer with a live booking hold before a contract exists', async () => {

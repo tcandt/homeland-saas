@@ -97,6 +97,9 @@ describe('PaymentsService', () => {
       depositLedgerEntry: {
         aggregate: vi.fn().mockResolvedValue({ _sum: { balanceEffect: 0 } }),
       },
+      outboxEvent: {
+        findMany: vi.fn().mockResolvedValue([]),
+      },
     };
     const prisma = Object.fromEntries(
       Object.entries(basePrisma).map(([key, value]) => [
@@ -1616,7 +1619,7 @@ describe('PaymentsService', () => {
         .mockResolvedValueOnce({ claimed: 0, published: 0, failed: 0 }),
     };
     let persistedRequest: any = null;
-    const { service, invoicesService, communicationService, auditService } = createService({
+    const { service, prisma, invoicesService, communicationService, auditService } = createService({
       appSetting: {
         findMany: vi.fn().mockResolvedValue([]),
         findUnique: vi.fn().mockResolvedValue({ value: { paymentCodePrefix: 'INV' } }),
@@ -1651,6 +1654,12 @@ describe('PaymentsService', () => {
           createdAt: new Date('2026-08-09T00:00:00.000Z'),
           updatedAt: new Date('2026-08-09T00:00:00.000Z'),
         })),
+      },
+      outboxEvent: {
+        findMany: vi.fn().mockResolvedValue([
+          { id: 'outbox-invoice-issued-1' },
+          { id: 'outbox-invoice-paid-1' },
+        ]),
       },
     }, { depositOutboxPublisher });
     invoicesService.getDetail
@@ -1710,9 +1719,53 @@ describe('PaymentsService', () => {
       }),
     );
     expect(depositOutboxPublisher.drain).toHaveBeenCalledTimes(2);
+    expect(prisma.outboxEvent.findMany).toHaveBeenCalledWith({
+      where: {
+        tenantId: 'tenant-1',
+        aggregateType: 'Invoice',
+        aggregateId: 'invoice-1',
+        eventName: { in: ['invoice.issued', 'invoice.paid', 'invoice.payment.recorded'] },
+        status: { not: 'PUBLISHED' },
+      },
+      select: { id: true },
+    });
+    expect(depositOutboxPublisher.drain).toHaveBeenNthCalledWith(1, 50, {
+      eventIds: ['outbox-invoice-issued-1', 'outbox-invoice-paid-1'],
+    });
+    expect(depositOutboxPublisher.drain).toHaveBeenNthCalledWith(2, 50, {
+      eventIds: ['outbox-invoice-issued-1', 'outbox-invoice-paid-1'],
+    });
     expect(communicationService.dispatchDirect.mock.invocationCallOrder[0]).toBeLessThan(
       depositOutboxPublisher.drain.mock.invocationCallOrder[0],
     );
+  });
+
+  it('does not drain historical receipts when the current invoice has no unpublished outbox events', async () => {
+    const depositOutboxPublisher = { drain: vi.fn() };
+    const { service, prisma } = createService({
+      outboxEvent: { findMany: vi.fn().mockResolvedValue([]) },
+    }, { depositOutboxPublisher });
+
+    await expect((service as any).flushSePayNotificationsImmediately({
+      tenantId: 'tenant-current', invoiceId: 'invoice-current',
+    })).resolves.toEqual({ status: 'DELIVERED', claimed: 0, published: 0, failed: 0 });
+
+    expect(prisma.outboxEvent.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ tenantId: 'tenant-current', aggregateId: 'invoice-current' }),
+    }));
+    expect(depositOutboxPublisher.drain).not.toHaveBeenCalled();
+  });
+
+  it('leaves notification delivery queued when the scoped outbox lookup fails instead of falling back to a global drain', async () => {
+    const depositOutboxPublisher = { drain: vi.fn() };
+    const { service } = createService({
+      outboxEvent: { findMany: vi.fn().mockRejectedValue(new Error('outbox lookup unavailable')) },
+    }, { depositOutboxPublisher });
+
+    await expect((service as any).flushSePayNotificationsImmediately({
+      tenantId: 'tenant-current', invoiceId: 'invoice-current',
+    })).resolves.toEqual({ status: 'QUEUED_RETRY', claimed: 0, published: 0, failed: 1 });
+    expect(depositOutboxPublisher.drain).not.toHaveBeenCalled();
   });
 
   it('does not resend an already delivered invoice notification in deduplicated scheduler mode', async () => {

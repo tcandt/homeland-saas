@@ -1131,8 +1131,10 @@ export class WorkflowEngine {
     const roomContext = buildRoomContext(payload?.room || payload?.contract?.room, payload?.contract);
     const roomCode = payload?.roomCode || roomContext.roomCode || metadata.roomCode || '';
     const buildingName = payload?.buildingName || roomContext.buildingName || metadata.buildingName || '';
-    const roomAndBuilding = payload?.roomAndBuilding || [roomCode, buildingName].filter(Boolean).join(' - ') || 'Phòng chưa xác định';
     const templateCode = String(params?.templateCode || 'SYSTEM_ALERT');
+    const roomAndBuilding = templateCode.startsWith('ADMIN_')
+      ? roomCode || 'Phòng chưa xác định'
+      : payload?.roomAndBuilding || [roomCode, buildingName].filter(Boolean).join(' - ') || 'Phòng chưa xác định';
     const amount = Number(payload?.paymentAmount ?? payload?.amount ?? payload?.remainingAmount ?? 0);
     const paidAmount = Number(payload?.paidAmount ?? payload?.amount ?? 0);
     const remainingAmount = this.resolveRemainingAmount(payload);
@@ -1152,12 +1154,12 @@ export class WorkflowEngine {
     let action = '';
 
     if (templateCode === 'ADMIN_DEPOSIT_CREATED') {
-      headline = '✅ CỌC GIỮ PHÒNG';
+      headline = 'YÊU CẦU CỌC GIỮ PHÒNG';
       secondaryValue = [
-        expectedMoveInDate ? `Dự kiến vào: ${formatDate(expectedMoveInDate)}` : null,
+        expectedMoveInDate && formatDate(expectedMoveInDate) !== formatDate(bookingHoldUntil) ? `Dự kiến vào: ${formatDate(expectedMoveInDate)}` : null,
         bookingHoldUntil ? `Hạn giữ phòng: ${formatDate(bookingHoldUntil)}` : null,
       ].filter(Boolean).join('\n') || 'Đã tạo yêu cầu cọc giữ phòng.';
-      action = 'Chuẩn bị phòng và hợp đồng.';
+      action = 'Chờ xác nhận thu tiền cọc.';
     } else if (templateCode === 'ADMIN_DEPOSIT_COLLECTED') {
       headline = '✅ ĐÃ NHẬN CỌC';
       secondaryValue = `Đã thu: ${formatMoney(paidAmount)}`;

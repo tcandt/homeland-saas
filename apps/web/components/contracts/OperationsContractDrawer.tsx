@@ -100,6 +100,7 @@ import {
 import { customersApi } from "../../lib/api/customers.api";
 import { hunonicApi } from "../../lib/api/hunonic.api";
 import { identityDocumentImages, settlementElectricityIssue, settlementElectricityValues } from "../../lib/contracts/settlement-electricity";
+import { BOOKING_CANCEL_REASONS, buildBookingCancellationAmounts, canCancelBookingContract } from "@/lib/contracts/booking-cancellation";
 
 function formatDate(value?: string | null) {
   if (!value) return "Chưa có";
@@ -623,6 +624,8 @@ export default function OperationsContractDrawer({
     useState(false);
   const [isBookingCancelModalOpen, setIsBookingCancelModalOpen] =
     useState(false);
+  const [bookingCancelBalance, setBookingCancelBalance] = useState<number | null>(null);
+  const [isBookingCancelLoading, setIsBookingCancelLoading] = useState(false);
   const [isRenewalModalOpen, setIsRenewalModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isConversionHistoryOpen, setIsConversionHistoryOpen] = useState(false);
@@ -725,8 +728,9 @@ export default function OperationsContractDrawer({
       refundStatus: "PENDING",
     });
   const [bookingCancelForm, setBookingCancelForm] = useState({
-    reason: "Khách hủy cọc giữ phòng",
-    refundMode: "FULL" as "FULL" | "PARTIAL" | "NONE",
+    reasonCategory: "NOT_CONTINUING",
+    reason: "",
+    refundMode: "" as "" | "FULL" | "PARTIAL" | "NONE",
     refundAmount: "",
     keepAmount: "",
     deductAmount: "",
@@ -747,6 +751,8 @@ export default function OperationsContractDrawer({
     key: string;
   } | null>(null);
   const bookingConvertInFlightRef = useRef(false);
+  const bookingCancelInFlightRef = useRef(false);
+  const bookingCancelCommandRef = useRef<{ fingerprint: string; key: string } | null>(null);
   const [isApproveSubmitting, setIsApproveSubmitting] = useState(false);
 
   useEffect(() => {
@@ -820,6 +826,8 @@ export default function OperationsContractDrawer({
   const canOperateBookingDeposit =
     isBookingHold && !linkedRental && !detailQuery.isError && !detailQuery.isPending && !!bookingDeposit?.id && bookingDepositStatus === "PAID" &&
     !["CANCELLED", "TERMINATED", "EXPIRED"].includes(detailContract?.status);
+  const canCancelBookingDeposit = !detailQuery.isError && !detailQuery.isPending &&
+    canCancelBookingContract(detailContract, bookingDeposit);
   const hasPendingSettlementRefund =
     !!settlementRefund?.pending &&
     (detailContract?.status === "TERMINATED" ||
@@ -1088,8 +1096,9 @@ export default function OperationsContractDrawer({
       refundStatus: "PENDING",
     });
     setBookingCancelForm({
-      reason: "Khách hủy cọc giữ phòng",
-      refundMode: "FULL",
+      reasonCategory: "NOT_CONTINUING",
+      reason: "",
+      refundMode: "",
       refundAmount: bookingDepositBalance ? String(bookingDepositBalance) : "",
       keepAmount: "",
       deductAmount: "",
@@ -1621,48 +1630,38 @@ export default function OperationsContractDrawer({
   };
 
   const handleCancelBookingHold = async () => {
-    if (!bookingDeposit?.id) {
-      showToast("Chưa tìm thấy tiền cọc giữ phòng liên kết hợp đồng", "error");
+    if (bookingCancelInFlightRef.current || !canCancelBookingDeposit || !hasPermission("deposit.cancel")) return;
+    const category = BOOKING_CANCEL_REASONS.find(item => item.value === bookingCancelForm.reasonCategory);
+    const note = bookingCancelForm.reason.trim();
+    if (!category || (category.value === "OTHER" && !note)) {
+      showToast("Vui lòng nhập lý do hủy", "error");
       return;
     }
-    const reason = bookingCancelForm.reason.trim();
-    if (!reason) {
-      showToast("Vui lòng nhập lý do hủy cọc giữ phòng", "error");
+    let amounts;
+    try {
+      if (bookingCancelBalance === null) throw new Error("Cần tải lại số dư cọc trước khi hủy.");
+      amounts = buildBookingCancellationAmounts(bookingCancelBalance, bookingCancelForm.refundMode, bookingCancelForm.refundAmount);
+    } catch (error: any) {
+      showToast(error.message, "error");
+      return;
+    }
+    if (amounts.refundAmount > 0 && !hasPermission("deposit.refund")) {
+      showToast("Bạn chưa có quyền hoàn tiền cọc", "error");
       return;
     }
     const commonPayload = {
-      reason,
+      reason: `${category.label}${note ? `: ${note}` : ""}`,
       refundStatus: bookingCancelForm.refundStatus,
       attachmentUrls: bookingCancelAttachmentUrls,
     };
-    const payload =
-      bookingCancelForm.refundMode === "FULL"
-        ? {
-            ...commonPayload,
-            refundAmount: bookingDepositBalance,
-            keepAmount: 0,
-            deductAmount: 0,
-          }
-        : bookingCancelForm.refundMode === "NONE"
-          ? {
-              ...commonPayload,
-              refundAmount: 0,
-              keepAmount: bookingDepositBalance,
-              deductAmount: 0,
-            }
-          : {
-              ...commonPayload,
-              refundAmount: parseMoneyInput(bookingCancelForm.refundAmount),
-              keepAmount: parseMoneyInput(bookingCancelForm.keepAmount),
-              deductAmount: parseMoneyInput(bookingCancelForm.deductAmount),
-            };
+    const payload = { ...commonPayload, ...amounts };
     const allocated =
       Number(payload.refundAmount || 0) +
       Number(payload.keepAmount || 0) +
       Number(payload.deductAmount || 0);
-    if (bookingDepositBalance > 0 && allocated !== bookingDepositBalance) {
+    if (allocated !== bookingCancelBalance) {
       showToast(
-        `Tổng hoàn/giữ/cấn trừ phải bằng ${formatCurrency(bookingDepositBalance)}`,
+        `Tổng hoàn/giữ/cấn trừ phải bằng ${formatCurrency(bookingCancelBalance ?? 0)}`,
         "error",
       );
       return;
@@ -1678,12 +1677,17 @@ export default function OperationsContractDrawer({
       );
       return;
     }
+    const fingerprint = JSON.stringify({ depositId: bookingDeposit.id, ...payload });
+    if (bookingCancelCommandRef.current?.fingerprint !== fingerprint) {
+      bookingCancelCommandRef.current = { fingerprint, key: `booking-hold-cancel-${crypto.randomUUID()}` };
+    }
+    bookingCancelInFlightRef.current = true;
     setIsBookingFlowSaving(true);
     try {
       await depositsApi.cancel(
         bookingDeposit.id,
         payload,
-        `booking-hold-cancel-${crypto.randomUUID()}`,
+        bookingCancelCommandRef.current.key,
       );
       setIsBookingCancelModalOpen(false);
       refreshBookingFlow(
@@ -1692,6 +1696,7 @@ export default function OperationsContractDrawer({
     } catch (error: any) {
       handleError(error);
     } finally {
+      bookingCancelInFlightRef.current = false;
       setIsBookingFlowSaving(false);
     }
   };
@@ -2310,6 +2315,34 @@ export default function OperationsContractDrawer({
                   className="rounded-xl text-xs font-bold"
                 >
                   Chuyển HĐ thuê dài hạn
+                </Button>
+              )}
+              {canCancelBookingDeposit && hasPermission("deposit.cancel") && (
+                <Button
+                  data-testid="btn-open-booking-cancel"
+                  variant="danger"
+                  isLoading={isBookingCancelLoading}
+                  onClick={async () => {
+                    setIsBookingCancelLoading(true);
+                    setBookingCancelBalance(null);
+                    try {
+                      const result: any = await depositsApi.getDetail(bookingDeposit.id);
+                      const deposit = result?.data || result;
+                      const balance = Number(deposit?.availableBalance);
+                      if (deposit?.id !== bookingDeposit.id || !canCancelBookingContract(detailContract, deposit) ||
+                        deposit?.availableBalance == null || !Number.isSafeInteger(balance) || balance < 0) {
+                        throw new Error("Cọc chưa đủ điều kiện hủy hoặc số dư không hợp lệ. Hãy tải lại hồ sơ.");
+                      }
+                      setBookingCancelBalance(balance);
+                      setBookingCancelForm(prev => ({ ...prev, refundMode: "", refundAmount: "", refundStatus: "PENDING" }));
+                      setBookingCancelAttachmentUrls([]);
+                      setIsBookingCancelModalOpen(true);
+                    } catch (error) { handleError(error); }
+                    finally { setIsBookingCancelLoading(false); }
+                  }}
+                  className="rounded-xl text-xs font-bold"
+                >
+                  <X size={14} /> Hủy hợp đồng cọc
                 </Button>
               )}
               {detailContract.status === "DRAFT" && hasPermission("contract.submit") && (
@@ -3357,20 +3390,22 @@ export default function OperationsContractDrawer({
 
         <Modal
           isOpen={isBookingCancelModalOpen}
-          onClose={() => setIsBookingCancelModalOpen(false)}
+          onClose={() => { if (!bookingCancelInFlightRef.current) setIsBookingCancelModalOpen(false); }}
           title="Hủy hợp đồng cọc giữ phòng"
           maxWidth="max-w-[620px]"
           testId="booking-hold-cancel-modal"
         >
           <div className="p-4 flex flex-col gap-4">
-            <div className="rounded-xl border border-rose-500/25 bg-rose-500/5 p-3 text-sm text-muted">
-              Chủ nhà quyết định mức hoàn, giữ lại hoặc khấu trừ theo từng tình
-              huống. Hệ thống không áp tỷ lệ cố định, nhưng luôn lưu lý do và
-              ghi ledger theo đúng phân bổ.
-            </div>
+            <Select
+              aria-label="Nguyên nhân hủy"
+              data-testid="booking-cancel-reason"
+              value={bookingCancelForm.reasonCategory}
+              onChange={event => setBookingCancelForm(prev => ({ ...prev, reasonCategory: event.target.value }))}
+              options={BOOKING_CANCEL_REASONS}
+            />
             <div>
               <label className="text-[11px] font-bold text-muted uppercase tracking-wider block mb-1">
-                Lý do hủy
+                Ghi chú quyết định của Admin
               </label>
               <Textarea
                 value={bookingCancelForm.reason}
@@ -3394,13 +3429,14 @@ export default function OperationsContractDrawer({
                     setBookingCancelForm((prev) => ({
                       ...prev,
                       refundMode: event.target.value as
-                        "FULL" | "PARTIAL" | "NONE",
+                        "" | "FULL" | "PARTIAL" | "NONE",
                     }))
                   }
                   options={[
+                    { label: "Chọn cách xử lý", value: "" },
                     { label: "Hoàn đủ tiền cọc", value: "FULL" },
-                    { label: "Hoàn một phần / cấn trừ", value: "PARTIAL" },
-                    { label: "Không hoàn tiền", value: "NONE" },
+                    { label: "Hoàn một phần", value: "PARTIAL" },
+                    { label: "Không hoàn / mất toàn bộ cọc", value: "NONE" },
                   ]}
                 />
               </div>
@@ -3421,50 +3457,23 @@ export default function OperationsContractDrawer({
                     { label: "Chờ hoàn tiền", value: "PENDING" },
                     { label: "Đã hoàn tiền", value: "COMPLETED" },
                   ]}
-                  disabled={bookingCancelForm.refundMode === "NONE"}
+                  disabled={!bookingCancelForm.refundMode || bookingCancelForm.refundMode === "NONE" || bookingCancelBalance === 0}
                 />
               </div>
             </div>
             {bookingCancelForm.refundMode === "PARTIAL" ? (
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div>
                 <div>
                   <label className="text-[11px] font-bold text-muted uppercase tracking-wider block mb-1">
                     Số tiền hoàn
                   </label>
                   <Input
+                    aria-label="Số tiền hoàn"
                     value={formatVndInput(bookingCancelForm.refundAmount)}
                     onChange={(event) =>
                       setBookingCancelForm((prev) => ({
                         ...prev,
                         refundAmount: event.target.value.replace(/[^0-9]/g, ""),
-                      }))
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="text-[11px] font-bold text-muted uppercase tracking-wider block mb-1">
-                    Số tiền giữ lại
-                  </label>
-                  <Input
-                    value={formatVndInput(bookingCancelForm.keepAmount)}
-                    onChange={(event) =>
-                      setBookingCancelForm((prev) => ({
-                        ...prev,
-                        keepAmount: event.target.value.replace(/[^0-9]/g, ""),
-                      }))
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="text-[11px] font-bold text-muted uppercase tracking-wider block mb-1">
-                    Số tiền cấn trừ
-                  </label>
-                  <Input
-                    value={formatVndInput(bookingCancelForm.deductAmount)}
-                    onChange={(event) =>
-                      setBookingCancelForm((prev) => ({
-                        ...prev,
-                        deductAmount: event.target.value.replace(/[^0-9]/g, ""),
                       }))
                     }
                   />
@@ -3485,12 +3494,20 @@ export default function OperationsContractDrawer({
             <div className="rounded-xl border border-border/70 bg-card p-3 text-xs text-muted">
               Số dư cọc hiện tại:{" "}
               <span className="font-black text-text">
-                {formatCurrency(bookingDepositBalance)}
+                {formatCurrency(bookingCancelBalance ?? 0)}
               </span>
+              {bookingCancelForm.refundMode && (
+                <div className="mt-2 font-semibold text-text">
+                  Giữ lại: {formatCurrency(bookingCancelForm.refundMode === "NONE" ? bookingCancelBalance ?? 0 :
+                    bookingCancelForm.refundMode === "FULL" ? 0 :
+                      Math.max(0, (bookingCancelBalance ?? 0) - parseMoneyInput(bookingCancelForm.refundAmount)))}
+                </div>
+              )}
             </div>
             <div className="flex items-center justify-end gap-3">
               <Button
                 variant="ghost"
+                disabled={isBookingFlowSaving}
                 onClick={() => setIsBookingCancelModalOpen(false)}
               >
                 Đóng
@@ -3500,7 +3517,7 @@ export default function OperationsContractDrawer({
                 variant="danger"
                 onClick={handleCancelBookingHold}
                 isLoading={isBookingFlowSaving}
-                disabled={isBookingFlowSaving || isBookingCancelProofUploading}
+                disabled={isBookingFlowSaving || isBookingCancelProofUploading || !bookingCancelForm.refundMode}
               >
                 Xác nhận hủy cọc
               </Button>

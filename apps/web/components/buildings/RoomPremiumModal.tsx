@@ -57,6 +57,7 @@ import { useToast } from "@/components/ui/ToastContext";
 import { numberToWordsVietnamese } from "../../lib/utils/number-to-words";
 import { Modal } from "../ui/Modal";
 import { PreviewContractModal } from "../contracts/PreviewContractModal";
+import { resolveContractBirthDate } from "@/lib/contracts/contract-birth-date";
 import { CccdUploadScannerModal } from "../common/CccdUploadScannerModal";
 import { Button } from "../ui/Button";
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
@@ -4794,6 +4795,19 @@ export default function RoomPremiumModal({
 
                                 const buildContractPayload = (rep: any) => {
                                   const c = rep.contract || ({} as any);
+                                  const primaryCustomer = c.customer || {};
+                                  const primaryCustomerId = c.customerId || primaryCustomer.id || rep.id;
+                                  const localCustomer = getLocalCustomerDetails({ id: primaryCustomerId });
+                                  const birthDate = resolveContractBirthDate({
+                                    customerId: primaryCustomerId,
+                                    customer: {
+                                      id: primaryCustomer.id || primaryCustomerId,
+                                      birthDate: primaryCustomer.birthDate ||
+                                        (primaryCustomerId && localCustomer.id === primaryCustomerId ? localCustomer.birthDate : null) ||
+                                        (!c.customerSnapshot && rep.id === primaryCustomerId ? rep.birthDate : null),
+                                    },
+                                    customerSnapshot: c.customerSnapshot,
+                                  });
                                   const isBookingContract =
                                     isBookingHoldDocument(c);
                                   const bookingContractDeposit = isBookingContract
@@ -4841,9 +4855,7 @@ export default function RoomPremiumModal({
                                       rep.name ||
                                       rep.fullName ||
                                       "..........................",
-                                    ngaySinh: rep.birthDate
-                                      ? formatBirthDateForDisplay(rep.birthDate)
-                                      : "..........................",
+                                    ngaySinh: birthDate?.display || "",
                                     cccd:
                                       rep.citizenId ||
                                       rep.identityNo ||

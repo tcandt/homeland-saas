@@ -388,6 +388,45 @@ describe('WorkflowEngine', () => {
     expect(context.secondaryValue).toContain('Hạn giữ phòng: 1/11/2026');
   });
 
+  it('uses room-only labels for admin events while retaining the client room/building label', () => {
+    const { engine } = createEngine();
+    const payload = {
+      roomCode: '31-01',
+      buildingName: 'LK01',
+      roomAndBuilding: '31-01 - LK01',
+    };
+
+    expect((engine as any).buildZaloEventTemplateContext(
+      payload, { templateCode: 'ADMIN_DEPOSIT_CREATED' }, 'deposit.created',
+    ).roomAndBuilding).toBe('31-01');
+    expect((engine as any).buildZaloEventTemplateContext(
+      payload, { templateCode: 'CLIENT_DEPOSIT_CONVERTED' }, 'deposit.converted',
+    ).roomAndBuilding).toBe('31-01 - LK01');
+  });
+
+  it('renders the pending deposit wording and de-duplicates same Bangkok-day hold and move-in dates', () => {
+    const { engine } = createEngine();
+    const context = (engine as any).buildZaloEventTemplateContext({
+      expectedMoveInDate: '2026-10-01T01:00:00.000Z',
+      bookingHoldUntil: '2026-10-01T16:59:59.000Z',
+    }, { templateCode: 'ADMIN_DEPOSIT_CREATED' }, 'deposit.created');
+
+    expect(context.headline).toBe('YÊU CẦU CỌC GIỮ PHÒNG');
+    expect(context.action).toBe('Chờ xác nhận thu tiền cọc.');
+    expect(context.secondaryValue).toBe('Hạn giữ phòng: 1/10/2026');
+  });
+
+  it('retains distinct Bangkok-day hold and move-in dates for a pending deposit', () => {
+    const { engine } = createEngine();
+    const context = (engine as any).buildZaloEventTemplateContext({
+      expectedMoveInDate: '2026-10-01T16:59:59.000Z',
+      bookingHoldUntil: '2026-10-02T16:59:59.000Z',
+    }, { templateCode: 'ADMIN_DEPOSIT_CREATED' }, 'deposit.created');
+
+    expect(context.secondaryValue).toContain('Dự kiến vào: 1/10/2026');
+    expect(context.secondaryValue).toContain('Hạn giữ phòng: 2/10/2026');
+  });
+
   it('renders a settlement refund without assuming its payment status', () => {
     const { engine } = createEngine();
 

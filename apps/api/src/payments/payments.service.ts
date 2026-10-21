@@ -1226,7 +1226,7 @@ export class PaymentsService {
     // preparing this QR. The payment outbox remains blocked until the Zalo
     // request is actually delivered; release it immediately afterwards so the
     // customer receives invoice first, then confirmation without a timer gap.
-    await this.flushSePayNotificationsImmediately();
+    await this.flushSePayNotificationsImmediately({ tenantId: invoice.tenantId, invoiceId: invoice.id });
 
     await this.logPaymentAudit(
       invoice.tenantId,
@@ -3210,9 +3210,24 @@ export class PaymentsService {
     return { success: true, accepted: true };
   }
 
-  private async flushSePayNotificationsImmediately() {
+  private async flushSePayNotificationsImmediately(scope?: { tenantId: string; invoiceId: string }) {
     if (!this.depositOutboxPublisher) return null;
     try {
+      // Sending a QR must never release another room's historical receipts.
+      const scopedEvents = scope ? await this.prisma.outboxEvent.findMany({
+        where: {
+          tenantId: scope.tenantId,
+          aggregateType: 'Invoice',
+          aggregateId: scope.invoiceId,
+          eventName: { in: ['invoice.issued', 'invoice.paid', 'invoice.payment.recorded'] },
+          status: { not: 'PUBLISHED' as any },
+        },
+        select: { id: true },
+      }) : null;
+      const eventIds = scopedEvents?.map((event) => event.id);
+      if (eventIds && eventIds.length === 0) {
+        return { status: 'DELIVERED', claimed: 0, published: 0, failed: 0 };
+      }
       // The first pass can publish invoice.issued and deliberately leave its
       // payment event unclaimed. A bounded second pass releases that now-ready
       // confirmation in the same webhook/QR request, without waiting for the
@@ -3221,7 +3236,9 @@ export class PaymentsService {
       let published = 0;
       let failed = 0;
       for (let pass = 0; pass < 2; pass += 1) {
-        const result = await this.depositOutboxPublisher.drain(50);
+        const result = eventIds
+          ? await this.depositOutboxPublisher.drain(50, { eventIds })
+          : await this.depositOutboxPublisher.drain(50);
         claimed += result.claimed;
         published += result.published;
         failed += result.failed;

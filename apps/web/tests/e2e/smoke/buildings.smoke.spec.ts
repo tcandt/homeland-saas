@@ -17,6 +17,9 @@ test.describe('Buildings Smoke Test', () => {
     await mockBuildings(admin.page, [building]);
     const buildingsPage = new BuildingsPage(admin.page);
     await buildingsPage.goto();
+    await expect(admin.page.getByTestId('building-directory')).toBeVisible();
+    await admin.page.getByRole('button', { name: /^Tòa Smoke/ }).click();
+    await expect(admin.page).toHaveURL(/\/buildings\/LK01-31$/);
     await expect(admin.page.getByTestId('building-model-viewer')).toBeVisible();
     await expect(admin.page.getByTestId('floor-workspace-panel')).toBeVisible();
     await expect(admin.page.getByText('LK01-31').first()).toBeVisible();
@@ -31,10 +34,15 @@ test.describe('Buildings Smoke Test', () => {
     await expect(buildingsPage.emptyBuildingsState).toBeVisible();
   });
 
-  test('renders empty state when buildings API fails', async ({ admin }) => {
+  test('renders API error and recovers when retried', async ({ admin }) => {
     await mockBuildings(admin.page, [], 500);
     const buildingsPage = new BuildingsPage(admin.page);
     await buildingsPage.goto();
-    await expect(buildingsPage.emptyBuildingsState).toBeVisible();
+    await expect(admin.page.getByText('Không tải được danh sách tòa nhà.')).toBeVisible({ timeout: 15000 });
+    await expect(buildingsPage.emptyBuildingsState).not.toBeVisible();
+    await mockBuildings(admin.page, [building]);
+    await admin.page.getByRole('button', { name: 'Thử lại', exact: true }).click();
+    await expect(admin.page.getByTestId('building-directory')).toBeVisible();
+    await expect(admin.page.getByText('Không tải được danh sách tòa nhà.')).not.toBeVisible();
   });
 });

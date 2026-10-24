@@ -1,7 +1,7 @@
 const fs = require('node:fs');
 const cp = require('node:child_process');
 const a = require('node:assert/strict');
-const root = '/volume1/docker/homeland/release-3212-20261024';
+const root = '/volume1/docker/homeland/release-3213-20261024';
 const state = {};
 for (const table of ['Building', 'Floor', 'Room', 'AppSetting', 'HunonicMeterMapping', '_prisma_migrations']) {
   const sql = `SELECT count(*), md5(COALESCE(string_agg(row::text, '' ORDER BY row::text), '')) FROM (SELECT to_jsonb(t) AS row FROM "${table}" t) x`;

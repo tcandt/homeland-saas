@@ -76,6 +76,48 @@ describe('contract row grouping', () => {
     expect(getRentalTermPhase('TERMINATED')).toBe('ended');
   });
 
+  it.each([
+    ['CANCELLED', 'Đã hủy'],
+    ['EXPIRED', 'Đã hết hạn'],
+    ['TERMINATED', 'Đã chấm dứt'],
+  ])('renders terminal booking %s with its terminal badge, never the generic hold badge', (status, label) => {
+    const html = renderToStaticMarkup(React.createElement(OperationsContractRow, {
+      contract: { ...booking, status, endDate: '2026-10-01' },
+      onClick: () => {},
+    }));
+
+    expect(html).toContain(label);
+    expect(html).not.toContain('>Cọc giữ phòng<');
+    expect(html).not.toContain('Còn ');
+  });
+
+  it('does not raise an expiry warning for a cancelled rental whose end date is nearby', () => {
+    const html = renderToStaticMarkup(React.createElement(OperationsContractRow, {
+      contract: { ...rental, status: 'CANCELLED', endDate: '2026-10-22' },
+      onClick: () => {},
+    }));
+
+    expect(html).toContain('Đã hủy');
+    expect(html).not.toContain('Sắp hết hạn');
+    expect(html).not.toContain('Còn ');
+    expect(html).not.toContain('role="progressbar"');
+  });
+
+  it('keeps normal pending and linked-conversion booking presentation', () => {
+    const pending = renderToStaticMarkup(React.createElement(OperationsContractRow, {
+      contract: { ...booking, status: 'PENDING_APPROVAL', termsSnapshot: null },
+      onClick: () => {},
+    }));
+    const converted = renderToStaticMarkup(React.createElement(OperationsContractRow, {
+      contract: booking,
+      onClick: () => {},
+    }));
+
+    expect(pending).toContain('>Cọc giữ phòng<');
+    expect(converted).toContain('>Cọc giữ phòng<');
+    expect(converted).toContain('Đã chuyển đổi');
+  });
+
   it('does not infer booking signature from an uploaded PDF', () => {
     const signedBooking = renderToStaticMarkup(React.createElement(OperationsContractRow, {
       contract: { ...booking, signedAt: null, attachments: ['document-storage://contracts/booking.pdf'] },

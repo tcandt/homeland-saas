@@ -4,7 +4,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, st
 import { isAbsolute, join, resolve, sep } from 'path';
 import * as bcrypt from 'bcryptjs';
 import { Cron } from '@nestjs/schedule';
-import { SettingScope } from '@prisma/client';
+import { Prisma, SettingScope } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { normalizeCustomerIdentityNo, normalizeCustomerPhone } from '../customers/customer-identifiers';
 import { assertNoBackupSymlinks, resolveBackupRuntime, runBackupScript, verifyBackupBundle } from './system-backup.runtime';
@@ -806,10 +806,19 @@ export class SystemUpdateService {
 
             const billingSnapshots = await deleteMany('billingSnapshot', { where: { tenantId } });
             const meterReadings = await deleteMany('hunonicMeterReading', { where: { tenantId } });
-            const meterMappings = await deleteMany('hunonicMeterMapping', { where: { tenantId } });
+            // Keep room meter mappings and payment-account routing as configuration.
+            await updateMany('hunonicMeterMapping', {
+              where: { tenantId },
+              data: {
+                lastStatus: null,
+                lastReadingKwh: null,
+                lastAmountVnd: null,
+                lastSyncedAt: null,
+                raw: Prisma.DbNull,
+              },
+            });
             const syncLogs = await deleteMany('hunonicSyncLog', { where: { tenantId } });
             const monthlySettlementRuns = await deleteMany('monthlySettlementRun', { where: { tenantId } });
-            const routes = await deleteMany('roomPaymentAccountRoute', { where: { tenantId } });
 
             const expenses = await deleteMany('expense', { where: { tenantId } });
             const receipts = await deleteMany('receipt', { where: { tenantId } });
@@ -851,10 +860,8 @@ export class SystemUpdateService {
             deletedCounts.outboxEvents = outboxEvents?.count ?? 0;
             deletedCounts.billingSnapshots = billingSnapshots?.count ?? 0;
             deletedCounts.hunonicMeterReadings = meterReadings?.count ?? 0;
-            deletedCounts.hunonicMeterMappings = meterMappings?.count ?? 0;
             deletedCounts.hunonicSyncLogs = syncLogs?.count ?? 0;
             deletedCounts.monthlySettlementRuns = monthlySettlementRuns?.count ?? 0;
-            deletedCounts.roomPaymentAccountRoutes = routes?.count ?? 0;
             deletedCounts.expenses = expenses?.count ?? 0;
             deletedCounts.receipts = receipts?.count ?? 0;
             deletedCounts.journalLines = jLines?.count ?? 0;

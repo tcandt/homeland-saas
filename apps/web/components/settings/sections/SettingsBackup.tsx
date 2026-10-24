@@ -81,6 +81,7 @@ export default function SettingsBackup() {
   const [wipeScope, setWipeScope] = useState<"ALL_BUSINESS_DATA" | "DRAFT_TRANSACTIONS">("ALL_BUSINESS_DATA");
   const [autoBackupBeforeWipe, setAutoBackupBeforeWipe] = useState(true);
   const [isWiping, setIsWiping] = useState(false);
+  const shouldBackupBeforeWipe = autoBackupBeforeWipe && backupData?.connected === true;
 
   const backups = backupData?.backups || [];
   const scheduleEnabled = backupData?.scheduleEnabled === true;
@@ -196,7 +197,7 @@ export default function SettingsBackup() {
 
     setIsWiping(true);
     try {
-      if (autoBackupBeforeWipe) {
+      if (shouldBackupBeforeWipe) {
         toast("Đang tạo bản sao lưu snapshot bảo vệ trước khi xóa...", { icon: "🛡️" });
         await systemUpdateApi.createBackup({ note: "Tự động sao lưu trước khi Reset / Xóa dữ liệu" });
       }
@@ -476,7 +477,12 @@ export default function SettingsBackup() {
           </div>
           <button
             type="button"
-            onClick={() => setShowWipeModal(true)}
+            onClick={() => {
+              setWipePassword("");
+              setWipeConfirmPhrase("");
+              setAutoBackupBeforeWipe(backupData?.connected === true);
+              setShowWipeModal(true);
+            }}
             className="inline-flex items-center justify-center gap-2 px-4 py-2.5 shrink-0 rounded-xl text-xs font-semibold text-rose-700 dark:text-rose-300 bg-rose-500/10 hover:bg-rose-600 hover:text-white dark:bg-rose-500/15 dark:hover:bg-rose-600 dark:hover:text-white border border-rose-300/80 dark:border-rose-800/60 hover:border-rose-600 shadow-2xs hover:shadow-md hover:shadow-rose-600/20 active:scale-97 transition-all duration-200 cursor-pointer"
           >
             <Trash2 size={14} className="text-rose-600 dark:text-rose-400 group-hover:text-white transition-colors" />
@@ -580,6 +586,7 @@ export default function SettingsBackup() {
                   <li>Danh sách Tòa nhà, Tầng & Phòng</li>
                   <li>Tài khoản Quản trị viên & Phân quyền</li>
                   <li>Cấu hình tích hợp (Hunonic, SePay, Zalo Bot)</li>
+                  <li>Liên kết công tơ & Tài khoản nhận tiền của phòng</li>
                   <li>Biểu mẫu hợp đồng & Cài đặt hệ thống</li>
                   <li>Phòng tự động chuyển về trạng thái Trống</li>
                 </ul>
@@ -622,24 +629,31 @@ export default function SettingsBackup() {
             </div>
 
             {/* Auto backup checkbox */}
-            <label className="flex items-center gap-2.5 font-medium text-text text-xs cursor-pointer select-none bg-muted/20 p-2.5 rounded-xl border border-border">
+            <label className="flex items-center gap-2.5 font-medium text-text text-xs select-none bg-muted/20 p-2.5 rounded-xl border border-border">
               <input
                 type="checkbox"
-                checked={autoBackupBeforeWipe}
+                checked={shouldBackupBeforeWipe}
+                disabled={backupData?.connected !== true || isWiping}
                 onChange={(e) => setAutoBackupBeforeWipe(e.target.checked)}
                 className="accent-primary rounded h-4 w-4"
               />
               <span>Tự động tạo bản sao lưu snapshot bảo vệ trước khi xóa (Khuyến nghị bật)</span>
             </label>
+            {backupData?.connected !== true && (
+              <p className="text-[11px] text-muted">
+                Sao lưu hiện không khả dụng. Bạn vẫn có thể đặt lại dữ liệu kiểm thử mà không tạo snapshot.
+              </p>
+            )}
 
             {/* Inputs Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
               {/* Password input */}
               <div className="flex flex-col gap-1.5">
-                <label className="font-bold text-text text-xs flex items-center gap-1.5">
+                <label htmlFor="wipe-password" className="font-bold text-text text-xs flex items-center gap-1.5">
                   <Lock size={13} className="text-muted" /> Mật khẩu tài khoản Quản trị viên:
                 </label>
                 <input
+                  id="wipe-password"
                   type="password"
                   placeholder="Nhập mật khẩu tài khoản của bạn"
                   value={wipePassword}
@@ -650,10 +664,11 @@ export default function SettingsBackup() {
 
               {/* Confirm phrase input */}
               <div className="flex flex-col gap-1.5">
-                <label className="font-bold text-text text-xs">
+                <label htmlFor="wipe-confirm-phrase" className="font-bold text-text text-xs">
                   Nhập cụm từ xác nhận: <b className="font-mono text-rose-600 dark:text-rose-400 select-all">XAC NHAN XOA</b>
                 </label>
                 <input
+                  id="wipe-confirm-phrase"
                   type="text"
                   placeholder="Nhập chính xác: XAC NHAN XOA"
                   value={wipeConfirmPhrase}
@@ -664,7 +679,7 @@ export default function SettingsBackup() {
             </div>
 
             {/* Action buttons */}
-            <div className="mt-5 flex items-center justify-end gap-3 pt-4 border-t border-border">
+            <div className="mt-5 flex flex-col sm:flex-row sm:items-center sm:justify-end gap-3 pt-4 border-t border-border">
               <button
                 type="button"
                 onClick={() => setShowWipeModal(false)}
@@ -684,7 +699,7 @@ export default function SettingsBackup() {
                 }`}
               >
                 {isWiping ? <Loader2 size={15} className="animate-spin shrink-0" /> : <Trash2 size={15} className="shrink-0" />}
-                <span className="whitespace-nowrap">{isWiping ? "Đang xử lý đặt lại..." : isWipeFormValid ? "Xác nhận xóa & Đặt lại dữ liệu" : "Vui lòng nhập mật khẩu & cụm từ xác nhận"}</span>
+                <span className="whitespace-nowrap">{isWiping ? "Đang đặt lại..." : "Xác nhận đặt lại"}</span>
               </button>
             </div>
           </div>

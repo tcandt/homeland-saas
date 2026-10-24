@@ -2194,7 +2194,7 @@ export default function OperationsContractDrawer({
                 <div className="min-w-0">
                   <div className="text-[10px] text-slate-400 uppercase font-bold">Thời gian còn lại</div>
                   <div className="font-mono text-xs font-bold text-amber-600 dark:text-amber-400 truncate">
-                    {remainingDays === null ? "—" : `${remainingDays} ngày`}
+                    {statusConfig?.isTerminal ? statusConfig.label : remainingDays === null ? "—" : `${remainingDays} ngày`}
                   </div>
                 </div>
               </div>
@@ -2385,7 +2385,7 @@ export default function OperationsContractDrawer({
               )}
             </div>
 
-            <Button
+            {!(isBookingHold && statusConfig?.isTerminal) && <Button
               onClick={() => {
                 if (detailContract.entryInvoice) {
                   setFlowInvoice(detailContract.entryInvoice);
@@ -2396,7 +2396,7 @@ export default function OperationsContractDrawer({
               className="flex-1 max-w-[180px] justify-center rounded-xl bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white text-xs font-bold px-4 py-2 shadow-sm flex items-center gap-1.5"
             >
               <Receipt size={14} /> Tạo hóa đơn
-            </Button>
+            </Button>}
           </div>
         }
       >
@@ -2505,7 +2505,7 @@ export default function OperationsContractDrawer({
                       {detailContract.startDate && detailContract.endDate ? `${formatDate(detailContract.startDate)} – ${formatDate(detailContract.endDate)}` : "12 tháng"}
                     </div>
                     <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
-                      {remainingDays !== null ? (remainingDays > 0 ? `Còn ${remainingDays} ngày` : "Đã hết hạn") : "12 tháng"}
+                      {statusConfig?.isTerminal ? statusConfig.label : remainingDays !== null ? (remainingDays > 0 ? `Còn ${remainingDays} ngày` : "Đã hết hạn") : "12 tháng"}
                     </div>
                   </div>
                 </div>
@@ -2574,7 +2574,7 @@ export default function OperationsContractDrawer({
                   <span className="text-[10px] text-slate-400 font-medium">Chuyển đổi</span>
                   <div className="flex items-center gap-1 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
                     <CheckCircle2 size={12} className="shrink-0" />
-                    <span>Hoàn tất</span>
+                    <span>{isBookingHold && !linkedRental ? statusConfig?.isTerminal ? "Không chuyển đổi" : "Chưa chuyển đổi" : "Hoàn tất"}</span>
                   </div>
                 </div>
               </div>

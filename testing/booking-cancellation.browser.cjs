@@ -84,6 +84,14 @@ async function main() {
         const completed = commands.at(-1);
         expect(completed.payload).toMatchObject({ refundAmount: expected, keepAmount: 800000 - expected, deductAmount: 0, refundStatus: 'PENDING' });
         expect(completed.key).toBe(completed.payload.idempotencyKey);
+        await expect(modal).toBeHidden();
+        const drawer = page.getByTestId('contract-detail-drawer');
+        await expect(drawer.getByTestId('contract-status-badge')).toHaveText('Đã hủy');
+        await expect(page.getByTestId('contract-group').getByTestId('contract-status-badge')).toHaveText('Đã hủy');
+        await expect(drawer.getByTestId('btn-open-booking-cancel')).toHaveCount(0);
+        await expect(drawer.getByRole('button', { name: 'Tạo hóa đơn', exact: true })).toHaveCount(0);
+        await expect(drawer.getByText(/Còn \d+ ngày/)).toHaveCount(0);
+        await expect(drawer.getByText('Chuyển cọc thành công', { exact: true })).toHaveCount(0);
         expect(errors).toEqual([]);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
         console.log(`PASS ${width} ${mode}: canonical balance, allocation, reason, idempotent command`);

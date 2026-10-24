@@ -229,9 +229,10 @@ export function getContractConversionEvidence(view: any, currentContract?: any) 
 }
 
 export function getContractDisplayStatus(contract: any) {
-  return getLinkedRental(contract)
-    ? { ...getContractStatusConfig(contract.status), label: BOOKING_CONVERTED_LABEL, color: "success" as const }
-    : getContractStatusConfig(contract?.status);
+  const status = getContractStatusConfig(contract?.status);
+  return !status.isTerminal && getLinkedRental(contract)
+    ? { ...status, label: BOOKING_CONVERTED_LABEL, color: "success" as const }
+    : status;
 }
 
 export function getRentalActivationBlockingMessages(

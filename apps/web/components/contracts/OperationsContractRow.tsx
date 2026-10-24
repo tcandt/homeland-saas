@@ -330,7 +330,15 @@ export default React.memo(function OperationsContractRow({
 
       {/* 5. TRẠNG THÁI */}
       <div className="flex flex-col items-center justify-center gap-1 min-w-0">
-        {isBookingHold ? (
+        {statusConfig.isTerminal ? (
+          <Badge
+            data-testid="contract-status-badge"
+            variant={statusConfig.color}
+            className="whitespace-nowrap text-[11px] font-bold px-2.5 py-0.5 rounded-full shadow-2xs"
+          >
+            {statusConfig.label}
+          </Badge>
+        ) : isBookingHold ? (
           <>
             <Badge
               data-testid="contract-status-badge"
@@ -343,7 +351,7 @@ export default React.memo(function OperationsContractRow({
               <Check size={9} /> Đã chuyển đổi
             </span> : null}
           </>
-        ) : isExpiringSoon ? (
+        ) : isExpiringSoon && showRentalProgress ? (
           <>
             <Badge
               data-testid="contract-status-badge"

@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { BadRequestException, ConflictException } from '@nestjs/common';
+import { hashSync } from 'bcryptjs';
+import { Prisma } from '@prisma/client';
 import { EventEmitter } from 'node:events';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -594,6 +596,80 @@ describe('SystemUpdateService', () => {
     expect(job.type).toBe('rollback');
     expect(job.toVersion).toBe('previous-sha');
     expect(job.status).toBe('BLOCKED');
+  });
+
+  describe('operational reset', () => {
+    function resetFixture(fail = false) {
+      const calls: { model: string; method: string; args: any }[] = [];
+      const rows = new Map<string, { tenantId: string; [key: string]: unknown }[]>();
+      const raw = vi.fn().mockResolvedValue(0);
+      const tx = new Proxy({ $executeRawUnsafe: raw } as Record<string, any>, {
+        get(target, model: string) {
+          if (model in target) return target[model];
+          rows.set(model, [{ tenantId: 'tenant-a' }, { tenantId: 'tenant-b' }]);
+          target[model] = Object.fromEntries(['deleteMany', 'updateMany'].map(method => [method, vi.fn(async (args: any) => {
+            calls.push({ model, method, args });
+            if (fail && model === 'payment') throw new Error('fixture FK conflict');
+            const current = rows.get(model)!;
+            const selected = current.filter(row => row.tenantId === args.where.tenantId);
+            rows.set(model, method === 'deleteMany'
+              ? current.filter(row => row.tenantId !== args.where.tenantId)
+              : current.map(row => row.tenantId === args.where.tenantId ? { ...row, ...args.data } : row));
+            return { count: selected.length };
+          })]));
+          return target[model];
+        },
+      });
+      const prisma = {
+        user: { findUnique: vi.fn().mockResolvedValue({ passwordHash: hashSync('fixture-password', 4) }) },
+        $transaction: vi.fn(async (callback: (value: any) => Promise<void>) => callback(tx)),
+      };
+      return { service: new SystemUpdateService(prisma as any), prisma, calls, rows, raw };
+    }
+
+    it('requires password and confirmation before opening a reset transaction', async () => {
+      const { service, prisma } = resetFixture();
+      for (const body of [
+        { confirmPhrase: 'XAC NHAN XOA' },
+        { password: 'fixture-password', confirmPhrase: 'wrong' },
+        { password: 'wrong', confirmPhrase: 'XAC NHAN XOA' },
+      ]) {
+        await expect(service.wipeData('admin', 'tenant-a', body)).rejects.toBeInstanceOf(BadRequestException);
+      }
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('supports repeated resets, preserves configuration and scopes all ORM changes to the current tenant', async () => {
+      const { service, calls, rows } = resetFixture();
+      const body = { password: 'fixture-password', confirmPhrase: 'XAC NHAN XOA', scope: 'ALL_BUSINESS_DATA' };
+      const first = await service.wipeData('admin', 'tenant-a', body);
+      const second = await service.wipeData('admin', 'tenant-a', body);
+      expect(first.deletedCounts).toMatchObject({ customers: 1, contracts: 1, invoices: 1, deposits: 1 });
+      expect(second.success).toBe(true);
+      expect(Object.values(second.deletedCounts).every(count => count === 0)).toBe(true);
+      expect(calls.length).toBeGreaterThan(0);
+      for (const { model, args } of calls) {
+        expect(args.where.tenantId).toBe('tenant-a');
+        expect(rows.get(model)).toContainEqual({ tenantId: 'tenant-b' });
+      }
+      const deleted = calls.filter(call => call.method === 'deleteMany').map(call => call.model);
+      for (const model of ['building', 'floor', 'room', 'user', 'setting', 'hunonicMeterMapping', 'roomPaymentAccountRoute']) {
+        expect(deleted).not.toContain(model);
+      }
+      expect(rows.get('room')).toContainEqual(expect.objectContaining({ tenantId: 'tenant-a', status: 'AVAILABLE' }));
+      expect(rows.get('hunonicMeterMapping')).toContainEqual({
+        tenantId: 'tenant-a', lastStatus: null, lastReadingKwh: null,
+        lastAmountVnd: null, lastSyncedAt: null, raw: Prisma.DbNull,
+      });
+    });
+
+    it('reports a failed transaction instead of returning a successful reset', async () => {
+      const { service, raw } = resetFixture(true);
+      await expect(service.wipeData('admin', 'tenant-a', {
+        password: 'fixture-password', confirmPhrase: 'XAC NHAN XOA',
+      })).rejects.toBeInstanceOf(ConflictException);
+      expect(raw.mock.calls.at(-1)?.[0]).toContain('ENABLE');
+    });
   });
 
   it('rejects overlapping update jobs', () => {

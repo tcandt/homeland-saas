@@ -82,7 +82,7 @@ export const RefundDepositSchema = z.object({
   idempotencyKey: z.string().min(8).max(128).optional(),
   reason: z.string().min(1, 'Reason is required for refund'),
   receiptStatus: z.enum(['PENDING', 'COMPLETED']).optional(),
-  attachmentUrls: z.array(z.string()).optional(),
+  attachmentUrls: z.array(z.string().trim().min(1).max(2048)).max(10).optional(),
   refundAmount: z.number().positive().optional(),
 });
 
@@ -92,7 +92,7 @@ export const CancelDepositSchema = z.object({
   resolutionAction: z.enum(['REFUND', 'KEEP', 'DEDUCT']).optional(),
   resolutionAmount: z.number().positive().optional(),
   receiptStatus: z.enum(['PENDING', 'COMPLETED']).optional(),
-  attachmentUrls: z.array(z.string()).optional(),
+  attachmentUrls: z.array(z.string().trim().min(1).max(2048)).max(10).optional(),
 });
 
 export const PaginationSchema = z.object({

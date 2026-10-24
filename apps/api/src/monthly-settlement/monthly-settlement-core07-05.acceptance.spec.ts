@@ -132,7 +132,7 @@ describe("CORE-07.05 monthly-settlement acceptance", () => {
     });
     const occupant = {
       id: 'occ', tenantId: 'tenant-1', roomId: 'room-1', customerId: 'payer-a', contractId: 'contract-a',
-      joinedAt: new Date('2026-09-01T00:00:00Z'), leftAt: null,
+      joinedAt: new Date('2026-08-31T17:00:00Z'), leftAt: null,
       customer: { id: 'payer-a', tenantId: 'tenant-1', fullName: 'Payer' },
     };
     const reading = {
@@ -755,7 +755,11 @@ describe("CORE-07.05 monthly-settlement acceptance", () => {
 
     const overview = await service.getOverview("tenant-1", { period });
     const second = overview.items.find((item: any) => item.roomId === "room-2");
-    expect(second).toMatchObject({ electricityAmount: 6, billingDataSource: "LIVE_MAPPING" });
+    expect(second).toMatchObject({
+      electricityAmount: 0,
+      billingDataSource: "LIVE_MAPPING",
+      electricityBillingIssue: "MOVE_IN_ELECTRICITY_BASELINE_REQUIRED",
+    });
     expect(second.meterReading.sourceReadingId).toBeNull();
 
     await expect(service.closeMonth("tenant-1", "user-1", { period, autoSend: false })).rejects.toBeTruthy();

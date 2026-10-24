@@ -266,10 +266,14 @@ function StyledDateInput({
   value,
   onChange,
   testId,
+  id,
+  max,
 }: {
   value: string;
   onChange: (val: string) => void;
   testId?: string;
+  id?: string;
+  max?: string;
 }) {
   const dateInputRef = useRef<HTMLInputElement>(null);
 
@@ -311,9 +315,11 @@ function StyledDateInput({
       </span>
       <input
         ref={dateInputRef}
+        id={id}
         data-testid={testId}
         type="date"
         value={value}
+        max={max}
         onChange={(e) => onChange(e.target.value)}
         className="absolute inset-0 opacity-0 pointer-events-auto cursor-pointer w-full h-full"
       />
@@ -917,9 +923,17 @@ export default function OperationsContractDrawer({
       CONTRACT_SIGNATURE_REQUIRED: "Cần ghi nhận ngày ký hợp lệ của hợp đồng thuê.",
       CONTRACT_START_DATE_IN_FUTURE: "Chưa đến ngày bắt đầu hợp đồng thuê.",
       CONTRACT_ACTIVE_HOLD_REQUIRED: "Chỗ giữ đã hết hiệu lực. Cần kiểm tra lại phòng và gia hạn giữ chỗ.",
+      CONTRACT_SECURITY_DEPOSIT_BALANCE_INSUFFICIENT: "Tiền cọc bảo đảm chưa được ghi nhận đủ trước khi nhận phòng.",
+      CONTRACT_SECURITY_DEPOSIT_SCOPE_CHANGED: "Dữ liệu tiền cọc vừa thay đổi. Hãy mở lại hồ sơ trước khi nhận phòng.",
+      CONTRACT_ROOM_STATE_CHANGED: "Trạng thái phòng vừa thay đổi. Hãy tải lại hồ sơ trước khi nhận phòng.",
+      ROOM_SHARED_CAPACITY_EXCEEDED: "Phòng ghép đã đủ sức chứa, chưa thể nhận thêm khách.",
     };
     showToast(
-      messages[String(message)] || (/^(BOOKING_CONVERT_HOLD_|DEPOSIT_RECONCILIATION_|ROOM_HOLD_EXPIRY_INVALID|ROOM_HOLD_CONFLICT|ROOM_NOT_AVAILABLE|ROOM_CAPACITY_EXCEEDED)/.test(String(message))
+      messages[String(message)] || (/^Cannot activate contract: Deposit is missing\.$/.test(String(message))
+        ? "Chưa có khoản tiền cọc bảo đảm cho hợp đồng này."
+        : /^Cannot activate contract: Deposit is in /.test(String(message))
+          ? "Tiền cọc bảo đảm chưa ở trạng thái đã thanh toán."
+          : /^(BOOKING_CONVERT_HOLD_|DEPOSIT_RECONCILIATION_|ROOM_HOLD_EXPIRY_INVALID|ROOM_HOLD_CONFLICT|ROOM_NOT_AVAILABLE|ROOM_CAPACITY_EXCEEDED)/.test(String(message))
         ? getBookingRecoveryErrorMessage(message)
         : message),
       "error",
@@ -2955,7 +2969,7 @@ export default function OperationsContractDrawer({
                     {!isContractSigned(detailContract) && ["DRAFT", "PENDING_APPROVAL", "APPROVED"].includes(detailContract.status) && hasPermission("contract.update") && (
                       <div className="rounded-xl border border-border p-3 flex flex-col gap-2">
                         <label htmlFor="rental-signature-date" className="text-sm font-bold">Ngày ký thực tế của {isBookingHold ? "hợp đồng cọc" : "hợp đồng thuê"}</label>
-                        <input id="rental-signature-date" type="date" value={signatureDate} max={toDateInputValue()} onChange={(event) => setSignatureDate(event.target.value)} className="rounded-lg border border-border bg-card p-2 text-text" />
+                        <StyledDateInput id="rental-signature-date" value={signatureDate} max={toDateInputValue()} onChange={setSignatureDate} testId="rental-signature-date" />
                         <p className="text-xs text-muted">Tải bản đã ký của hợp đồng này, rồi xác nhận ngày ký thực tế. Không dùng chữ ký của hợp đồng khác.</p>
                         <Button variant="outline" disabled={!signatureDate || !hasUploadedContract || signatureDate > toDateInputValue()} isLoading={savingSignature} onClick={async () => {
                           setSavingSignature(true);

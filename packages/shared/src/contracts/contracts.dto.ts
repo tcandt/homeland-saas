@@ -26,8 +26,8 @@ export const CreateContractSchema = z.object({
   memberCount: z.number().int().min(1).optional(),
   status: ContractStatusEnum.default('DRAFT'),
   notes: z.string().optional().nullable(),
-  attachments: z.array(z.string()).optional(),
-  coRepresentativeIds: z.array(z.string()).optional(),
+  attachments: z.array(z.string().trim().min(1).max(2048)).max(20).optional(),
+  coRepresentativeIds: z.array(z.string().trim().min(1)).max(50).optional(),
 });
 
 /**
@@ -125,7 +125,7 @@ export const ContractSettlementInputSchema = z.object({
   depositToDeduct: z.number().min(0).optional(),
   refundReceiptStatus: z.enum(['PENDING', 'COMPLETED']).optional(),
   refundReason: z.string().max(1000).optional().nullable(),
-  refundAttachmentUrls: z.array(z.string()).optional(),
+  refundAttachmentUrls: z.array(z.string().trim().min(1).max(2048)).max(10).optional(),
   note: z.string().max(2000).optional().nullable(),
 });
 

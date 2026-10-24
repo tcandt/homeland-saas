@@ -1,11 +1,11 @@
 const fs = require('node:fs');
 const cp = require('node:child_process');
 const a = require('node:assert/strict');
-const root = '/volume1/docker/homeland/release-328-20261024';
+const root = '/volume1/docker/homeland/release-328-r2-20261024';
 const docker = args => cp.execFileSync('/usr/local/bin/docker', args, { encoding: 'utf8' });
 const sha = fs.readFileSync(`${root}/source.sha`, 'utf8').trim();
 a.match(sha, /^[a-f0-9]{40}$/);
-const version = '3.2.8';
+const version = '3.2.9';
 const c = JSON.parse(fs.readFileSync('/volume1/docker/homeland/release-4fc77db1/checkout-87aa2457/compose.private.json'));
 a.equal(c.name, 'homeland_checkout_87aa2457');
 a.deepEqual(c.services.web.ports, ['127.0.0.1:3002:3000']);

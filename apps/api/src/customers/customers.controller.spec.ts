@@ -1,7 +1,9 @@
+import { INestApplication } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { CustomersController } from './customers.controller';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { CustomersService } from './customers.service';
+import request from 'supertest';
 
 describe('CustomersController', () => {
   let controller: CustomersController;
@@ -123,5 +125,84 @@ describe('CustomersController', () => {
     const original = { ...file, originalname: 'original.png' };
     controller.uploadIdentityImage('cust-1', { side: 'front', source: 'scan', approvedBy: 'forged' }, { file: [file], original: [original] }, 'user-a', 'tenant-a');
     expect(service.uploadIdentityImage).toHaveBeenCalledWith('cust-1', 'tenant-a', 'user-a', 'front', 'scan', file, original);
+  });
+});
+
+describe('CustomersController identity image multipart HTTP boundary', () => {
+  let app: INestApplication;
+  const uploadIdentityImage = vi.fn();
+
+  beforeEach(async () => {
+    uploadIdentityImage.mockReset().mockResolvedValue({ ok: true });
+    const module = await Test.createTestingModule({
+      controllers: [CustomersController],
+      providers: [{
+        provide: CustomersService,
+        useValue: { uploadIdentityImage },
+      }],
+    }).compile();
+    app = module.createNestApplication();
+    app.use((req: any, _res: any, next: () => void) => {
+      req.user = { id: 'user-http', tenantId: 'tenant-http' };
+      next();
+    });
+    await app.init();
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it('accepts the four-part scan payload with original bytes as separate multipart fields', async () => {
+    await request(app.getHttpServer())
+      .post('/customers/customer-http/identity-images/upload')
+      .field('side', 'front')
+      .field('source', 'scan')
+      .attach('file', Buffer.from('scan-bytes'), { filename: 'scan.png', contentType: 'image/png' })
+      .attach('original', Buffer.from('original-bytes'), { filename: 'original.png', contentType: 'image/png' })
+      .expect(201);
+
+    expect(uploadIdentityImage).toHaveBeenCalledWith(
+      'customer-http', 'tenant-http', 'user-http', 'front', 'scan',
+      expect.objectContaining({ originalname: 'scan.png', buffer: Buffer.from('scan-bytes') }),
+      expect.objectContaining({ originalname: 'original.png', buffer: Buffer.from('original-bytes') }),
+    );
+  });
+
+  it('rejects an extra multipart field instead of accepting an unbounded request', async () => {
+    await request(app.getHttpServer())
+      .post('/customers/customer-http/identity-images/upload')
+      .field('side', 'front')
+      .field('source', 'scan')
+      .field('unexpected', 'must-not-reach-service')
+      .attach('file', Buffer.from('scan'), { filename: 'scan.png', contentType: 'image/png' })
+      .attach('original', Buffer.from('original'), { filename: 'original.png', contentType: 'image/png' })
+      .expect(400);
+
+    expect(uploadIdentityImage).not.toHaveBeenCalled();
+  });
+
+  it('rejects a third file instead of treating it as an identity image', async () => {
+    await request(app.getHttpServer())
+      .post('/customers/customer-http/identity-images/upload')
+      .field('side', 'front')
+      .field('source', 'scan')
+      .attach('file', Buffer.from('scan'), { filename: 'scan.png', contentType: 'image/png' })
+      .attach('original', Buffer.from('original'), { filename: 'original.png', contentType: 'image/png' })
+      .attach('extra', Buffer.from('extra'), { filename: 'extra.png', contentType: 'image/png' })
+      .expect(400);
+
+    expect(uploadIdentityImage).not.toHaveBeenCalled();
+  });
+
+  it('rejects an image one byte beyond the configured byte limit before the service command', async () => {
+    await request(app.getHttpServer())
+      .post('/customers/customer-http/identity-images/upload')
+      .field('side', 'front')
+      .field('source', 'upload')
+      .attach('file', Buffer.alloc(20 * 1024 * 1024 + 1), { filename: 'too-large.png', contentType: 'image/png' })
+      .expect(413);
+
+    expect(uploadIdentityImage).not.toHaveBeenCalled();
   });
 });

@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 umask 077
-r=/volume1/docker/homeland/release-328-20261024
+r=/volume1/docker/homeland/release-328-r2-20261024
 d=/usr/local/bin/docker
 sha=$1
 archive_hash=$2
@@ -17,14 +17,14 @@ mkdir build.lock
 trap 'result=$?; printf "%s\n" "$result" > build.exit' EXIT
 mkdir context security security/input security/reports
 tar -xf source.tar -C context
-test "$(/var/packages/Node.js_v22/target/usr/local/bin/node -p 'require("./context/package.json").version')" = 3.2.8
+test "$(/var/packages/Node.js_v22/target/usr/local/bin/node -p 'require("./context/package.json").version')" = 3.2.9
 printf '%s\n' "$sha" > source.sha
 for role in api web; do
   "$d" build -f "context/Dockerfile.$role" --build-arg COMMIT_SHA="$sha" \
-    --build-arg VERSION=3.2.8 --build-arg BUILD_ID=nas-3.2.8 \
+    --build-arg VERSION=3.2.9 --build-arg BUILD_ID=nas-3.2.9 \
     --build-arg BUILD_TIME="$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
-    -t "homeland-$role:3.2.8-${sha}" context > "build-$role.log" 2>&1
-  "$d" image inspect "homeland-$role:3.2.8-${sha}" --format '{{.Id}}' > "$role-image.id"
+    -t "homeland-$role:3.2.9-${sha}" context > "build-$role.log" 2>&1
+  "$d" image inspect "homeland-$role:3.2.9-${sha}" --format '{{.Id}}' > "$role-image.id"
 done
 scanner=aquasec/trivy@sha256:be1190afcb28352bfddc4ddeb71470835d16462af68d310f9f4bca710961a41e
 cache=homeland_release_320_scan_cache_836d0af2

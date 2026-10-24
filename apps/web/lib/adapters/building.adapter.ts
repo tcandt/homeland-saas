@@ -2,8 +2,9 @@ import type { Building, Floor, Room } from '@/components/buildings/building.type
 import { BuildingResponse } from '../api/buildings.api';
 import { FloorResponse } from '../api/floors.api';
 import { RoomResponse } from '../api/rooms.api';
-import { getRoomUiStatus, isNonTerminalContract } from './room-status.adapter';
+import { getRoomUiStatus, isActiveContract, isNonTerminalContract } from './room-status.adapter';
 import { resolveRoomType, toUiRoomType } from '../rooms/room-type-resolver';
+import { remainingContractDays } from '../rentals/contract-days';
 
 const toOptionalNumber = (value: unknown): number | undefined => {
   if (value === null || value === undefined || value === '') return undefined;
@@ -65,11 +66,14 @@ export const adaptRoom = (apiRoom: any, building?: any): Room => {
   const allContracts = (apiRoom.contracts && apiRoom.contracts.length > 0)
     ? apiRoom.contracts.filter((c: any) => !c.deletedAt)
     : [];
-  const activeContract = allContracts.find((c: any) => isNonTerminalContract(c)) || null;
+  // A room payload can contain prior tenancies. Only the live contract set may
+  // contribute tenant profiles to the building projection.
+  const visibleContracts = allContracts.filter((c: any) => isNonTerminalContract(c));
+  const activeContract = visibleContracts.find((c: any) => isActiveContract(c)) || visibleContracts[0] || null;
 
   const baseUiStatus = getRoomUiStatus(apiRoom);
   let uiStatus: "occupied" | "vacant" | "deposited" | "maintenance" | "expiring_soon" = baseUiStatus;
-  if (activeContract) {
+  if (activeContract && ["ACTIVE", "EXPIRING"].includes(String(activeContract.status).toUpperCase())) {
     const endDateMs = activeContract.endDate ? new Date(activeContract.endDate).getTime() : 0;
     const daysRemaining = Number.isFinite(endDateMs) && endDateMs > 0 ? Math.ceil((endDateMs - Date.now()) / (1000 * 3600 * 24)) : null;
     if (activeContract.status === "EXPIRING" || (daysRemaining !== null && daysRemaining > 0 && daysRemaining <= 30)) {
@@ -112,7 +116,9 @@ export const adaptRoom = (apiRoom: any, building?: any): Room => {
   const activeRent = contract?.rentPrice && contract.rentPrice > 0 ? contract.rentPrice : 0;
 
   // Additional contract holders (2nd, 3rd, etc.) => sharedTenants with isRep: true
-  const additionalContractTenants = allContracts.slice(1).map((c: any) => c.customer ? {
+  const additionalContractTenants = visibleContracts
+    .filter((c: any) => c.id !== activeContract?.id)
+    .map((c: any) => c.customer ? {
     id: c.customer.id,
     name: c.customer.fullName,
     phone: c.customer.phone,
@@ -136,7 +142,7 @@ export const adaptRoom = (apiRoom: any, building?: any): Room => {
     signedAt: c.signedAt,
     purpose: c.purpose,
     contractStatus: c.status,
-    remainingDays: c.endDate ? Math.ceil((new Date(c.endDate).getTime() - Date.now()) / (1000 * 3600 * 24)) : 0,
+    remainingDays: remainingContractDays(c.endDate),
     bedPosition: "",
     invoices: [],
     paymentHistory: [],
@@ -145,7 +151,7 @@ export const adaptRoom = (apiRoom: any, building?: any): Room => {
   } : null).filter(Boolean);
 
   // Co-representatives on any contract (e.g. 2nd representative on same contract)
-  const contractCoReps = allContracts.flatMap((c: any) =>
+  const contractCoReps = visibleContracts.flatMap((c: any) =>
     [
       ...(c.coRepresentatives || []),
       ...(c.parties?.map((party: any) => party.customer).filter(Boolean) || []),
@@ -173,7 +179,7 @@ export const adaptRoom = (apiRoom: any, building?: any): Room => {
       signedAt: c.signedAt,
       purpose: c.purpose,
       contractStatus: c.status,
-      remainingDays: c.endDate ? Math.ceil((new Date(c.endDate).getTime() - Date.now()) / (1000 * 3600 * 24)) : 0,
+      remainingDays: remainingContractDays(c.endDate),
       bedPosition: "",
       invoices: [],
       paymentHistory: [],
@@ -225,9 +231,7 @@ export const adaptRoom = (apiRoom: any, building?: any): Room => {
         endDate: activeContract.endDate,
         deposit: Number(activeContract.depositMoney) || 0,
         rentPrice: Number(activeContract.monthlyRent) || 0,
-        remainingDays: activeContract.endDate
-          ? Math.ceil((new Date(activeContract.endDate).getTime() - Date.now()) / (1000 * 3600 * 24))
-          : 0,
+        remainingDays: remainingContractDays(activeContract.endDate),
         bedPosition: "",
         invoices: [],
         paymentHistory: [],

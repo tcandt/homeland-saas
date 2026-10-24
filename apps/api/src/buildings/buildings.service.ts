@@ -4,7 +4,7 @@ import { Building } from '@prisma/client';
 import { BuildingsRepository } from './buildings.repository';
 import { AuditService } from '../shared/audit/audit.service';
 import { PaginatedResult } from '@homeland/shared';
-import { ACTIVE_LIKE_CONTRACT_STATUSES } from '../contracts/contracts.adapter';
+import { ROOM_VISIBLE_CONTRACT_STATUSES } from '../contracts/contracts.adapter';
 import { PrismaService } from '../prisma.service';
 
 @Injectable()
@@ -107,7 +107,7 @@ export class BuildingsService extends BaseCrudService<Building> {
             where: { deletedAt: null },
             include: {
               contracts: {
-                where: { status: { in: ACTIVE_LIKE_CONTRACT_STATUSES } },
+                where: { status: { in: ROOM_VISIBLE_CONTRACT_STATUSES }, deletedAt: null },
                 include: { customer: { select: { id: true, fullName: true, phone: true, email: true, identityNo: true, gender: true, birthDate: true, nationality: true, address: true, emergencyPhone: true, idImages: true, relationship: true } } },
                 orderBy: { createdAt: 'asc' }
               },

@@ -25,12 +25,13 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       status = HttpStatus.BAD_REQUEST;
       code = ErrorCodes.VALIDATION_ERROR;
       message = 'Validation failed';
-      details = exception.getZodError().errors;
+      const zodError = exception.getZodError();
+      details = zodError instanceof ZodError ? zodError.issues : [];
     } else if (exception instanceof ZodError) {
       status = HttpStatus.BAD_REQUEST;
       code = ErrorCodes.VALIDATION_ERROR;
       message = 'Validation failed';
-      details = exception.errors;
+      details = exception.issues;
     } else if (exception instanceof HttpException) {
       status = exception.getStatus();
       const res = exception.getResponse() as any;

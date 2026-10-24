@@ -143,9 +143,9 @@ export default function MonthlySettlementTable({
               <th className="py-3 px-3.5 text-center w-12">STT</th>
               <th className="py-3 px-3.5 min-w-[140px]">Phòng / Căn hộ</th>
               <th className="py-3 px-3.5 min-w-[180px]">Đại diện & Cư dân</th>
-              <th className="py-3 px-3.5 text-right min-w-[110px]">Tiền phòng (Thu trước)</th>
-              <th className="py-3 px-3.5 text-right min-w-[130px]">Điện (Thu sau)</th>
-              <th className="py-3 px-3.5 text-right min-w-[120px]">Nước (Thu sau)</th>
+              <th className="py-3 px-3.5 text-right min-w-[110px]">Tiền phòng</th>
+              <th className="py-3 px-3.5 text-right min-w-[130px]">Điện</th>
+              <th className="py-3 px-3.5 text-right min-w-[120px]">Nước</th>
               <th className="py-3 px-3.5 text-right min-w-[130px]">Tổng cộng</th>
               <th className="py-3 px-3.5 text-center min-w-[140px]">Trạng thái gửi</th>
               <th className="py-3 px-3.5 text-center min-w-[110px]">Thanh toán</th>
@@ -156,7 +156,7 @@ export default function MonthlySettlementTable({
             {items.map((item, idx) => {
               const isResending = isResendingRoomId === item.roomId;
               const hasContract = item.hasContract;
-              const isNewTenant = item.isFirstMonthNewTenant;
+              const electricityIssue = item.electricityBillingIssue;
 
               return (
                 <tr
@@ -207,9 +207,13 @@ export default function MonthlySettlementTable({
                     {hasContract ? formatVnd(item.roomPrice) : <span className="text-muted/60 font-normal">0 đ</span>}
                   </td>
 
-                  {/* Tiền điện tháng M-1 (Thu sau): Nếu là khách mới vào ở từ tháng M, chưa tính điện M-1 */}
+                  {/* Số điện dùng để chốt hóa đơn, đã loại phần trước ngày nhận phòng. */}
                   <td className="py-3.5 px-3.5 text-right">
-                    {hasContract && item.electricityAmount > 0 ? (
+                    {hasContract && electricityIssue ? (
+                      <span className="text-[10px] text-muted">
+                        {electricityIssue === 'MOVE_IN_ELECTRICITY_BASELINE_REQUIRED' ? 'Thiếu chỉ số nhận phòng' : 'Cần đối soát điện'}
+                      </span>
+                    ) : hasContract && (item.electricityAmount > 0 || item.electricityKwh > 0) ? (
                       <div>
                         <div className="font-bold text-amber-600 dark:text-amber-400">
                           {formatVnd(item.electricityAmount)}
@@ -227,18 +231,35 @@ export default function MonthlySettlementTable({
                           )}
                         </div>
                       </div>
-                    ) : isNewTenant ? (
-                      <div>
-                        <span className="inline-flex items-center rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
-                          Khách mới T{item.period?.split('-')?.[1]}
-                        </span>
-                        <div className="text-[10px] text-muted font-medium mt-0.5">Chưa ở T{item.usagePeriod?.split('-')?.[1]}</div>
-                      </div>
                     ) : (
                       <div className="text-muted/60">
                         <div>0 đ</div>
                         <div className="text-[10px]">0 kWh</div>
                       </div>
+                    )}
+                  </td>
+
+                  {/* Tiền nước tháng M-1 (Thu sau): 100k/người x số thành viên */}
+                  <td className="py-3.5 px-3.5 text-right">
+                    {hasContract && item.waterAmount > 0 ? (
+                      <div className="font-bold text-text">
+                        {formatVnd(item.waterAmount)}
+                      </div>
+                    ) : (
+                      <span className="text-muted/60 font-normal">0 đ</span>
+                    )}
+                  </td>
+
+                  {/* Tổng tiền */}
+                  <td className="py-3.5 px-3.5 text-right">
+                    {hasContract && electricityIssue ? (
+                      <span className="text-[11px] font-bold text-amber-600 dark:text-amber-400">Chưa thể chốt</span>
+                    ) : hasContract && item.totalAmount > 0 ? (
+                      <div className="font-black text-text text-sm">
+                        {formatVnd(item.totalAmount)}
+                      </div>
+                    ) : (
+                      <span className="font-bold text-muted/60 text-xs">0 đ</span>
                     )}
                     {hasContract && (
                       <div className="mt-1 flex flex-wrap items-center justify-end gap-1 text-[9px] font-bold">
@@ -255,35 +276,6 @@ export default function MonthlySettlementTable({
                           testId={`settlement-electricity-mismatch-${item.roomId}`}
                         />
                       </div>
-                    )}
-                  </td>
-
-                  {/* Tiền nước tháng M-1 (Thu sau): 100k/người x số thành viên */}
-                  <td className="py-3.5 px-3.5 text-right">
-                    {hasContract && item.waterAmount > 0 ? (
-                      <div className="font-bold text-text">
-                        {formatVnd(item.waterAmount)}
-                      </div>
-                    ) : isNewTenant ? (
-                      <div>
-                        <span className="inline-flex items-center rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
-                          0 đ
-                        </span>
-                        <div className="text-[10px] text-muted font-medium mt-0.5">Chưa ở T{item.usagePeriod?.split('-')?.[1]}</div>
-                      </div>
-                    ) : (
-                      <span className="text-muted/60 font-normal">0 đ</span>
-                    )}
-                  </td>
-
-                  {/* Tổng tiền */}
-                  <td className="py-3.5 px-3.5 text-right">
-                    {hasContract && item.totalAmount > 0 ? (
-                      <div className="font-black text-text text-sm">
-                        {formatVnd(item.totalAmount)}
-                      </div>
-                    ) : (
-                      <span className="font-bold text-muted/60 text-xs">0 đ</span>
                     )}
                   </td>
 
@@ -315,7 +307,7 @@ export default function MonthlySettlementTable({
                               size="sm"
                               onClick={() => onResendSingle(item.roomId)}
                               isLoading={isResending}
-                              disabled={!repHasZalo || item.openingBalanceCovered}
+                              disabled={!repHasZalo || item.openingBalanceCovered || !!electricityIssue}
                               className={`h-8 rounded-lg px-2 text-xs font-bold gap-1 border-border ${repHasZalo
                                   ? "text-primary hover:bg-primary/10"
                                   : "text-muted opacity-40 cursor-not-allowed bg-muted/20"

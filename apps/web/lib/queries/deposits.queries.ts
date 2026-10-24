@@ -62,10 +62,13 @@ export const useRentalCycleFinanceSummaryQuery = (rentalCycleId?: string | null)
 };
 
 /** Query key includes the room ID so a previous room's financial truth can never render for the next room. */
-export const useRoomFinanceSummaryQuery = (roomId?: string | null) => {
+export const useRoomFinanceSummaryQuery = (
+  roomId?: string | null,
+  scope: "all" | "current" = "all",
+) => {
   return useQuery<RoomFinanceSummary | null>({
-    queryKey: ['room-finance-summary', roomId],
-    queryFn: async () => roomId ? depositsApi.getRoomFinanceSummary(roomId) : null,
+    queryKey: ['room-finance-summary', roomId, scope],
+    queryFn: async () => roomId ? depositsApi.getRoomFinanceSummary(roomId, scope) : null,
     enabled: Boolean(roomId),
   });
 };

@@ -77,6 +77,59 @@ describe("adaptRoom optional numeric fields", () => {
     expect(room.contract?.status).toBe("DRAFT");
   });
 
+  it("does not leak a former tenant into a new draft tenancy for the same customer", () => {
+    const room = adaptRoom(apiRoom({
+      contracts: [
+        {
+          id: "contract-old", code: "HD-OLD", status: "TERMINATED",
+          customer: { id: "customer-01", fullName: "Huỳnh Hoàng Hạnh", phone: "0900000000" },
+        },
+        {
+          id: "contract-draft", code: "HD-DRAFT", status: "DRAFT",
+          customer: { id: "customer-01", fullName: "Huỳnh Hoàng Hạnh", phone: "0900000000" },
+        },
+      ],
+    }));
+
+    expect(room.tenant).toMatchObject({ contractId: "contract-draft", contractStatus: "DRAFT" });
+    expect(room.sharedTenants).toEqual([]);
+  });
+
+  it("keeps only live shared-contract representatives", () => {
+    const room = adaptRoom(apiRoom({
+      rentalType: "SHARED",
+      contracts: [
+        {
+          id: "contract-current", code: "HD-CURRENT", status: "ACTIVE",
+          customer: { id: "customer-current", fullName: "Khách hiện tại", phone: "0900000001" },
+        },
+        {
+          id: "contract-former", code: "HD-FORMER", status: "TERMINATED",
+          customer: { id: "customer-former", fullName: "Khách cũ", phone: "0900000002" },
+          coRepresentatives: [{ id: "rep-former", fullName: "Đại diện cũ" }],
+        },
+        {
+          id: "contract-second", code: "HD-SECOND", status: "ACTIVE",
+          customer: { id: "customer-second", fullName: "Khách cùng phòng", phone: "0900000003" },
+        },
+      ],
+    }));
+
+    expect(room.sharedTenants?.map((tenant) => tenant.id).sort()).toEqual([
+      "customer-current", "customer-second",
+    ]);
+  });
+
+  it("prefers an occupied contract over an earlier pending contract", () => {
+    const room = adaptRoom(apiRoom({ contracts: [
+      { id: "pending", status: "DRAFT", customer: { id: "pending-customer", fullName: "Pending" } },
+      { id: "active", status: "ACTIVE", customer: { id: "active-customer", fullName: "Current" } },
+    ] }));
+    expect(room.status).toBe("occupied");
+    expect(room.tenant?.id).toBe("active-customer");
+    expect(room.contract?.id).toBe("active");
+  });
+
   it("maps API rentalType to UI rentalType", () => {
     expect(adaptRoom(apiRoom({ rentalType: "SHARED" })).rentalType).toBe("shared");
     expect(adaptRoom(apiRoom({ rentalType: "WHOLE" })).rentalType).toBe("whole");

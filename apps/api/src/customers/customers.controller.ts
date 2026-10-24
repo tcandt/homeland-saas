@@ -135,7 +135,9 @@ export class CustomersController {
   @Post(':id/identity-images/upload')
   @RequirePermissions('customer.update', 'document.create')
   @UseInterceptors(FileFieldsInterceptor([{ name: 'file', maxCount: 1 }, { name: 'original', maxCount: 1 }], {
-    limits: { fileSize: IDENTITY_UPLOAD_LIMIT_BYTES, files: 2, fields: 2, parts: 4 },
+    // Busboy emits `partsLimit` when the part count reaches this value. The
+    // valid scan payload has four parts: side, source, file and original.
+    limits: { fileSize: IDENTITY_UPLOAD_LIMIT_BYTES, files: 2, fields: 2, parts: 5 },
   }))
   uploadIdentityImage(
     @Param('id') id: string, @Body() body: any,

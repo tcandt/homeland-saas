@@ -38,6 +38,7 @@ import FloorPlanCanvas from "./FloorPlanCanvas";
 import RoomInspectorDrawer from "./RoomInspectorDrawer";
 import BuildingSwitcher from "./BuildingSwitcher";
 import UnifiedBuildingCockpit from "./UnifiedBuildingCockpit";
+import BuildingDirectory from "./BuildingDirectory";
 
 interface BuildingCockpitProps {
   buildings: Building[];
@@ -483,7 +484,7 @@ export default function BuildingCockpit({ buildings, onEditBuilding, onAddBuildi
   const searchParams = useSearchParams();
 
   const pathCode = pathname.split("/buildings/")[1]?.split("/")[0];
-  const [activeBuildingCode, setActiveBuildingCode] = useState(() => normalizeBuildingCode(pathCode || "LK01-31"));
+  const [activeBuildingCode, setActiveBuildingCode] = useState(() => normalizeBuildingCode(pathCode || ""));
 
   const [activeFloorId, setActiveFloorId] = useState<string>(() => {
     if (typeof window !== "undefined") {
@@ -506,7 +507,7 @@ export default function BuildingCockpit({ buildings, onEditBuilding, onAddBuildi
     const handlePopState = () => {
       const pathCode = window.location.pathname.split("/buildings/")[1]?.split("/")[0];
       const params = new URLSearchParams(window.location.search);
-      if (pathCode) setActiveBuildingCode(normalizeBuildingCode(pathCode));
+      setActiveBuildingCode(normalizeBuildingCode(pathCode || ""));
       setActiveFloorId(params.get("floor") || "2");
       setActiveRoomCode(params.get("room"));
     };
@@ -516,12 +517,10 @@ export default function BuildingCockpit({ buildings, onEditBuilding, onAddBuildi
 
   // Sync state if pathname/searchParams from props change initially
   useEffect(() => {
-    if (pathCode) {
-      setActiveBuildingCode(normalizeBuildingCode(pathCode));
-    }
+    setActiveBuildingCode(normalizeBuildingCode(pathCode || ""));
   }, [pathCode]);
 
-  const requestedCode = activeBuildingCode;
+  const requestedCode = activeBuildingCode || normalizeBuildingCode(buildings[0]?.code || buildings[0]?.name || "");
   const building = useMemo(() => createCockpitBuildingSpec(buildings, requestedCode), [buildings, requestedCode]);
   const portfolioBuildings = useMemo(() => {
     const resolved = buildingTemplateRegistry
@@ -586,11 +585,9 @@ export default function BuildingCockpit({ buildings, onEditBuilding, onAddBuildi
     window.history.pushState(null, "", `/buildings/${normalized}`);
   }, []);
 
-  if (!building) {
+  if (!building || !activeBuildingCode) {
     return (
-      <div data-testid="empty-buildings-state" className="rounded-[16px] border border-dashed border-[#e8e7f3] bg-white p-10 text-center text-sm font-bold text-slate-500">
-        Không tìm thấy tòa nhà {requestedCode} trong dữ liệu hiện tại.
-      </div>
+      <BuildingDirectory buildings={buildings} requestedCode={requestedCode} onSelect={switchBuilding} onAdd={onAddBuilding} onEdit={onEditBuilding} />
     );
   }
 

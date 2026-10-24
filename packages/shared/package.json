@@ -8,7 +8,7 @@
     "test": "vitest run src"
   },
   "dependencies": {
-    "zod": "^3.21.4"
+    "zod": "4.6.6"
   },
   "devDependencies": {
     "typescript": "^5.0.0"

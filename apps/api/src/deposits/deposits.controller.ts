@@ -72,8 +72,9 @@ export class DepositsController {
   getRoomFinanceSummary(
     @Param('roomId') roomId: string,
     @CurrentUser('tenantId') tenantId: string,
+    @Query('scope') scope?: string,
   ) {
-    return this.depositCoreService.getRoomFinanceSummary(tenantId, roomId);
+    return this.depositCoreService.getRoomFinanceSummary(tenantId, roomId, scope);
   }
 
   @Post('holds/expire')

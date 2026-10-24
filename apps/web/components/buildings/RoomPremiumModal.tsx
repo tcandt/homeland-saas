@@ -115,6 +115,7 @@ import { getLinkedRental, isBookingContract as isBookingHoldDocument, BOOKING_CO
 import { deduplicateContracts } from "@/lib/adapters/contract-dedupe.adapter";
 import {
   getRoomUiStatus,
+  isActiveContract,
   isNonTerminalContract,
 } from "@/lib/adapters/room-status.adapter";
 import { maskPhone, maskCccd } from "@/lib/adapters/tenant-masking.adapter";
@@ -887,13 +888,30 @@ export default function RoomPremiumModal({
     const items = (roomContractsData as any)?.data || [];
     return Array.isArray(items) ? items : [];
   }, [roomContractsData]);
-
   const {
     data: roomFinanceSummary,
     isLoading: isRoomFinanceSummaryLoading,
     error: roomFinanceSummaryError,
     refetch: refetchRoomFinanceSummary,
-  } = useRoomFinanceSummaryQuery(roomId);
+  } = useRoomFinanceSummaryQuery(roomId, "current");
+
+  const pendingMoveInContracts = useMemo(() => {
+    const pendingStatuses = new Set(["DRAFT", "PENDING_APPROVAL", "APPROVED"]);
+    const seen = new Set<string>();
+    const financeContracts = (roomFinanceSummary?.rentalCycles || []).flatMap((cycle: any) =>
+      (cycle.contracts || []).map((contract: any) => ({
+        ...contract,
+        customer: contract.customer || cycle.customer,
+        rentalCycleId: cycle.rentalCycleId,
+      })),
+    );
+    return [...roomContractsList, ...financeContracts].filter((contract: any) => {
+      const key = String(contract?.id || contract?.code || "").trim();
+      if (!key || seen.has(key) || isBookingHoldDocument(contract)) return false;
+      seen.add(key);
+      return pendingStatuses.has(String(contract.status || "").toUpperCase());
+    });
+  }, [roomContractsList, roomFinanceSummary]);
 
   const financeCandidates = useMemo(() => {
     const list: Array<{
@@ -2088,7 +2106,9 @@ export default function RoomPremiumModal({
     if (roomData?.rentalType === "shared") {
       return dedupeOccupants([
         ...bookingHoldOccupants,
-        ...(roomData.sharedTenants || []).map((tenant: any) => ({
+        ...(roomData.sharedTenants || []).filter((tenant: any) =>
+          !tenant.contractStatus || isActiveContract({ status: tenant.contractStatus }),
+        ).map((tenant: any) => ({
           ...tenant,
           role: tenant.isRep ? "Đại diện HĐ chính" : "Người ở cùng",
           isRep: !!tenant.isRep,
@@ -2098,7 +2118,7 @@ export default function RoomPremiumModal({
 
     // Cho thuê nguyên căn (Whole rental):
     // 1. Đại diện HĐ chính (roomData.tenant)
-    const primaryTenant = roomData?.tenant
+    const primaryTenant = roomData?.tenant && isActiveContract(roomData.contract)
       ? [{ ...roomData.tenant, role: "Đại diện HĐ chính", isRep: true }]
       : [];
 
@@ -2107,6 +2127,7 @@ export default function RoomPremiumModal({
       .filter(
         (st: any) =>
           st.isRep &&
+          (!st.contractStatus || isActiveContract({ status: st.contractStatus })) &&
           st.id !== roomData?.tenant?.id &&
           (!roomData?.tenant?.name || st.name !== roomData.tenant.name),
       )
@@ -2117,7 +2138,9 @@ export default function RoomPremiumModal({
       }));
 
     const contractCoReps = (
-      (roomData as any)?.contract?.coRepresentatives || []
+      isActiveContract(roomData?.contract)
+        ? (roomData as any)?.contract?.coRepresentatives || []
+        : []
     )
       .filter(
         (cr: any) =>
@@ -3358,8 +3381,8 @@ export default function RoomPremiumModal({
   }
 
   const occupantsCount = getOccupantsList().length;
-  const visibleOccupantsCount =
-    occupantsCount > 0 ? occupantsCount : financeRoomIdentity ? 1 : 0;
+  const pendingMoveInCount = pendingMoveInContracts.length;
+  const visibleOccupantsCount = occupantsCount;
   const legacyContracts = roomContractsList.filter((contract: any) =>
     contract.termsSnapshot?.legacyImport?.policyVersion === "LEGACY_OPENING_V1" &&
     ["ACTIVE", "EXPIRING"].includes(String(contract.status).toUpperCase()));
@@ -3700,6 +3723,7 @@ export default function RoomPremiumModal({
                   {/* Tenant Table / Empty State */}
                   {(() => {
                     const allTenantsList = getOccupantsList();
+                    const hasPendingMoveInContracts = pendingMoveInContracts.length > 0;
                     const actualStayTenants = allTenantsList.filter(
                       (tenant: any) => !isBookingHoldOccupant(tenant),
                     );
@@ -3728,7 +3752,7 @@ export default function RoomPremiumModal({
                               Danh sách khách thuê
                             </h4>
                             <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-primary/10 text-primary">
-                              {occupantsCount} người
+                              {occupantsCount} người{pendingMoveInCount > 0 ? ` · ${pendingMoveInCount} chờ nhận phòng` : ""}
                             </span>
                           </div>
 
@@ -3787,7 +3811,7 @@ export default function RoomPremiumModal({
                           </div>
                         </div>
 
-                        {allTenantsList.length === 0 ? (
+                        {allTenantsList.length === 0 && !hasPendingMoveInContracts ? (
                           <div className="p-10 text-center border-2 border-dashed border-border/60 rounded-2xl flex flex-col items-center justify-center bg-card shadow-sm">
                             <div className="h-12 w-12 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mb-3">
                               <Users size={24} />
@@ -3846,6 +3870,7 @@ export default function RoomPremiumModal({
                                 </Button>
                               </div>
                             )}
+                            {allTenantsList.length > 0 && (
                             <div className="border border-border/60 rounded-2xl overflow-hidden bg-card shadow-sm">
                               <div className="overflow-x-auto">
                                 <table className="w-full text-left text-sm whitespace-nowrap">
@@ -4005,6 +4030,46 @@ export default function RoomPremiumModal({
                                 </table>
                               </div>
                             </div>
+                            )}
+                            {hasPendingMoveInContracts && (
+                              <section className="border-t border-border/60 pt-4" aria-labelledby="pending-move-in-contracts">
+                                <div className="mb-2 flex items-center justify-between gap-3">
+                                  <div>
+                                    <h5 id="pending-move-in-contracts" className="text-sm font-black text-text">Chờ nhận phòng</h5>
+                                    <p className="text-xs text-muted">Các hợp đồng này chưa tạo người đang ở hoặc khai báo tạm trú.</p>
+                                  </div>
+                                  <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 text-xs font-bold text-amber-700 dark:text-amber-300">
+                                    {pendingMoveInContracts.length} hồ sơ
+                                  </span>
+                                </div>
+                                <div className="divide-y divide-border/50 border-y border-border/60">
+                                  {pendingMoveInContracts.map((contract: any) => {
+                                    const status = String(contract.status || "").toUpperCase();
+                                    const statusLabel = {
+                                      DRAFT: "Nháp",
+                                      PENDING_APPROVAL: "Chờ duyệt",
+                                      APPROVED: "Đã duyệt - chờ nhận phòng",
+                                    }[status] || status;
+                                    return (
+                                      <div key={contract.id || contract.code} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                                        <div className="min-w-0">
+                                          <div className="truncate text-sm font-bold text-text">
+                                            {contract.customer?.fullName || contract.customer?.name || "Khách thuê chưa xác định"}
+                                          </div>
+                                          <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted">
+                                            <span className="font-mono">{contract.code || "Chưa có mã hợp đồng"}</span>
+                                            <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-300">{statusLabel}</span>
+                                          </div>
+                                        </div>
+                                        <Button size="sm" variant="outline" onClick={() => setSelectedFlowContract({ id: contract.id })} disabled={!contract.id}>
+                                          <FileText size={14} className="mr-1.5" /> Mở hợp đồng
+                                        </Button>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </section>
+                            )}
                           </div>
                         )}
                       </>
@@ -4640,8 +4705,16 @@ export default function RoomPremiumModal({
                           },
                         }));
                       });
+                    const currentCycleReps = (roomFinanceSummary?.rentalCycles || [])
+                      .flatMap((cycle: any) => (cycle.contracts || []).filter((contract: any) => isNonTerminalContract(contract)).map((contract: any) => ({
+                        ...contract,
+                        customer: contract.customer || cycle.customer,
+                        rentalCycleId: cycle.rentalCycleId,
+                      })));
                     const rawReps = [
-                      ...roomContractsList.map((contract: any) => {
+                      ...roomContractsList
+                        .filter((contract: any) => isNonTerminalContract(contract))
+                        .map((contract: any) => {
                         const snapshot = contract.customerSnapshot || {};
                         const customer = contract.customer || {};
                         const identityNo =
@@ -4675,12 +4748,30 @@ export default function RoomPremiumModal({
                           },
                         };
                       }),
+                      // Keep only current contracts even when a cycle includes
+                      // earlier renewal documents for financial continuity.
+                      ...currentCycleReps.map((contract: any) => {
+                        const customer = contract.customer || {};
+                        return {
+                          ...customer,
+                          name: customer.fullName || customer.name || "",
+                          isBookingHold: isBookingHoldDocument(contract),
+                          contract: {
+                            ...contract,
+                            deposit: contract.depositMoney,
+                            rentPrice: contract.monthlyRent,
+                          },
+                        };
+                      }),
                       ...financeBookingReps,
-                      ...(roomData.tenant && roomData.contract
+                      ...(roomData.tenant && roomData.contract && isNonTerminalContract(roomData.contract)
                         ? [{ ...roomData.tenant, contract: roomData.contract }]
                         : []),
                       ...(roomData.sharedTenants || [])
-                        .filter((t: any) => t.isRep || t.contractId)
+                        .filter((t: any) =>
+                          (t.isRep || t.contractId) &&
+                          (!t.contractStatus || isNonTerminalContract({ status: t.contractStatus })),
+                        )
                         .map((t) => ({
                           ...t,
                           contract: {

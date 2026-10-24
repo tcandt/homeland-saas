@@ -110,6 +110,16 @@ describe("D2-FIX-01: Production RentalCycle Finance Summary Query & Invariants",
     expect(result.data.totals).toEqual(roomSummary.totals);
   });
 
+  it("asks the server for the current room projection without rebuilding totals in the UI", async () => {
+    const getSpy = vi.spyOn(apiClient, "get").mockResolvedValue({ data: {} } as any);
+
+    await depositsApi.getRoomFinanceSummary("room-1", "current");
+
+    expect(getSpy).toHaveBeenCalledWith("/deposits/rooms/room-1/finance-summary", {
+      params: { scope: "current" },
+    });
+  });
+
   it("correctly maps all authoritative backend ledger enum types", () => {
     const totalsByType = {
       CASH_IN: 5000000,

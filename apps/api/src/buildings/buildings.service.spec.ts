@@ -83,6 +83,11 @@ describe('BuildingsService', () => {
         { name: 'asc' },
         expect.any(Object)
       );
+      const projection = vi.mocked(repository.paginate).mock.calls[0][4] as any;
+      expect(projection.floors.include.rooms.include.contracts.where).toEqual({
+        status: { in: ['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'ACTIVE', 'EXPIRING'] },
+        deletedAt: null,
+      });
     });
   });
 

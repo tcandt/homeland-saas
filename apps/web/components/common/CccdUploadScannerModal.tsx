@@ -70,10 +70,19 @@ export const CccdUploadScannerModal: React.FC<CccdUploadScannerModalProps> = ({
       { x: 0.15, y: 0.85 },
     ]);
 
+    return () => URL.revokeObjectURL(url);
+  }, [file, isOpen]);
+
+  useEffect(() => {
+    if (!file || !isOpen || !isIframeLoaded) return;
+    let cancelled = false;
+    setSourceSize({ width: 0, height: 0 });
+
     const runDetection = async () => {
       // Wait for iframe to load and CCCDLocalScan to be exposed
       let attempts = 0;
       while (attempts < 60) {
+        if (cancelled) return;
         const iframeWin = iframeRef.current?.contentWindow as any;
         if (iframeWin && iframeWin.CCCDLocalScan) {
           break;
@@ -83,6 +92,7 @@ export const CccdUploadScannerModal: React.FC<CccdUploadScannerModalProps> = ({
       }
 
       const iframeWin = iframeRef.current?.contentWindow as any;
+      if (cancelled) return;
       const localScan = iframeWin?.CCCDLocalScan;
       if (!localScan) {
         setStatusMessage("Không thể kết nối trình quét. Vui lòng kéo 4 góc xanh lá thủ công.");
@@ -93,6 +103,7 @@ export const CccdUploadScannerModal: React.FC<CccdUploadScannerModalProps> = ({
         setIsProcessing(true);
         setStatusMessage("Đang nhận diện biên thẻ tự động...");
         const detectResult = await localScan.scanFile(file, { autoProcess: false });
+        if (cancelled) return;
         
         if (detectResult && detectResult.card && detectResult.card.sourceSize) {
           const width = detectResult.card.sourceSize.width;
@@ -113,17 +124,18 @@ export const CccdUploadScannerModal: React.FC<CccdUploadScannerModalProps> = ({
           setStatusMessage("Không tìm thấy khung chuẩn, vui lòng kéo tay 4 góc xanh lá.");
         }
       } catch (error) {
+        if (cancelled) return;
         console.error("Auto corner detection error:", error);
         setStatusMessage("Lỗi tự động nhận diện góc. Hãy kéo tay 4 góc.");
       } finally {
-        setIsProcessing(false);
+        if (!cancelled) setIsProcessing(false);
       }
     };
 
     runDetection();
 
     return () => {
-      URL.revokeObjectURL(url);
+      cancelled = true;
     };
   }, [file, isOpen, isIframeLoaded]);
 
@@ -261,7 +273,7 @@ export const CccdUploadScannerModal: React.FC<CccdUploadScannerModalProps> = ({
   if (!isOpen || !file) return null;
 
   return (
-    <div className="fixed inset-0 z-[99999] flex flex-col items-center justify-center bg-black/90 p-4 text-white backdrop-blur-sm select-none">
+    <div className="fixed inset-0 z-[99999] flex min-h-0 flex-col items-center justify-center bg-black/90 p-4 text-white backdrop-blur-sm select-none">
       {/* Headless Iframe Worker */}
       <iframe
         ref={iframeRef}
@@ -270,7 +282,7 @@ export const CccdUploadScannerModal: React.FC<CccdUploadScannerModalProps> = ({
         onLoad={() => setIsIframeLoaded(true)}
       />
 
-      <div className="flex min-h-11 w-full max-w-[600px] items-center justify-between border-b border-white/10 px-1 py-2">
+      <div className="flex min-h-11 w-full max-w-[600px] shrink-0 items-center justify-between border-b border-white/10 px-1 py-2">
         <div className="flex min-w-0 items-center gap-2">
           <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-indigo-500/15 text-indigo-300"><QrCode size={15} /></span>
             <h3 className="flex shrink-0 items-center gap-2 text-sm font-black text-white">
@@ -297,13 +309,14 @@ export const CccdUploadScannerModal: React.FC<CccdUploadScannerModalProps> = ({
         </button>
       </div>
 
-      <div className="relative flex-1 w-full max-w-[600px] flex items-center justify-center py-6 overflow-hidden">
+      <div className="relative flex min-h-0 w-full max-w-[600px] flex-1 items-center justify-center overflow-auto py-6">
         {step === "crop" && (
           <div ref={containerRef} className="relative inline-block max-h-[60vh] max-w-full">
             {imgUrl && (
               <img
                 ref={imageRef}
                 src={imgUrl}
+                onLoad={(event) => setSourceSize({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight })}
                 alt="Original CCCD"
                 className="max-h-[60vh] max-w-full w-auto h-auto block border border-white/10 rounded"
               />
@@ -371,7 +384,7 @@ export const CccdUploadScannerModal: React.FC<CccdUploadScannerModalProps> = ({
         )}
       </div>
 
-      <div className="w-full max-w-[600px] flex items-center justify-between border-t border-white/10 pt-4">
+      <div className="flex w-full max-w-[600px] shrink-0 items-center justify-between border-t border-white/10 pt-4">
         {step === "crop" ? (
           <>
             <button

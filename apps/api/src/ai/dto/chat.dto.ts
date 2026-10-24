@@ -1,5 +1,5 @@
 import { createZodDto } from 'nestjs-zod';
-import { z } from 'nestjs-zod/z';
+import { z } from 'zod';
 
 export const AiMessageSchema = z.object({
   role: z.literal('user').default('user'),
@@ -9,7 +9,7 @@ export const AiMessageSchema = z.object({
 export const ChatRequestSchema = z.object({
   messages: z.array(AiMessageSchema).min(1).max(50),
   options: z.object({
-    conversationId: z.string().min(1).optional(),
+    conversationId: z.string().trim().min(1).max(200).optional(),
     agent: z.string().min(1).max(80).optional(),
     module: z.string().min(1).max(80).optional(),
   }).strict().optional(),

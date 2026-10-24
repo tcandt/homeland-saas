@@ -6,7 +6,7 @@ const vm = require('node:vm');
 const source = fs.readFileSync(path.join(__dirname, 'config.cjs'), 'utf8');
 const digest = character => `sha256:${character.repeat(64)}`;
 function configure(oldVersion = '3.2.6') {
-  const root = '/volume1/docker/homeland/release-328-20261024';
+  const root = '/volume1/docker/homeland/release-328-r2-20261024';
   const sha = 'a'.repeat(40);
   const policy = { APP_VERSION: oldVersion, DATABASE_URL: 'postgresql://preserved',
     CUSTOM_SETTING: 'preserved', COMMUNICATION_IMMEDIATE_DELIVERY: 'true', RUN_DB_MIGRATIONS: 'false', SYSTEM_BACKUP_ENABLED: 'false',
@@ -18,8 +18,8 @@ function configure(oldVersion = '3.2.6') {
   const oldApi = 'sha256:bd778691b756a1d815d253e916ec7755d51599be6ca282c0bdc3cd6290a1ab37';
   const oldWeb = 'sha256:2f8859e507a6accf30c657054fac6b90f8bbb8415f0fb735d446de5325e07bc4';
   const rows = { live_api: row(oldApi, policy), live_worker: row(oldApi, policy), live_web: row(oldWeb, policy),
-    [digest('b')]: row(digest('b'), { APP_VERSION: '3.2.8', COMMIT_SHA: sha, BUILD_ID: 'nas-3.2.8', BUILD_TIME: 'time' }),
-    [digest('c')]: row(digest('c'), { APP_VERSION: '3.2.8', COMMIT_SHA: sha, BUILD_ID: 'nas-3.2.8', BUILD_TIME: 'time' }) };
+    [digest('b')]: row(digest('b'), { APP_VERSION: '3.2.9', COMMIT_SHA: sha, BUILD_ID: 'nas-3.2.9', BUILD_TIME: 'time' }),
+    [digest('c')]: row(digest('c'), { APP_VERSION: '3.2.9', COMMIT_SHA: sha, BUILD_ID: 'nas-3.2.9', BUILD_TIME: 'time' }) };
   const compose = { name: 'homeland_checkout_87aa2457', services: {
     api: { container_name: 'live_api', volumes: ['storage:/app/storage'] },
     notification_worker: { container_name: 'live_worker', volumes: ['storage:/app/storage'] },
@@ -50,19 +50,19 @@ test('changes only application images and build identity, preserving live settin
   for (const name of ['api', 'notification_worker', 'web']) {
     a.equal(candidate.services[name].environment.DATABASE_URL, 'postgresql://preserved');
     a.equal(candidate.services[name].environment.CUSTOM_SETTING, 'preserved');
-    a.equal(candidate.services[name].environment.APP_VERSION, '3.2.8');
+    a.equal(candidate.services[name].environment.APP_VERSION, '3.2.9');
     a.equal(rollback.services[name].environment.APP_VERSION, '3.2.6');
     a.ok(Object.values(audit.services[name].environment).every(value => value === 'REDACTED'));
   }
 });
 test('blocks same-version and downgrade deployments', () => {
-  a.throws(() => configure('3.2.8'), /version must increase/);
   a.throws(() => configure('3.2.9'), /version must increase/);
+  a.throws(() => configure('3.3.0'), /version must increase/);
 });
 
 test('acceptance permits the login hydration shell but rejects incorrect API identity', async () => {
   const script = fs.readFileSync(path.join(__dirname, 'verify.cjs'), 'utf8');
-  for (const version of ['3.2.8', '3.2.6']) {
+  for (const version of ['3.2.9', '3.2.6']) {
     const state = { exitCode: 0, env: {} };
     const output = [];
     class PrismaClient {
@@ -78,12 +78,12 @@ test('acceptance permits the login hydration shell but rejects incorrect API ide
       console: { log: text => output.push(JSON.parse(text)), error: () => {} },
       fetch: async url => ({
         status: url.endsWith('/contracts/import-existing') ? 401 : 200,
-        json: async () => ({ data: { version, commit: 'a'.repeat(40), buildId: 'nas-3.2.8' } }),
+        json: async () => ({ data: { version, commit: 'a'.repeat(40), buildId: 'nas-3.2.9' } }),
         text: async () => '<script src="/_next/static/login.js"></script><div>Loading</div>',
       }),
     });
-    a.equal(state.exitCode, version === '3.2.8' ? 0 : 1);
-    a.equal(output.length, version === '3.2.8' ? 1 : 0);
+    a.equal(state.exitCode, version === '3.2.9' ? 0 : 1);
+    a.equal(output.length, version === '3.2.9' ? 1 : 0);
     if (output.length) a.equal(output[0].checks.length, 2);
   }
 });

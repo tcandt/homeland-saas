@@ -156,7 +156,7 @@ describe("MonthlySettlementService", () => {
                 customerId: "cust-1",
                 contractId: "contract-1",
                 role: "ĐẠI DIỆN",
-                joinedAt: new Date("2026-08-01T00:00:00.000Z"),
+                joinedAt: new Date("2026-07-31T17:00:00.000Z"),
                 leftAt: null,
                 customer: {
                   id: "cust-1", fullName: "Nguyễn Văn A", phone: "0901234567",
@@ -168,7 +168,7 @@ describe("MonthlySettlementService", () => {
                 customerId: "cust-2",
                 contractId: "contract-1",
                 role: "THÀNH VIÊN Ở CÙNG",
-                joinedAt: new Date("2026-08-01T00:00:00.000Z"),
+                joinedAt: new Date("2026-07-31T17:00:00.000Z"),
                 leftAt: null,
                 customer: {
                   id: "cust-2", fullName: "Trần Thị B", phone: "0907654321",

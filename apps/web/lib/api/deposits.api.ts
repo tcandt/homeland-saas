@@ -108,8 +108,11 @@ export const depositsApi = {
     return apiClient.get<RentalCycleFinanceSummary>(`/deposits/rental-cycles/${rentalCycleId}/finance-summary`);
   },
 
-  getRoomFinanceSummary: (roomId: string) => {
-    return apiClient.get<RoomFinanceSummary>(`/deposits/rooms/${roomId}/finance-summary`);
+  getRoomFinanceSummary: (roomId: string, scope?: "all" | "current") => {
+    const path = `/deposits/rooms/${roomId}/finance-summary`;
+    return scope
+      ? apiClient.get<RoomFinanceSummary>(path, { params: { scope } })
+      : apiClient.get<RoomFinanceSummary>(path);
   },
 
   getOperationStatus: (idempotencyKey: string) => {

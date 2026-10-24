@@ -22,6 +22,7 @@ import {
   TERMINAL_CONTRACT_STATUSES,
 } from "../contracts/contracts.adapter";
 import { createHash } from "node:crypto";
+import { resolveMoveInElectricityCharge } from "./accrued-electricity";
 import { isLegacyBillingCovered, legacyImportMarker, LEGACY_OPENING_POLICY } from "../contracts/legacy-rental-import";
 
 export interface MonthlySettlementSettings {
@@ -868,7 +869,7 @@ export class MonthlySettlementService {
             // Deliberately load every occupancy which could have started by
             // the next UTC+7 boundary. The resolver validates malformed
             // intervals instead of allowing SQL overlap filters to hide them.
-            joinedAt: { lt: getHalfOpenPeriodBounds(usagePeriod).nextStart },
+            joinedAt: { lt: getHalfOpenPeriodBounds(period).nextStart },
           },
           include: { customer: true },
           orderBy: [{ joinedAt: "asc" }, { id: "asc" }],
@@ -879,6 +880,17 @@ export class MonthlySettlementService {
 
     const roomIds = rooms.map((room) => room.id);
     const prismaAny = this.prisma as any;
+    const moveInReadingIds = rooms.flatMap((room) => room.contracts
+      .map((contract) => (contract.moveInSnapshot as any)?.meterReadingId)
+      .filter((id): id is string => typeof id === "string"));
+    const accruedReadings = prismaAny.hunonicMeterReading?.findMany
+      ? await prismaAny.hunonicMeterReading.findMany({
+          where: { tenantId, roomId: { in: roomIds }, OR: [
+            { sourcePeriod: usagePeriod }, { id: { in: moveInReadingIds } },
+          ] },
+          orderBy: [{ observedAt: "desc" }, { createdAt: "desc" }],
+        })
+      : [];
     const [lockedSnapshots, persistedReadings] = await Promise.all([
       prismaAny.billingSnapshot?.findMany
         ? prismaAny.billingSnapshot.findMany({
@@ -1057,6 +1069,7 @@ export class MonthlySettlementService {
               : []
             ).filter(
               (occupancy: any) =>
+                new Date(occupancy.joinedAt) < usageBounds.nextStart &&
                 !room.contracts.some(
                   (contract) =>
                     contract.id === occupancy.contractId &&
@@ -1311,6 +1324,53 @@ export class MonthlySettlementService {
           message: "Công tơ Hunonic đang dùng giá tự thiết lập nhưng chưa có đơn giá xác thực; không thể chốt kỳ.",
         });
       }
+      let electricityBillingIssue: string | null = null;
+      let moveInElectricityProvenance: Record<string, unknown> | null = null;
+      if (!lockedSnapshot) {
+        for (const contract of billingContracts) {
+          const charge = resolveMoveInElectricityCharge({
+            usagePeriod,
+            periodStart: usageBounds.start,
+            nextPeriodStart: usageBounds.nextStart,
+            tenantId,
+            roomId: room.id,
+            contract,
+            occupancies: room.occupancies || [],
+            currentReading: persistedReading,
+            baselineReading: accruedReadings.find((reading: any) =>
+              reading.id === (contract.moveInSnapshot as any)?.meterReadingId),
+            meter: {
+              id: persistedReading?.meterMappingId || meter?.id || null,
+              rateMode: resolvedRateMode,
+              customRateVnd,
+            },
+            meterMappingId: persistedReading?.meterMappingId || meter?.id || null,
+            shared: isSharedRoom,
+            rawKwh: rawElectricityKwh,
+            rawAmount: rawElectricityAmount,
+          });
+          if (charge.status === "BLOCKED") {
+            electricityBillingIssue = charge.issue;
+            rawElectricityKwh = 0;
+            rawElectricityAmount = 0;
+            settlementBlockers.push({
+              code: charge.issue || "MOVE_IN_ELECTRICITY_SOURCE_INVALID",
+              message: "Không thể chứng minh điện năng kể từ ngày nhận phòng; cần đối soát baseline Hunonic trước khi chốt.",
+              contractId: contract.id,
+            });
+            break;
+          }
+          if (charge.status === "NOT_OCCUPIED") {
+            rawElectricityKwh = 0;
+            rawElectricityAmount = 0;
+          }
+          if (charge.status === "ADJUSTED") {
+            rawElectricityKwh = charge.kwh;
+            rawElectricityAmount = charge.amount;
+            moveInElectricityProvenance = charge.provenance;
+          }
+        }
+      }
       const meterReadingView =
         lockedSnapshot || persistedReading || meter
           ? {
@@ -1372,17 +1432,19 @@ export class MonthlySettlementService {
           ? {
               currentKwh: Number(persistedReading.energyMonthKwh || 0),
               currentAmount: Number(persistedReading.moneyMonthVnd || 0),
+              billedKwh: Number(lockedSnapshot.usageKwh || 0),
+              billedAmount: Number(lockedSnapshot.electricityAmount || 0),
               deltaKwh:
                 Number(persistedReading.energyMonthKwh || 0) -
-                Number(lockedSnapshot.usageKwh || 0),
+                Number(lockedProvenance?.moveInElectricity?.currentKwh ?? lockedSnapshot.usageKwh ?? 0),
               deltaAmount:
                 Number(persistedReading.moneyMonthVnd || 0) -
-                Number(lockedSnapshot.electricityAmount || 0),
+                Number(lockedProvenance?.moveInElectricity?.currentAmount ?? lockedSnapshot.electricityAmount ?? 0),
               status:
                 Number(persistedReading.energyMonthKwh || 0) ===
-                  Number(lockedSnapshot.usageKwh || 0) &&
+                  Number(lockedProvenance?.moveInElectricity?.currentKwh ?? lockedSnapshot.usageKwh ?? 0) &&
                 Number(persistedReading.moneyMonthVnd || 0) ===
-                  Number(lockedSnapshot.electricityAmount || 0)
+                  Number(lockedProvenance?.moveInElectricity?.currentAmount ?? lockedSnapshot.electricityAmount ?? 0)
                   ? "MATCHED"
                   : "MISMATCHED",
             }
@@ -1794,6 +1856,8 @@ export class MonthlySettlementService {
           roomPrice: finalRoomPrice,
           electricityKwh,
           electricityAmount: finalElectricityAmount,
+          electricityBillingIssue,
+          moveInElectricityProvenance,
           meterReading: meterReadingView,
           billingSnapshotId: lockedSnapshot?.id || null,
           billingSnapshotProvenance: lockedSnapshot?.sourceProvenance || null,
@@ -2201,6 +2265,7 @@ export class MonthlySettlementService {
         sourceProviderMeterId: snapshotMeter.sourceProviderMeterId || null,
         readingPayloadHash: snapshotMeter.sourcePayloadHash || null,
         sourceData: snapshotMeter,
+        moveInElectricity: item.moveInElectricityProvenance || null,
         startReadingKwh: null,
         endReadingKwh: null,
         usageKwh: item.roomElectricityKwh,
@@ -2356,15 +2421,16 @@ export class MonthlySettlementService {
               throw new BadRequestException("MONTHLY_BASE_REPRESENTATIVE_TENANT_INVALID");
             }
           }
+          const requiresMoveInEvidence = !!item.moveInElectricityProvenance;
           if (
-            (Number(item.roomElectricityKwh || 0) > 0 || Number(item.roomElectricityAmount || 0) > 0) &&
+            (Number(item.roomElectricityKwh || 0) > 0 || Number(item.roomElectricityAmount || 0) > 0 || requiresMoveInEvidence) &&
             (!snapshotMeter.sourceReadingId || !snapshotMeter.meterMappingId)
           ) {
             throw new BadRequestException("BILLING_SNAPSHOT_REQUIRES_PERSISTED_OBSERVATION");
           }
           if (
             (Number(item.roomElectricityKwh || 0) > 0 ||
-              Number(item.roomElectricityAmount || 0) > 0) &&
+              Number(item.roomElectricityAmount || 0) > 0 || requiresMoveInEvidence) &&
             !snapshotMeter.snapshotId &&
             typeof txAny.hunonicMeterReading?.findFirst === "function"
           ) {
@@ -2408,6 +2474,27 @@ export class MonthlySettlementService {
                 moneyMonthVnd: true,
               },
             });
+            const moveInEvidence = item.moveInElectricityProvenance as any;
+            const baselineReading = requiresMoveInEvidence
+              ? await txAny.hunonicMeterReading.findFirst({
+                  where: {
+                    id: moveInEvidence.baselineReadingId,
+                    tenantId,
+                    roomId: item.roomId,
+                    meterMappingId: snapshotMeter.meterMappingId,
+                    sourcePeriod: usagePeriod,
+                    aggregateBasis: "MONTHLY_AGGREGATE_V1",
+                  },
+                  select: {
+                    id: true,
+                    meterMappingId: true,
+                    payloadHash: true,
+                    energyMonthKwh: true,
+                    moneyMonthVnd: true,
+                    observedAt: true,
+                  },
+                })
+              : null;
             if (
               !candidateReading ||
               candidateReading.id !== snapshotMeter.sourceReadingId ||
@@ -2428,7 +2515,16 @@ export class MonthlySettlementService {
                 numberOrNull(canonicalReading.moneyMonthVnd) === null) ||
               (snapshotMeter.sourcePayloadHash &&
                 canonicalReading.payloadHash !== undefined &&
-                canonicalReading.payloadHash !== snapshotMeter.sourcePayloadHash)
+                canonicalReading.payloadHash !== snapshotMeter.sourcePayloadHash) ||
+              (requiresMoveInEvidence && (
+                !baselineReading ||
+                baselineReading.id !== moveInEvidence.baselineReadingId ||
+                baselineReading.meterMappingId !== snapshotMeter.meterMappingId ||
+                numberOrNull(baselineReading.energyMonthKwh) !== Number(moveInEvidence.baselineKwh) ||
+                numberOrNull(baselineReading.moneyMonthVnd) !== Number(moveInEvidence.baselineAmount) ||
+                (moveInEvidence.baselinePayloadHash &&
+                  baselineReading.payloadHash !== moveInEvidence.baselinePayloadHash)
+              ))
             ) {
               throw new ConflictException(
                 "BILLING_SNAPSHOT_SOURCE_CHANGED_RETRY",

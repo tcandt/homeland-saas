@@ -7,7 +7,7 @@ import { useBuildingsQuery } from "@/lib/queries/buildings.queries";
 import { useCreateBuildingMutation, useUpdateBuildingMutation, useDeleteBuildingMutation } from "@/lib/mutations/buildings.mutations";
 import { useCreateFloorMutation, useUpdateFloorMutation, useDeleteFloorMutation } from "@/lib/mutations/floors.mutations";
 import { useCreateRoomMutation, useUpdateRoomMutation, useDeleteRoomMutation } from "@/lib/mutations/rooms.mutations";
-import { Loader2, Save, Trash2 } from "lucide-react";
+import { Loader2, Plus, Save, Trash2 } from "lucide-react";
 
 const RoomPremiumModal = dynamic(() => import("./RoomPremiumModal"), {
   ssr: false,
@@ -57,7 +57,7 @@ export default function MasterDetailBuildings() {
   const isMobilePresentation = useBuildingsMobileBreakpoint();
   
   // API Queries & Mutations
-  const { data: buildings = [], isLoading } = useBuildingsQuery();
+  const { data: buildings = [], isLoading, isError, refetch } = useBuildingsQuery();
   const mobileBuildings = React.useMemo(() => buildings.map((building: Building) => {
     const code = normalizeBuildingCode(building.code || building.name);
     if (code === "LK01-31") return adaptBuildingForLK01_31(building);
@@ -133,6 +133,7 @@ export default function MasterDetailBuildings() {
 
   // -------------------- BUILDINGS CRUD --------------------
   const handleOpenAddBuilding = () => {
+    if (!permissions.canCreateBuilding) return;
     setBName("");
     setBCode("");
     setBAddress("");
@@ -143,7 +144,7 @@ export default function MasterDetailBuildings() {
 
   const handleOpenEditBuilding = (buildingCode: string) => {
     const normalizedCode = normalizeBuildingCode(buildingCode);
-    const targetBuilding = buildings.find((building: Building) => (
+    const targetBuilding = buildings.find((building: Building) => building.id === buildingCode) || buildings.find((building: Building) => (
       normalizeBuildingCode(building.code || building.name) === normalizedCode
     ));
 
@@ -175,6 +176,7 @@ export default function MasterDetailBuildings() {
         onSuccess: (data) => {
           setSelectedNode({ type: "building", buildingId: data.id });
           setActiveDialog(null);
+          router.push(`/buildings/${encodeURIComponent(normalizeBuildingCode(data.code || data.name))}`);
         }
       });
     } else if (activeDialog === "editBuilding" && activeBuilding) {
@@ -322,16 +324,29 @@ export default function MasterDetailBuildings() {
     );
   }
 
+  if (isError) {
+    return (
+      <div className="flex flex-col items-center gap-4 px-4 py-12 text-center">
+        <p className="text-sm text-muted">Không tải được danh sách tòa nhà.</p>
+        <Button variant="outline" onClick={() => void refetch()}>Thử lại</Button>
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-full w-full flex-col">
-      {isMobilePresentation ? (
+      {isMobilePresentation && buildings.length > 0 ? (
         <div className="mobile-page mobile-buildings-stable">
+          {permissions.canCreateBuilding && <div className="flex justify-end pb-3">
+            <Button onClick={handleOpenAddBuilding}><Plus size={16} className="mr-2" />Thêm tòa nhà</Button>
+          </div>}
           <MobileBuildingsFlow buildings={mobileBuildings} onOpenRoomModal={openRoomModal} />
         </div>
       ) : (
         <BuildingCockpit
           buildings={buildings}
-          onEditBuilding={handleOpenEditBuilding}
+          onAddBuilding={permissions.canCreateBuilding ? handleOpenAddBuilding : undefined}
+          onEditBuilding={permissions.canUpdateBuilding ? handleOpenEditBuilding : undefined}
           onOpenRoomModal={openRoomModal}
         />
       )}

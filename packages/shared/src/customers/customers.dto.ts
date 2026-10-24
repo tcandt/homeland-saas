@@ -24,7 +24,7 @@ export const CreateCustomerSchema = z.object({
   // Renting/occupancy status is a read projection, never a writable profile field.
   status: z.never().optional(),
   notes: z.string().optional().nullable(),
-  idImages: z.array(z.string()).optional(),
+  idImages: z.array(z.string().trim().min(1).max(2048)).max(20).optional(),
 });
 
 export const UpdateCustomerSchema = CreateCustomerSchema.partial();

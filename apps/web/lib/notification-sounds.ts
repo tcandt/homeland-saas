@@ -30,6 +30,7 @@ let audioContext: AudioContext | null = null;
 
 function getAudioContext() {
   if (typeof window === "undefined") return null;
+  if (!audioContext && !navigator.userActivation?.isActive) return null;
   const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
   if (!AudioContextClass) return null;
   audioContext ||= new AudioContextClass();
@@ -41,11 +42,13 @@ export async function playNotificationSound(
   volume = 0.75,
 ) {
   if (soundId === "none") return false;
-  const context = getAudioContext();
-  if (!context) return false;
-
   try {
-    if (context.state === "suspended") await context.resume();
+    const context = getAudioContext();
+    if (!context) return false;
+    if (context.state === "suspended") {
+      if (!navigator.userActivation?.isActive) return false;
+      await context.resume();
+    }
     if (context.state !== "running") return false;
 
     const startAt = context.currentTime;
@@ -71,10 +74,13 @@ export async function playNotificationSound(
 }
 
 export async function unlockNotificationAudio() {
-  const context = getAudioContext();
-  if (!context) return false;
   try {
-    if (context.state === "suspended") await context.resume();
+    const context = getAudioContext();
+    if (!context) return false;
+    if (context.state === "suspended") {
+      if (!navigator.userActivation?.isActive) return false;
+      await context.resume();
+    }
     return context.state === "running";
   } catch {
     return false;

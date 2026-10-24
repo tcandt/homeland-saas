@@ -82,6 +82,15 @@ export interface RoomSettlementItem {
   roomPrice: number;
   electricityKwh: number;
   electricityAmount: number;
+  electricityBillingIssue?: string | null;
+  accruedElectricity?: {
+    period: string;
+    status: 'AVAILABLE' | 'NOT_OCCUPIED' | 'BASELINE_REQUIRED' | 'UNAVAILABLE';
+    kwh: number | null;
+    amount: number | null;
+    rateMode: string | null;
+    customRateVnd: number | null;
+  };
   meterReading: MeterReadingInfo | null;
   billingSnapshotId?: string | null;
   billingDataSource?: 'LOCKED_SNAPSHOT' | 'PERSISTED_READING' | 'LIVE_MAPPING' | string;

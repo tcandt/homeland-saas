@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import * as React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import ts from "typescript";
 import { describe, expect, it, vi } from "vitest";
 import { getContractDocumentStatus } from "../../lib/contracts/booking-conversion";
@@ -29,6 +31,94 @@ function callsIn(name: string) {
   };
   visit(declaration!);
   return calls;
+}
+
+function variableInitializer(name: string) {
+  let declaration: ts.VariableDeclaration | undefined;
+  const visit = (node: ts.Node) => {
+    if (ts.isVariableDeclaration(node) && node.name.getText(source) === name) declaration = node;
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  expect(declaration?.initializer, `Missing initializer for ${name}`).toBeDefined();
+  return declaration!.initializer!;
+}
+
+function getPendingMoveInContracts(roomContractsList: any[], roomFinanceSummary: any) {
+  const program = ts.transpileModule(
+    `const pendingMoveInContracts = ${variableInitializer("pendingMoveInContracts").getText(source)}; return pendingMoveInContracts;`,
+    { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } },
+  ).outputText;
+  return new Function(
+    "roomContractsList",
+    "roomFinanceSummary",
+    "useMemo",
+    "isBookingHoldDocument",
+    program,
+  )(
+    roomContractsList,
+    roomFinanceSummary,
+    (recipe: () => unknown) => recipe(),
+    (contract: any) => Boolean(contract?.bookingHold),
+  );
+}
+
+function getTenantEmptyStateCondition() {
+  let condition: ts.Expression | undefined;
+  const visit = (node: ts.Node) => {
+    if (
+      ts.isConditionalExpression(node) &&
+      node.condition.getText(source) === "allTenantsList.length === 0 && !hasPendingMoveInContracts"
+    ) {
+      condition = node.condition;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  expect(condition, "Missing rental-flow empty-state condition").toBeDefined();
+  const program = ts.transpileModule(`return (${condition!.getText(source)});`, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None },
+  }).outputText;
+  return (allTenantsList: any[], hasPendingMoveInContracts: boolean) =>
+    new Function("allTenantsList", "hasPendingMoveInContracts", program)(allTenantsList, hasPendingMoveInContracts);
+}
+
+function renderPendingMoveInSection(pendingMoveInContracts: any[]) {
+  let section: ts.JsxElement | undefined;
+  const visit = (node: ts.Node) => {
+    if (
+      ts.isJsxElement(node) &&
+      node.openingElement.tagName.getText(source) === "section" &&
+      node.openingElement.attributes.properties.some(
+        (attribute) => ts.isJsxAttribute(attribute) &&
+          attribute.name.getText(source) === "aria-labelledby" &&
+          attribute.initializer?.getText(source).includes("pending-move-in-contracts"),
+      )
+    ) {
+      section = node;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  expect(section, "Missing pending move-in section").toBeDefined();
+  const program = ts.transpileModule(`return (${section!.getText(source)});`, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React },
+  }).outputText;
+  const element = new Function(
+    "React",
+    "pendingMoveInContracts",
+    "Button",
+    "FileText",
+    "setSelectedFlowContract",
+    program,
+  )(
+    React,
+    pendingMoveInContracts,
+    ({ children }: { children?: React.ReactNode }) => React.createElement("button", null, children),
+    () => React.createElement("i"),
+    () => undefined,
+  );
+  return renderToStaticMarkup(element);
 }
 
 function bookingMoveInDateHandler() {
@@ -351,6 +441,56 @@ describe("Rental draft lifecycle", () => {
     if (moveIn) expect(updated.ngayKetThuc > updated.ngayBatDau).toBe(true);
   });
 
+  it("keeps pending contracts visible separately without treating them as active occupants", () => {
+    const modal = source.getText();
+    expect(modal).toContain('new Set(["DRAFT", "PENDING_APPROVAL", "APPROVED"])');
+    expect(modal).toContain("const actualStayTenants = allTenantsList.filter(");
+    expect(modal).toContain("allTenantsList.length === 0 && !hasPendingMoveInContracts");
+    expect(modal).toContain('aria-labelledby="pending-move-in-contracts"');
+    expect(modal).toContain("Chờ nhận phòng");
+  });
+
+  it("renders the pending tenant from the current finance projection when the contract query is empty", () => {
+    const pendingContracts = getPendingMoveInContracts([], {
+      scope: "current",
+      rentalCycles: [
+        {
+          rentalCycleId: "new-cycle",
+          customer: { id: "returning-customer", fullName: "Khách chờ thanh toán" },
+          contracts: [
+            {
+              id: "new-draft-contract",
+              code: "HD-MOI-01",
+              status: "DRAFT",
+              customer: null,
+            },
+            {
+              id: "old-terminated-contract",
+              code: "HD-CU-01",
+              status: "TERMINATED",
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(pendingContracts).toEqual([
+      expect.objectContaining({
+        id: "new-draft-contract",
+        code: "HD-MOI-01",
+        rentalCycleId: "new-cycle",
+        customer: { id: "returning-customer", fullName: "Khách chờ thanh toán" },
+      }),
+    ]);
+    expect(getTenantEmptyStateCondition()([], pendingContracts.length > 0)).toBe(false);
+
+    const markup = renderPendingMoveInSection(pendingContracts);
+    expect(markup).toContain("Chờ nhận phòng");
+    expect(markup).toContain("Khách chờ thanh toán");
+    expect(markup).toContain("HD-MOI-01");
+    expect(markup).toContain("Nháp");
+    expect(markup).not.toContain("Chưa có khách thuê trong phòng");
+  });
 });
 
 describe("Signed document evidence", () => {

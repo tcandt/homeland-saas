@@ -25,6 +25,7 @@ import {
 } from './deposit-core.policy';
 import { summarizeAuthoritativeFinance } from './finance-summary.policy';
 import { assertCombinedEntryInvoice, getCombinedEntryInvoice } from '../invoices/combined-entry-invoice';
+import { ROOM_VISIBLE_CONTRACT_STATUSES } from '../contracts/contracts.adapter';
 
 type TransactionClient = any;
 
@@ -1820,20 +1821,36 @@ export class DepositCoreService {
    * credit or overpayment belonging to one tenant can never erase another
    * tenant's open balance in a shared room.
    */
-  async getRoomFinanceSummary(tenantId: string, roomId: string) {
+  async getRoomFinanceSummary(tenantId: string, roomId: string, scope: string = 'all') {
+    if (scope !== 'all' && scope !== 'current') throw new BadRequestException('INVALID_ROOM_FINANCE_SCOPE');
     const room = await this.prisma.tx.room.findFirst({
       where: { id: roomId, tenantId, deletedAt: null },
       select: { id: true, code: true, name: true, rentalType: true },
     });
     if (!room) throw new BadRequestException('ROOM_NOT_FOUND');
+    const now = new Date();
     const cycles = await this.prisma.tx.rentalCycle.findMany({
-      where: { tenantId, roomId },
+      where: {
+        tenantId,
+        roomId,
+        ...(scope === 'current' ? {
+          OR: [
+            { contracts: { some: { tenantId, roomId, deletedAt: null, status: { in: ROOM_VISIBLE_CONTRACT_STATUSES } } } },
+            { occupancies: { some: { tenantId, roomId, leftAt: null, joinedAt: { lte: now } } } },
+            {
+              contracts: { none: { tenantId, deletedAt: null } },
+              roomHolds: { some: { tenantId, roomId, status: RoomHoldStatus.ACTIVE, expiresAt: { gt: now } } },
+            },
+          ],
+        } : {}),
+      },
       include: this.financeRelations(tenantId),
       orderBy: { createdAt: 'desc' },
     });
     const summaries = cycles.map((cycle: any) => this.buildRentalCycleFinanceSummary(cycle));
     return {
       room,
+      scope,
       totals: {
         rentalCycles: summaries.length,
         invoiceTotal: this.sumMoney(summaries.map((summary: any) => summary.invoices.total)),

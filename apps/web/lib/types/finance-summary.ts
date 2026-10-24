@@ -126,6 +126,8 @@ export interface RentalCycleFinanceSummary {
 
 /** Authoritative server projection for a whole room. Never recalculate these values in the UI. */
 export interface RoomFinanceSummary {
+  /** Server-selected scope. UI must render these authoritative totals as-is. */
+  scope?: "all" | "current";
   room: RentalCycleRoom;
   totals: {
     rentalCycles: number;

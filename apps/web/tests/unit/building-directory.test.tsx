@@ -5,39 +5,49 @@ import BuildingDirectory from "../../components/buildings/cockpit/BuildingDirect
 import type { Building } from "../../components/buildings/building.types";
 import fs from "node:fs";
 
-const building = { id: "new-building", name: "Tòa nhà mới", code: "NEW-01", address: "Địa chỉ mới", floors: [] } as unknown as Building;
-const render = (buildings: Building[], requestedCode = "", canCreate = true) => renderToStaticMarkup(
-  <BuildingDirectory buildings={buildings} requestedCode={requestedCode} onSelect={() => {}} onAdd={canCreate ? () => {} : undefined} onEdit={() => {}} />,
+const buildings = ["LK01-31", "LK01-32", "LK08-24", "LK08-25"].map(code => ({
+  id: code, name: code, code, address: "Địa chỉ tòa nhà", floors: [],
+})) as unknown as Building[];
+const render = (items: Building[], requestedCode = "") => renderToStaticMarkup(
+  <BuildingDirectory buildings={items} requestedCode={requestedCode} onSelect={() => {}} />,
 );
 
-describe("building directory on a fresh database", () => {
-  it("offers creation instead of a missing hardcoded building", () => {
+describe("fixed building directory", () => {
+  it("displays all four buildings without building CRUD controls", () => {
+    const html = render(buildings);
+    for (const building of buildings) expect(html).toContain(building.code);
+    expect((html.match(/<button\b/g) || []).length).toBe(4);
+    expect(html).not.toMatch(/Thêm tòa nhà|Chỉnh sửa|Xóa tòa nhà/);
+  });
+  it("shows an informative empty state without offering creation", () => {
     const html = render([]);
     expect(html).toContain("Chưa có tòa nhà nào.");
-    expect(html).toContain("Thêm tòa nhà");
-    expect(html).not.toContain("LK01-31");
+    expect(html).not.toContain("Thêm tòa nhà");
   });
-  it("does not expose create to a read-only user", () => {
-    expect(render([], "", false)).not.toContain("Thêm tòa nhà");
+  it("keeps existing buildings selectable on a stale deep link", () => {
+    const html = render(buildings, "UNKNOWN");
+    expect(html).toContain("Không tìm thấy tòa nhà UNKNOWN");
+    for (const building of buildings) expect(html).toContain(building.code);
+    expect(html).not.toContain("Thêm tòa nhà");
   });
-  it("offers actual buildings and creation on a stale deep link", () => {
-    const html = render([building], "LK01-31");
-    expect(html).toContain("Không tìm thấy tòa nhà LK01-31");
-    expect(html).toContain("Tòa nhà mới");
-    expect(html).toContain("Thêm tòa nhà");
-  });
-  it("displays a newly created non-template building without a missing-data error", () => {
-    const html = render([building], "NEW-01");
+  it("recognizes an existing building without a missing-data error", () => {
+    const html = render(buildings, "LK01-31");
     expect(html).not.toContain("Không tìm thấy");
-    expect(html).toContain("NEW-01");
     expect(html).toContain("0 tầng");
-    expect(html).toContain("Chỉnh sửa Tòa nhà mới");
   });
-  it("wires permission-gated creation and navigates to the saved building", () => {
+  it("does not wire building creation or editing into the active desktop cockpit", () => {
     const source = fs.readFileSync("components/buildings/MasterDetailBuildings.tsx", "utf8");
-    expect(source).toContain("onAddBuilding={permissions.canCreateBuilding ? handleOpenAddBuilding : undefined}");
-    expect(source).toContain("if (!permissions.canCreateBuilding) return;");
-    expect(source).toContain("router.push(`/buildings/${encodeURIComponent(normalizeBuildingCode(data.code || data.name))}`)");
+    const cockpit = source.match(/<BuildingCockpit\b[\s\S]*?\/>/)?.[0];
+    expect(cockpit).toBeDefined();
+    expect(cockpit).not.toMatch(/onAddBuilding|onEditBuilding/);
+    expect(source).not.toContain(">Thêm tòa nhà</Button>");
+    expect(source).not.toMatch(/useCreateBuildingMutation|useUpdateBuildingMutation|useDeleteBuildingMutation|handleSaveBuilding|bname-input/);
     expect(source).toContain("if (isError)");
+  });
+  it("does not offer building mutation actions on mobile", () => {
+    const source = fs.readFileSync("components/buildings/MobileBuildingsFlow.tsx", "utf8");
+    expect(source).not.toMatch(/useDeleteBuildingMutation|useMoveBuildingMutation|setEditingBuilding|itemName="tòa nhà"/);
+    expect(source).toContain("setEditingRoom");
+    expect(source).toContain("setEditingFloor");
   });
 });

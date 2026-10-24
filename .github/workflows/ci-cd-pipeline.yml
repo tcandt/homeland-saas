@@ -89,6 +89,8 @@ jobs:
         run: node --test scripts/api-runtime-tooling.test.js
       - name: Verify production Web runtime tooling
         run: node --test scripts/web-runtime-tooling.test.js
+      - name: Verify fail-closed development readiness
+        run: node --test scripts/dev.test.js
       - run: node --test scripts/ci-bootstrap-database.test.js scripts/nas-staging-compose.test.js scripts/runtime-audit-policy.test.js
       - run: npm run test
       - run: npm run test:release-repair --workspace=web

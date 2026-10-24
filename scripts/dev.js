@@ -50,7 +50,7 @@ function stopAll(exitCode = 0) {
   shuttingDown = true;
 
   for (const child of processes) {
-    if (!child.killed) {
+    if (!child.killed && Number.isInteger(child.pid) && child.pid > 0) {
       if (isWindows) {
         spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
       } else {
@@ -72,6 +72,7 @@ function runSetupStep(label, command, args) {
 
     child.stdout.on('data', (chunk) => prefixOutput(label, process.stdout, chunk));
     child.stderr.on('data', (chunk) => prefixOutput(label, process.stderr, chunk));
+    child.once('error', reject);
 
     child.on('exit', (code, signal) => {
       if (code === 0) {
@@ -100,6 +101,10 @@ function start(name, workspace, env = {}) {
 
   child.stdout.on('data', (chunk) => prefixOutput(name, process.stdout, chunk));
   child.stderr.on('data', (chunk) => prefixOutput(name, process.stderr, chunk));
+  child.once('error', (error) => {
+    console.error(`[dev] ${name} failed to start: ${error.message}`);
+    stopAll(1);
+  });
 
   child.on('exit', (code, signal) => {
     if (shuttingDown) return;
@@ -110,32 +115,39 @@ function start(name, workspace, env = {}) {
   });
 }
 
-process.on('SIGINT', () => stopAll(0));
-process.on('SIGTERM', () => stopAll(0));
-
 const http = require('http');
 
 function waitForBackendReady(port = 3001, timeoutMs = 30000) {
-  const start = Date.now();
+  const deadline = Date.now() + timeoutMs;
   return new Promise((resolve) => {
+    let done = false;
+    let request;
+    let retry;
+    const finish = (ready) => {
+      if (done) return;
+      done = true;
+      clearTimeout(overall);
+      clearTimeout(retry);
+      request?.destroy();
+      resolve(ready);
+    };
+    const overall = setTimeout(() => finish(false), timeoutMs);
     const check = () => {
-      const req = http.get(`http://127.0.0.1:${port}/api/v1/health`, (res) => {
-        if (res.statusCode === 200) {
-          resolve(true);
-        } else if (Date.now() - start < timeoutMs) {
-          setTimeout(check, 500);
-        } else {
-          resolve(false);
-        }
+      if (done) return;
+      let completed = false;
+      const next = () => {
+        if (done || completed) return;
+        completed = true;
+        if (Date.now() >= deadline) finish(false);
+        else retry = setTimeout(check, Math.min(500, deadline - Date.now()));
+      };
+      request = http.get(`http://127.0.0.1:${port}/api/v1/health/ready`, (res) => {
+        res.resume();
+        res.once('error', next);
+        res.once('end', () => res.statusCode === 200 ? finish(true) : next());
       });
-      req.on('error', () => {
-        if (Date.now() - start < timeoutMs) {
-          setTimeout(check, 500);
-        } else {
-          resolve(false);
-        }
-      });
-      req.end();
+      request.setTimeout(Math.min(2000, Math.max(1, deadline - Date.now())), () => request.destroy(new Error('Readiness probe timed out')));
+      request.once('error', next);
     };
     check();
   });
@@ -164,14 +176,22 @@ async function main() {
   start('api', 'api', { PORT: '3001' });
 
   console.log('[dev] Waiting for backend API to be ready before starting frontend...');
-  await waitForBackendReady(3001, 30000);
+  if (!await waitForBackendReady(3001, 30000)) {
+    throw new Error('Backend readiness failed. Check database/schema configuration; frontend was not started.');
+  }
   console.log('[dev] Backend API is ready!');
 
   console.log('[dev] Starting frontend on http://localhost:3000');
   start('web', 'web', { PORT: '3000' });
 }
 
-main().catch((error) => {
-  console.error(`[dev] ${error.message}`);
-  stopAll(1);
-});
+module.exports = { waitForBackendReady };
+
+if (require.main === module) {
+  process.on('SIGINT', () => stopAll(0));
+  process.on('SIGTERM', () => stopAll(0));
+  main().catch((error) => {
+    console.error(`[dev] ${error.message}`);
+    stopAll(1);
+  });
+}

@@ -107,6 +107,11 @@ export default function SettingsBackup() {
   const handleCreateBackup = async () => {
     setIsCreating(true);
     try {
+      const freshBackupStatus = await systemUpdateApi.backups();
+      if (freshBackupStatus.connected !== true) {
+        toast.error("Sao lưu hiện không khả dụng");
+        return;
+      }
       await systemUpdateApi.createBackup({ note: "Tạo bản sao lưu thủ công từ giao diện web" });
       await mutate();
       toast.success("Đã tạo bản sao lưu snapshot mới thành công!");
@@ -197,7 +202,9 @@ export default function SettingsBackup() {
 
     setIsWiping(true);
     try {
-      if (shouldBackupBeforeWipe) {
+      const freshBackupStatus = await systemUpdateApi.backups();
+      const shouldCreateProtectiveBackup = autoBackupBeforeWipe && freshBackupStatus.connected === true;
+      if (shouldCreateProtectiveBackup) {
         toast("Đang tạo bản sao lưu snapshot bảo vệ trước khi xóa...", { icon: "🛡️" });
         await systemUpdateApi.createBackup({ note: "Tự động sao lưu trước khi Reset / Xóa dữ liệu" });
       }

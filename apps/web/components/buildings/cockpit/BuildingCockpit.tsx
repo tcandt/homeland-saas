@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
   AlertCircle,
   Bath,
@@ -38,12 +38,9 @@ import FloorPlanCanvas from "./FloorPlanCanvas";
 import RoomInspectorDrawer from "./RoomInspectorDrawer";
 import BuildingSwitcher from "./BuildingSwitcher";
 import UnifiedBuildingCockpit from "./UnifiedBuildingCockpit";
-import BuildingDirectory from "./BuildingDirectory";
 
 interface BuildingCockpitProps {
   buildings: Building[];
-  onEditBuilding?: (buildingCode: string) => void;
-  onAddBuilding?: () => void;
   onOpenRoomModal?: (roomId: string, tab?: string) => void;
 }
 
@@ -478,8 +475,7 @@ function FloorWorkspace({
   );
 }
 
-export default function BuildingCockpit({ buildings, onEditBuilding, onAddBuilding, onOpenRoomModal }: BuildingCockpitProps) {
-  const router = useRouter();
+export default function BuildingCockpit({ buildings, onOpenRoomModal }: BuildingCockpitProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
@@ -520,15 +516,13 @@ export default function BuildingCockpit({ buildings, onEditBuilding, onAddBuildi
     setActiveBuildingCode(normalizeBuildingCode(pathCode || ""));
   }, [pathCode]);
 
-  const requestedCode = activeBuildingCode || normalizeBuildingCode(buildings[0]?.code || buildings[0]?.name || "");
-  const building = useMemo(() => createCockpitBuildingSpec(buildings, requestedCode), [buildings, requestedCode]);
   const portfolioBuildings = useMemo(() => {
-    const resolved = buildingTemplateRegistry
+    return buildingTemplateRegistry
       .map((descriptor) => createCockpitBuildingSpec(buildings, descriptor.code))
       .filter((item): item is CockpitBuildingSpec => Boolean(item));
-    if (building && !resolved.some((item) => item.code === building.code)) resolved.unshift(building);
-    return resolved;
-  }, [building, buildings]);
+  }, [buildings]);
+  const building = portfolioBuildings.find((item) => item.code === activeBuildingCode) || portfolioBuildings[0];
+  const selectedBuildingCode = building?.code || "";
 
   const debugMode = process.env.NODE_ENV !== "production" && searchParams.get("debugHotspots") === "1";
 
@@ -557,37 +551,40 @@ export default function BuildingCockpit({ buildings, onEditBuilding, onAddBuildi
     const fId = nextFloorId || "2";
     setActiveFloorId(fId);
     setActiveRoomCode(null);
-    updateUrlQuietly(activeBuildingCode, fId, null);
-  }, [activeBuildingCode, updateUrlQuietly]);
+    updateUrlQuietly(selectedBuildingCode, fId, null);
+  }, [selectedBuildingCode, updateUrlQuietly]);
 
   const selectRoom = useCallback((nextFloorId: CockpitFloorId, nextRoom: CockpitRoomSpec) => {
     setActiveFloorId(nextFloorId);
     setActiveRoomCode(nextRoom.urlCode);
-    updateUrlQuietly(activeBuildingCode, nextFloorId, nextRoom.urlCode);
-  }, [activeBuildingCode, updateUrlQuietly]);
+    updateUrlQuietly(selectedBuildingCode, nextFloorId, nextRoom.urlCode);
+  }, [selectedBuildingCode, updateUrlQuietly]);
 
   const selectCurrentFloorRoom = useCallback((nextRoom: CockpitRoomSpec) => {
     setActiveFloorId(nextRoom.floorId);
     setActiveRoomCode(nextRoom.urlCode);
-    updateUrlQuietly(activeBuildingCode, nextRoom.floorId, nextRoom.urlCode);
-  }, [activeBuildingCode, updateUrlQuietly]);
+    updateUrlQuietly(selectedBuildingCode, nextRoom.floorId, nextRoom.urlCode);
+  }, [selectedBuildingCode, updateUrlQuietly]);
 
   const closeRoom = useCallback(() => {
     setActiveRoomCode(null);
-    updateUrlQuietly(activeBuildingCode, activeFloorId, null);
-  }, [activeBuildingCode, activeFloorId, updateUrlQuietly]);
+    updateUrlQuietly(selectedBuildingCode, activeFloorId, null);
+  }, [selectedBuildingCode, activeFloorId, updateUrlQuietly]);
 
   const switchBuilding = useCallback((code: string) => {
     const normalized = normalizeBuildingCode(code);
+    if (!portfolioBuildings.some((item) => item.code === normalized)) return;
     setActiveBuildingCode(normalized);
     setActiveFloorId("2");
     setActiveRoomCode(null);
     window.history.pushState(null, "", `/buildings/${normalized}`);
-  }, []);
+  }, [portfolioBuildings]);
 
-  if (!building || !activeBuildingCode) {
+  if (!building) {
     return (
-      <BuildingDirectory buildings={buildings} requestedCode={requestedCode} onSelect={switchBuilding} onAdd={onAddBuilding} onEdit={onEditBuilding} />
+      <div role="status" className="px-4 py-12 text-center text-sm text-muted">
+        Chưa tải được dữ liệu của 4 tòa nhà cố định. Vui lòng tải lại trang hoặc kiểm tra dữ liệu tòa nhà.
+      </div>
     );
   }
 
@@ -604,8 +601,6 @@ export default function BuildingCockpit({ buildings, onEditBuilding, onAddBuildi
           onSelectFloor={selectFloor}
           onSelectRoom={selectCurrentFloorRoom}
           onCloseRoom={closeRoom}
-          onEditBuilding={onEditBuilding}
-          onAddBuilding={onAddBuilding}
           onOpenRoomModal={onOpenRoomModal}
         />
       </div>

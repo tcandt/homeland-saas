@@ -4,10 +4,9 @@ import React, { useState } from "react";
 import dynamic from "next/dynamic";
 import type { Building, Floor, Room } from "./building.types";
 import { useBuildingsQuery } from "@/lib/queries/buildings.queries";
-import { useCreateBuildingMutation, useUpdateBuildingMutation, useDeleteBuildingMutation } from "@/lib/mutations/buildings.mutations";
 import { useCreateFloorMutation, useUpdateFloorMutation, useDeleteFloorMutation } from "@/lib/mutations/floors.mutations";
 import { useCreateRoomMutation, useUpdateRoomMutation, useDeleteRoomMutation } from "@/lib/mutations/rooms.mutations";
-import { Loader2, Plus, Save, Trash2 } from "lucide-react";
+import { Loader2, Save, Trash2 } from "lucide-react";
 
 const RoomPremiumModal = dynamic(() => import("./RoomPremiumModal"), {
   ssr: false,
@@ -17,10 +16,8 @@ import MobileBuildingsFlow from "./MobileBuildingsFlow";
 import { Modal } from "../ui/Modal";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
-import { Select } from "../ui/Select";
 import { toast } from "sonner";
 import { useQueryClient } from '@tanstack/react-query';
-import { usePermissions } from '@/lib/hooks/usePermissions';
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import BuildingCockpit from "./cockpit/BuildingCockpit";
 import { normalizeBuildingCode } from "./cockpit/building-template-registry";
@@ -66,10 +63,6 @@ export default function MasterDetailBuildings() {
     if (code === "LK08-25") return adaptBuildingGeneral(building, "LK08-25", "LK08-25", "Khu dân cư Him Lam, Quận 7, TP.HCM");
     return building;
   }), [buildings]);
-  const permissions = usePermissions();
-  const createBuilding = useCreateBuildingMutation();
-  const updateBuilding = useUpdateBuildingMutation();
-  const deleteBuilding = useDeleteBuildingMutation();
   
   const createFloor = useCreateFloorMutation();
   const updateFloor = useUpdateFloorMutation();
@@ -98,16 +91,9 @@ export default function MasterDetailBuildings() {
   const [modalInitialTab, setModalInitialTab] = useState<string>("overview");
 
   // CRUD states
-  const [activeDialog, setActiveDialog] = useState<"addBuilding" | "editBuilding" | "addFloor" | "editFloor" | "addRoom" | null>(null);
+  const [activeDialog, setActiveDialog] = useState<"addFloor" | "editFloor" | "addRoom" | null>(null);
   const [dialogTargetFloorId, setDialogTargetFloorId] = useState<string | null>(null);
-  const [deleteConfirmState, setDeleteConfirmState] = useState<{ type: 'building' | 'floor' | null, id: string | null }>({ type: null, id: null });
-
-  // Building form state
-  const [bName, setBName] = useState("");
-  const [bCode, setBCode] = useState("");
-  const [bAddress, setBAddress] = useState("");
-  const [bNotes, setBNotes] = useState("");
-  const [bStatus, setBStatus] = useState<"active" | "inactive">("active");
+  const [deleteConfirmState, setDeleteConfirmState] = useState<{ type: 'floor' | null, id: string | null }>({ type: null, id: null });
 
   // Floor form state
   const [fNumber, setFNumber] = useState(1);
@@ -130,68 +116,6 @@ export default function MasterDetailBuildings() {
 
   // Helper: Get active building/floor
   const activeBuilding = buildings.find((b: Building) => b.id === selectedNode.buildingId);
-
-  // -------------------- BUILDINGS CRUD --------------------
-  const handleOpenAddBuilding = () => {
-    if (!permissions.canCreateBuilding) return;
-    setBName("");
-    setBCode("");
-    setBAddress("");
-    setBNotes("");
-    setBStatus("active");
-    setActiveDialog("addBuilding");
-  };
-
-  const handleOpenEditBuilding = (buildingCode: string) => {
-    const normalizedCode = normalizeBuildingCode(buildingCode);
-    const targetBuilding = buildings.find((building: Building) => building.id === buildingCode) || buildings.find((building: Building) => (
-      normalizeBuildingCode(building.code || building.name) === normalizedCode
-    ));
-
-    if (!targetBuilding) {
-      toast.error(`Không tìm thấy tòa nhà ${buildingCode}`);
-      return;
-    }
-
-    setSelectedNode({ type: "building", buildingId: targetBuilding.id });
-    setBName(targetBuilding.name);
-    setBCode(targetBuilding.code || "");
-    setBAddress(targetBuilding.address);
-    setBNotes(targetBuilding.notes || "");
-    setBStatus(targetBuilding.status);
-    setActiveDialog("editBuilding");
-  };
-
-  const handleSaveBuilding = () => {
-    if (!bName || !bAddress) return;
-    const code = bCode || bName.replace(/\s+/g, '-').toUpperCase();
-    if (activeDialog === "addBuilding") {
-      createBuilding.mutate({
-        name: bName,
-        code,
-        address: bAddress,
-        notes: bNotes,
-        status: bStatus,
-      }, {
-        onSuccess: (data) => {
-          setSelectedNode({ type: "building", buildingId: data.id });
-          setActiveDialog(null);
-          router.push(`/buildings/${encodeURIComponent(normalizeBuildingCode(data.code || data.name))}`);
-        }
-      });
-    } else if (activeDialog === "editBuilding" && activeBuilding) {
-      updateBuilding.mutate({
-        id: activeBuilding.id,
-        data: { name: bName, code, address: bAddress, notes: bNotes, status: bStatus }
-      }, {
-        onSuccess: () => setActiveDialog(null)
-      });
-    }
-  };
-
-  const handleDeleteBuilding = (id: string) => {
-    setDeleteConfirmState({ type: 'building', id });
-  };
 
   // -------------------- FLOORS CRUD --------------------
   const handleOpenAddFloor = () => {
@@ -337,16 +261,11 @@ export default function MasterDetailBuildings() {
     <div className="flex min-h-full w-full flex-col">
       {isMobilePresentation && buildings.length > 0 ? (
         <div className="mobile-page mobile-buildings-stable">
-          {permissions.canCreateBuilding && <div className="flex justify-end pb-3">
-            <Button onClick={handleOpenAddBuilding}><Plus size={16} className="mr-2" />Thêm tòa nhà</Button>
-          </div>}
           <MobileBuildingsFlow buildings={mobileBuildings} onOpenRoomModal={openRoomModal} />
         </div>
       ) : (
         <BuildingCockpit
           buildings={buildings}
-          onAddBuilding={permissions.canCreateBuilding ? handleOpenAddBuilding : undefined}
-          onEditBuilding={permissions.canUpdateBuilding ? handleOpenEditBuilding : undefined}
           onOpenRoomModal={openRoomModal}
         />
       )}
@@ -367,99 +286,30 @@ export default function MasterDetailBuildings() {
           isOpen={!!activeDialog} 
           onClose={() => setActiveDialog(null)}
           title={
-            activeDialog === "addBuilding" ? "Thêm tòa nhà mới" :
-            activeDialog === "editBuilding" ? "Chỉnh sửa tòa nhà" :
             activeDialog === "addFloor" ? "Thêm tầng mới" :
             activeDialog === "editFloor" ? "Chỉnh sửa tầng" :
             "Thêm phòng mới"
           }
           footer={
             <div className="flex items-center justify-end gap-3 w-full">
-              {activeDialog === "editBuilding" && permissions.canDeleteBuilding && (
-                <Button 
-                  variant="outline"
-                  data-testid="delete-building-button"
-                  onClick={() => {
-                    handleDeleteBuilding(activeBuilding!.id);
-                    setActiveDialog(null);
-                  }}
-                  className="text-danger border-danger/20 hover:bg-danger/10 mr-auto"
-                >
-                  <Trash2 size={16} className="mr-2" /> Xóa
-                </Button>
-              )}
               <Button variant="outline" onClick={() => setActiveDialog(null)}>
                 Hủy bỏ
               </Button>
               <Button 
                 data-testid="save-button"
                 onClick={() => {
-                  if (activeDialog === "addBuilding" || activeDialog === "editBuilding") handleSaveBuilding();
-                  else if (activeDialog === "addFloor" || activeDialog === "editFloor") handleSaveFloor();
+                  if (activeDialog === "addFloor" || activeDialog === "editFloor") handleSaveFloor();
                   else if (activeDialog === "addRoom") handleSaveRoom();
                 }}
-                disabled={createBuilding.isPending || updateBuilding.isPending || createFloor.isPending || updateFloor.isPending || createRoom.isPending}
+                disabled={createFloor.isPending || updateFloor.isPending || createRoom.isPending}
               >
-                {(createBuilding.isPending || updateBuilding.isPending || createFloor.isPending || updateFloor.isPending || createRoom.isPending) ? <Loader2 size={16} className="animate-spin mr-2" /> : <Save size={16} className="mr-2" />} 
+                {(createFloor.isPending || updateFloor.isPending || createRoom.isPending) ? <Loader2 size={16} className="animate-spin mr-2" /> : <Save size={16} className="mr-2" />}
                 Lưu thông tin
               </Button>
             </div>
           }
         >
           <div className="flex flex-col gap-4 py-2">
-            {/* Building Form */}
-            {(activeDialog === "addBuilding" || activeDialog === "editBuilding") && (
-              <div className="flex flex-col gap-4">
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs font-semibold text-muted uppercase">Tên tòa nhà</label>
-                  <Input 
-                    data-testid="bname-input"
-                    placeholder="VD: LK01.31 - Riverside House" 
-                    value={bName} 
-                    onChange={(e) => setBName(e.target.value)}
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs font-semibold text-muted uppercase">Mã tòa nhà</label>
-                  <Input 
-                    data-testid="bcode-input"
-                    placeholder="VD: BD-001" 
-                    value={bCode} 
-                    onChange={(e) => setBCode(e.target.value)}
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs font-semibold text-muted uppercase">Địa chỉ chi tiết</label>
-                  <Input 
-                    data-testid="baddress-input"
-                    placeholder="VD: 01 Đường Đào Trí, Quận 7, TP.HCM" 
-                    value={bAddress} 
-                    onChange={(e) => setBAddress(e.target.value)}
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs font-semibold text-muted uppercase">Ghi chú vận hành</label>
-                  <textarea 
-                    placeholder="Ghi chú về bảo vệ, quy định tòa nhà..." 
-                    value={bNotes} 
-                    onChange={(e) => setBNotes(e.target.value)}
-                    className="flex min-h-[80px] w-full rounded-xl border border-border bg-transparent px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-none"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs font-semibold text-muted uppercase">Trạng thái vận hành</label>
-                  <Select 
-                    value={bStatus} 
-                    onChange={(e) => setBStatus(e.target.value as "active" | "inactive")}
-                    options={[
-                      { label: "Đang hoạt động", value: "active" },
-                      { label: "Tạm ngưng", value: "inactive" }
-                    ]}
-                  />
-                </div>
-              </div>
-            )}
-
             {/* Floor Form */}
             {(activeDialog === "addFloor" || activeDialog === "editFloor") && (
               <div className="flex flex-col gap-4">
@@ -541,7 +391,7 @@ export default function MasterDetailBuildings() {
       <Modal
         isOpen={deleteConfirmState.type !== null}
         onClose={() => setDeleteConfirmState({ type: null, id: null })}
-        title={`Xác nhận xóa ${deleteConfirmState.type === 'building' ? 'tòa nhà' : 'tầng'}`}
+        title="Xác nhận xóa tầng"
         footer={
           <div className="flex gap-3 justify-end w-full">
             <Button variant="outline" onClick={() => setDeleteConfirmState({ type: null, id: null })}>
@@ -549,14 +399,7 @@ export default function MasterDetailBuildings() {
             </Button>
             <Button
               onClick={() => {
-                if (deleteConfirmState.type === 'building') {
-                  deleteBuilding.mutate(deleteConfirmState.id!, {
-                    onSuccess: () => {
-                      setSelectedNode({ type: "building", buildingId: "" });
-                      setDeleteConfirmState({ type: null, id: null });
-                    }
-                  });
-                } else if (deleteConfirmState.type === 'floor') {
+                if (deleteConfirmState.type === 'floor') {
                   deleteFloor.mutate(deleteConfirmState.id!, {
                     onSuccess: () => {
                       setSelectedNode({ type: "building", buildingId: activeBuilding?.id || "" });
@@ -566,9 +409,9 @@ export default function MasterDetailBuildings() {
                 }
               }}
               className="bg-rose-500 text-white hover:bg-rose-600"
-              disabled={deleteBuilding.isPending || deleteFloor.isPending}
+              disabled={deleteFloor.isPending}
             >
-              {deleteBuilding.isPending || deleteFloor.isPending ? <Loader2 size={16} className="animate-spin mr-2" /> : <Trash2 size={16} className="mr-2" />}
+              {deleteFloor.isPending ? <Loader2 size={16} className="animate-spin mr-2" /> : <Trash2 size={16} className="mr-2" />}
               Xóa
             </Button>
           </div>
@@ -576,7 +419,7 @@ export default function MasterDetailBuildings() {
       >
         <div className="flex flex-col gap-3 py-2">
           <p className="text-sm text-text font-medium">
-            Bạn có chắc chắn muốn xóa {deleteConfirmState.type === 'building' ? "tòa nhà này cùng tất cả tầng và phòng" : "tầng này cùng toàn bộ các phòng bên trong"} không?
+            Bạn có chắc chắn muốn xóa tầng này cùng toàn bộ các phòng bên trong không?
           </p>
           <p className="text-xs text-muted">
             Hành động này không thể hoàn tác. Toàn bộ dữ liệu liên quan sẽ bị xóa khỏi hệ thống.
@@ -591,22 +434,19 @@ export default function MasterDetailBuildings() {
 function BuildingViewWrapper({
   building,
   onSelectNode,
-  onEditBuilding,
   onAddFloor,
   onAddRoomQuick
 }: {
   building: Building;
   onSelectNode: (node: SelectedNode) => void;
-  onEditBuilding: () => void;
   onAddFloor: () => void;
   onAddRoomQuick: () => void;
 }) {
   React.useEffect(() => {
     if (typeof window !== "undefined") {
-      (window as any).__onEditBuilding = onEditBuilding;
       (window as any).__onAddFloor = onAddFloor;
       (window as any).__onAddRoomQuick = onAddRoomQuick;
     }
-  }, [onEditBuilding, onAddFloor, onAddRoomQuick]);
+  }, [onAddFloor, onAddRoomQuick]);
   return null;
 }

@@ -10,7 +10,6 @@ export interface BuildingPortfolioRailProps {
   activeBuildingCode: string;
   onSelectBuilding: (code: string) => void;
   onConfigureBuilding?: (code: string) => void;
-  onAddBuilding?: () => void;
   className?: string;
 }
 

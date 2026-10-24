@@ -9,6 +9,12 @@ const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 const workflowModel = () => yaml.parse(read('.github/workflows/ci-cd-pipeline.yml'), { uniqueKeys: true });
 const remoteJobs = ['deploy-staging', 'health-smoke-staging', 'core-10-04-staging-gate', 'rollback-staging', 'deploy-production', 'health-smoke-production', 'rollback-production'];
 
+test('default CI executes building navigation and fail-closed launcher regressions', () => {
+  const script = JSON.parse(read('apps/web/package.json')).scripts.test;
+  for (const file of ['tests/unit/building-directory.test.tsx', 'tests/unit/building-cockpit-selection.test.tsx']) assert.ok(script.includes(file), file);
+  assert.ok(workflowModel().jobs['unit-test'].steps.some(step => step.run === 'node --test scripts/dev.test.js'));
+});
+
 test('secret scan checks out history needed by multi-commit push ranges', () => {
   const steps = workflowModel().jobs['security-scan'].steps;
   const checkout = steps.find(step => step.uses === 'actions/checkout@v4');

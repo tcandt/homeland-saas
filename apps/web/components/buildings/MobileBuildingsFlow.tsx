@@ -2,10 +2,8 @@
 
 import React, { useState } from "react";
 import type { Building, Floor, Room } from "./building.types";
-import { ArrowDown, ArrowUp, Map, AlertTriangle, Building2, DoorOpen, Layers, ChevronDown, ChevronRight, X, Edit2, Trash2, MoreVertical, Loader2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Map, AlertTriangle, DoorOpen, Layers, ChevronDown, ChevronRight, X, Edit2, Trash2, MoreVertical } from "lucide-react";
 import { useToast } from "@/components/ui/ToastContext";
-import { usePermissions } from "@/lib/hooks/usePermissions";
-import { useDeleteBuildingMutation, useMoveBuildingMutation } from "@/lib/mutations/buildings.mutations";
 
 const ActionMenu = ({
   onEdit,
@@ -83,26 +81,13 @@ interface Props {
 }
 
 export default function MobileBuildingsFlow({ buildings, onOpenRoomModal }: Props) {
-  const permissions = usePermissions();
-  const deleteBuilding = useDeleteBuildingMutation();
-  const moveBuilding = useMoveBuildingMutation();
   const [expandedBuildingId, setExpandedBuildingId] = useState<string | null>(null);
   const [expandedFloorIds, setExpandedFloorIds] = useState<Record<string, boolean>>({});
-  const [editingBuilding, setEditingBuilding] = useState<Building | null>(null);
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingRoom, setEditingRoom] = useState<Room | null>(null);
   const [isAddRoomModalOpen, setIsAddRoomModalOpen] = useState(false);
   const [editingFloor, setEditingFloor] = useState<Floor | null>(null);
   const [isAddFloorModalOpen, setIsAddFloorModalOpen] = useState(false);
-  const [deleteConfirmBuilding, setDeleteConfirmBuilding] = useState<Building | null>(null);
-  const [deleteBuildingError, setDeleteBuildingError] = useState<string | null>(null);
   const { showToast } = useToast();
-
-  const handleSaveBuilding = () => {
-    setIsAddModalOpen(false);
-    setEditingBuilding(null);
-    showToast("Lưu thông tin tòa nhà thành công!", "success");
-  };
 
   const handleSaveRoom = () => {
     setIsAddRoomModalOpen(false);
@@ -124,26 +109,6 @@ export default function MobileBuildingsFlow({ buildings, onOpenRoomModal }: Prop
     setExpandedFloorIds(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const handleDeleteBuilding = (building: Building) => {
-    setDeleteBuildingError(null);
-    setDeleteConfirmBuilding(building);
-  };
-
-  const confirmDeleteBuilding = () => {
-    if (!deleteConfirmBuilding) return;
-
-    deleteBuilding.mutate({ id: deleteConfirmBuilding.id, suppressToast: true }, {
-      onSuccess: () => {
-        if (expandedBuildingId === deleteConfirmBuilding.id) setExpandedBuildingId(null);
-        setDeleteConfirmBuilding(null);
-        setDeleteBuildingError(null);
-      },
-      onError: (error: any) => {
-        setDeleteBuildingError(error?.message || "Không thể xóa tòa nhà. Vui lòng kiểm tra lại dữ liệu hợp đồng.");
-      },
-    });
-  };
-
   const formatCompactMoney = (amount: number) => {
     if (amount >= 1000000) {
       return (amount / 1000000).toLocaleString("en-US", { maximumFractionDigits: 2 }) + "M";
@@ -161,7 +126,7 @@ export default function MobileBuildingsFlow({ buildings, onOpenRoomModal }: Prop
             Chưa có tòa nhà nào
           </div>
         )}
-        {buildings.map((b, buildingIndex) => {
+        {buildings.map(b => {
           let totalRooms = 0;
           let occupiedRooms = 0;
           let revenue = 0;
@@ -217,15 +182,6 @@ export default function MobileBuildingsFlow({ buildings, onOpenRoomModal }: Prop
                     <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] md:text-[11px] leading-[14px] font-[800] tabular-nums ${occupancyTone}`}>
                       {occupiedRooms}/{totalRooms} phòng
                     </span>
-                    <ActionMenu 
-                      onEdit={() => setEditingBuilding(b)} 
-                      onDelete={() => handleDeleteBuilding(b)} 
-                      onMoveUp={permissions.canUpdateBuilding ? () => moveBuilding.mutate({ id: b.id, direction: 'up' }) : undefined}
-                      onMoveDown={permissions.canUpdateBuilding ? () => moveBuilding.mutate({ id: b.id, direction: 'down' }) : undefined}
-                      disableMoveUp={buildingIndex === 0 || moveBuilding.isPending}
-                      disableMoveDown={buildingIndex === buildings.length - 1 || moveBuilding.isPending}
-                      itemName="tòa nhà" 
-                    />
                     {isExpanded ? <ChevronDown size={20} className="text-[#6366f1]" /> : <ChevronRight size={20} className="text-muted" />}
                   </div>
                 </div>
@@ -370,108 +326,6 @@ export default function MobileBuildingsFlow({ buildings, onOpenRoomModal }: Prop
           );
         })}
       </div>
-
-      {deleteConfirmBuilding && (
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-[4px]"
-            onClick={() => !deleteBuilding.isPending && setDeleteConfirmBuilding(null)}
-          />
-          <div
-            role="dialog"
-            aria-modal="true"
-            data-testid="delete-building-confirm-modal"
-            className="relative w-full max-w-[380px] overflow-hidden rounded-[18px] border border-border bg-card shadow-2xl animate-in zoom-in-95 duration-200"
-          >
-            <div className="flex min-h-11 items-center gap-2 border-b border-border/60 px-3.5 py-2">
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-rose-500/10 text-rose-500">
-                <Trash2 size={15} />
-              </div>
-              <h3 className="shrink-0 text-sm font-black text-text">Xác nhận xóa tòa nhà</h3>
-              <span className="min-w-0 truncate text-xs font-bold text-muted">• {deleteConfirmBuilding.name}</span>
-              <button
-                type="button"
-                disabled={deleteBuilding.isPending}
-                onClick={() => setDeleteConfirmBuilding(null)}
-                aria-label="Đóng cửa sổ"
-                title="Đóng"
-                className="ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-black/5 hover:text-text disabled:opacity-50"
-              >
-                <X size={16} />
-              </button>
-            </div>
-
-            <div className="p-4">
-              <p className="mb-3 text-[12px] font-medium leading-5 text-muted">
-                Bạn đang xóa <span className="font-black text-text">{deleteConfirmBuilding.name}</span>. Dữ liệu sẽ được xóa mềm khỏi danh sách vận hành.
-              </p>
-              <div className="rounded-[12px] border border-amber-500/20 bg-amber-500/10 p-3 text-[12px] font-semibold leading-5 text-amber-700 dark:text-amber-300">
-                Nếu tòa nhà còn phòng đang có hợp đồng hoạt động, hệ thống sẽ không cho xóa để tránh mất dữ liệu hợp đồng.
-              </div>
-              {deleteBuildingError && (
-                <div className="mt-3 rounded-[12px] border border-rose-500/20 bg-rose-500/10 p-3 text-[12px] font-bold leading-5 text-rose-600 dark:text-rose-300">
-                  {deleteBuildingError}
-                </div>
-              )}
-            </div>
-
-            <div className="flex items-center justify-end gap-3 border-t border-border/60 bg-black/[0.02] p-4 dark:bg-white/[0.02]">
-              <button
-                type="button"
-                disabled={deleteBuilding.isPending}
-                onClick={() => setDeleteConfirmBuilding(null)}
-                className="h-10 rounded-[10px] border border-border px-4 text-[13px] font-bold text-muted hover:bg-black/5 hover:text-text disabled:opacity-50"
-              >
-                Hủy
-              </button>
-              <button
-                type="button"
-                disabled={deleteBuilding.isPending}
-                onClick={confirmDeleteBuilding}
-                className="flex h-10 items-center justify-center rounded-[10px] bg-rose-500 px-4 text-[13px] font-bold text-white shadow-sm hover:bg-rose-600 disabled:opacity-60"
-              >
-                {deleteBuilding.isPending ? <Loader2 size={16} className="mr-2 animate-spin" /> : <Trash2 size={16} className="mr-2" />}
-                Xóa tòa nhà
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Add / Edit Building Modal */}
-      {(isAddModalOpen || editingBuilding) && (
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-[4px]" onClick={() => { setIsAddModalOpen(false); setEditingBuilding(null); }} />
-          <div className="relative bg-card w-full max-w-[400px] rounded-[16px] flex flex-col overflow-hidden shadow-2xl animate-in zoom-in-[0.98] duration-200 border border-border/80">
-            <div className="flex min-h-11 items-center justify-between border-b border-border/50 px-3.5 py-2">
-              <div className="flex min-w-0 items-center gap-2"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><Building2 size={15} /></span><h3 className="truncate text-sm font-black text-text">
-                {editingBuilding ? 'Sửa thông tin tòa nhà' : 'Thêm tòa nhà mới'}
-              </h3></div>
-              <button aria-label="Đóng cửa sổ" title="Đóng" onClick={() => { setIsAddModalOpen(false); setEditingBuilding(null); }} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:text-text hover:bg-black/5 transition-colors">
-                <X size={16} />
-              </button>
-            </div>
-            <div className="flex flex-col p-4 gap-4 overflow-y-auto max-h-[60vh]">
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[11px] font-black text-muted uppercase">Tên tòa nhà</label>
-                <input type="text" defaultValue={editingBuilding?.name || ''} placeholder="Ví dụ: LK01.31 - Riverside House" className="w-full bg-card border border-border rounded-[10px] px-3 py-2.5 text-[13px] font-bold outline-none focus:border-[#6366f1] transition-colors" />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[11px] font-black text-muted uppercase">Địa chỉ</label>
-                <input type="text" defaultValue={editingBuilding?.address || ''} placeholder="Ví dụ: 01 Đường Đào Trí, Quận 7" className="w-full bg-card border border-border rounded-[10px] px-3 py-2.5 text-[13px] font-bold outline-none focus:border-[#6366f1] transition-colors" />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[11px] font-black text-muted uppercase">Số tầng</label>
-                <input type="number" defaultValue={editingBuilding?.floors.length || 5} className="w-full bg-card border border-border rounded-[10px] px-3 py-2.5 text-[13px] font-bold outline-none focus:border-[#6366f1] transition-colors" />
-              </div>
-            </div>
-            <div className="flex p-4 border-t border-border/50 bg-black/[0.02] dark:bg-white/[0.02] gap-3 justify-end mt-auto">
-              <button onClick={() => { setIsAddModalOpen(false); setEditingBuilding(null); }} className="px-5 py-2.5 rounded-[10px] font-bold text-[13px] text-muted hover:bg-black/5 bg-transparent border border-border transition-colors">Hủy</button>
-              <button onClick={() => handleSaveBuilding()} className="px-5 py-2.5 rounded-[10px] font-bold text-[13px] text-white bg-[#6366f1] hover:bg-[#4f46e5] shadow-sm transition-colors">Lưu thông tin</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Add / Edit Room Modal */}
       {(isAddRoomModalOpen || editingRoom) && (

@@ -1,6 +1,6 @@
 {
   "name": "web",
-  "version": "3.2.13",
+  "version": "3.2.14",
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",
@@ -18,7 +18,7 @@
     "test:e2e:ui": "playwright test --ui",
     "test:release-repair": "vitest run lib/utils/report-period.test.ts lib/utils/cccd-qr-compatibility.test.ts lib/finance/equal-profit-shares.test.ts lib/api/finance-export.test.ts lib/invoices/invoice-financials.test.ts tests/unit/invoice-row-grouping.test.ts lib/utils/revenue-chart.test.ts",
     "test:legacy": "vitest run tests/unit/rental-draft-lifecycle.test.ts lib/rentals/contract-days.test.ts",
-    "test": "vitest run app.test.ts components/auth/AuthGuard.test.ts components/buildings/workspace/building-profiles.test.ts components/buildings/cockpit/building-image-maps.test.ts components/buildings/cockpit/building-cockpit-data.test.ts lib/adapters/building.adapter.test.ts lib/api/client.test.ts lib/server/expense-bill-storage.test.ts lib/server-sent-events.test.ts lib/utils/learning-store.test.ts tests/unit/room-finance-rental-cycle.test.ts tests/unit/room-status-open-occupancy.test.ts tests/unit/whole-room-representative-guard.test.ts tests/unit/tenant-existing-profile.test.ts tests/unit/tenant-email-optional.test.ts tests/unit/room-contract-dedupe.test.ts tests/unit/hunonic-snapshot-presentation.test.ts tests/unit/core07-08-billing-snapshot-presentation.test.ts tests/unit/terminal-deposit-new-cycle.test.ts tests/unit/deposit-mutations-and-invariants.test.ts tests/unit/p0-rental-intent-flow.test.ts tests/unit/p1-customer-identity-isolation.test.ts tests/unit/p5-finance-cross-tab-invalidation.test.ts tests/unit/strict-listeners.test.ts"
+    "test": "vitest run app.test.ts components/auth/AuthGuard.test.ts components/buildings/workspace/building-profiles.test.ts components/buildings/cockpit/building-image-maps.test.ts components/buildings/cockpit/building-cockpit-data.test.ts lib/adapters/building.adapter.test.ts lib/api/client.test.ts lib/server/expense-bill-storage.test.ts lib/server-sent-events.test.ts lib/utils/learning-store.test.ts tests/unit/building-directory.test.tsx tests/unit/building-cockpit-selection.test.tsx tests/unit/room-finance-rental-cycle.test.ts tests/unit/room-status-open-occupancy.test.ts tests/unit/whole-room-representative-guard.test.ts tests/unit/tenant-existing-profile.test.ts tests/unit/tenant-email-optional.test.ts tests/unit/room-contract-dedupe.test.ts tests/unit/hunonic-snapshot-presentation.test.ts tests/unit/core07-08-billing-snapshot-presentation.test.ts tests/unit/terminal-deposit-new-cycle.test.ts tests/unit/deposit-mutations-and-invariants.test.ts tests/unit/p0-rental-intent-flow.test.ts tests/unit/p1-customer-identity-isolation.test.ts tests/unit/p5-finance-cross-tab-invalidation.test.ts tests/unit/strict-listeners.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.12.0",

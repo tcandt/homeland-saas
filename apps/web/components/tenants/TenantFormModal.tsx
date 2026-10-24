@@ -3,8 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
-import { CreateCustomerSchema } from "@homeland/shared";
+import { CreateCustomerSchema, type CreateCustomerInput } from "@homeland/shared";
 import { useCreateCustomerMutation, useUpdateCustomerMutation } from "@/lib/mutations/customers.mutations";
 import { customersApi } from "@/lib/api/customers.api";
 import { formatBirthDateForDisplay, normalizeVietnameseDate, parseCccdQrPayload } from "@/lib/utils/cccd-qr";
@@ -19,7 +18,7 @@ import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
 import { useRoomsQuery } from "@/lib/queries/rooms.queries";
 import { ModalHeaderTitle } from "../ui/ModalHeaderTitle";
 
-type FormData = z.infer<typeof CreateCustomerSchema>;
+type FormData = CreateCustomerInput;
 type QrMode = "camera" | "upload" | null;
 type CropRect = { x: number; y: number; width: number; height: number };
 

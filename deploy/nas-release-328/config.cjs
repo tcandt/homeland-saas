@@ -1,12 +1,14 @@
 const fs = require('node:fs');
 const cp = require('node:child_process');
 const a = require('node:assert/strict');
-const root = '/volume1/docker/homeland/release-328-r2-20261024';
+const crypto = require('node:crypto');
+const { auditConfiguration } = require('./configuration-audit.cjs');
+const root = '/volume1/docker/homeland/release-3212-20261024';
 const docker = args => cp.execFileSync('/usr/local/bin/docker', args, { encoding: 'utf8' });
 const sha = fs.readFileSync(`${root}/source.sha`, 'utf8').trim();
 a.match(sha, /^[a-f0-9]{40}$/);
-const version = '3.2.9';
-const c = JSON.parse(fs.readFileSync('/volume1/docker/homeland/release-4fc77db1/checkout-87aa2457/compose.private.json'));
+const version = '3.2.12';
+const c = JSON.parse(fs.readFileSync('/volume1/docker/homeland/release-326-20261021/compose.private.json'));
 a.equal(c.name, 'homeland_checkout_87aa2457');
 a.deepEqual(c.services.web.ports, ['127.0.0.1:3002:3000']);
 const inspect = name => JSON.parse(docker(['inspect', name]))[0];
@@ -33,6 +35,7 @@ a.ok(version.split('.').map(Number).reduce((result, value, i) => result || Math.
 a.equal(originals.api.environment.COMMUNICATION_IMMEDIATE_DELIVERY, 'true');
 const save = (name, data) => fs.writeFileSync(`${root}/${name}`, data, { flag: 'wx', mode: 0o600 });
 save('rollback.private.json', JSON.stringify(c, null, 2));
+const rollback = structuredClone(c);
 for (const key of ['api', 'notification_worker', 'web']) {
   const role = key === 'web' ? 'web' : 'api';
   const image = fs.readFileSync(`${root}/${role}-image.id`, 'utf8').trim();
@@ -49,6 +52,7 @@ for (const key of ['api', 'notification_worker', 'web']) {
     a.equal(service.environment.DISABLE_DEPOSIT_OUTBOX, 'true');
   }
 }
+const configurationAudit = auditConfiguration(rollback, c);
 save('compose.private.json', JSON.stringify(c, null, 2));
 save('api.private.env', Object.entries(c.services.api.environment).map(([key, value]) => {
   a.ok(!/[\r\n]/.test(String(value))); return `${key}=${value}`;
@@ -60,4 +64,8 @@ for (const service of Object.values(redacted.services)) {
   if (service.environment) service.environment = Object.fromEntries(Object.keys(service.environment).map(key => [key, 'REDACTED']));
 }
 save('docker-compose.audit.yml', JSON.stringify(redacted, null, 2));
+save('configuration-audit.json', JSON.stringify(configurationAudit, null, 2));
+save('configuration-audit.sha', ['compose.private.json', 'rollback.private.json', 'api.private.env', 'docker-compose.audit.yml', 'configuration-audit.json', 'source.sha', 'api-image.id', 'web-image.id', 'ci-gate.json'].map(name =>
+  `${crypto.createHash('sha256').update(fs.readFileSync(`${root}/${name}`)).digest('hex')}  ${name}`
+).join('\n') + '\n');
 console.log(JSON.stringify({ version, source: sha, project: c.name, databaseAndVolumesPreserved: true }));

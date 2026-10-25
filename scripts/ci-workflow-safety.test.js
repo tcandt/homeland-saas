@@ -351,7 +351,7 @@ test('release version is propagated through every deploy job dependency', () => 
 
 test('CI blocks packaging when runtime audit contains high or critical findings', () => {
   const workflow = read('.github/workflows/ci-cd-pipeline.yml');
-  assert.match(workflow, /npm audit --omit=dev --json/);
+  assert.match(workflow, /npm audit --omit=dev --audit-level=high --json/);
   assert.match(workflow, /Enforce Runtime Dependency Policy/);
   assert.match(workflow, /node scripts\/runtime-audit-policy\.js security\/npm-audit\.json/);
   assert.doesNotMatch(workflow, /high:0|critical:0|const filtered=/);

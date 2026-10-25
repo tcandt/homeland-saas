@@ -44,15 +44,23 @@ rbacTest.describe('Level 3 - Production Acceptance: Full Business Workflow', () 
   });
 
   rbacTest('1. Setup Core Entities (Building, Room, Customer)', async ({ admin }) => {
-    // Fast setup via API, verify via UI
-    const building = await factory.createBuilding(testPrefix);
+    // Use the seeded building structure so acceptance runs do not create extra buildings.
+    const building = await prisma.building.findUnique({
+      where: { tenantId_code: { tenantId: admin.tenantId, code: 'LK01.31' } },
+      select: { id: true, deletedAt: true },
+    });
+    expect(building).not.toBeNull();
+    expect(building?.deletedAt).toBeNull();
+    if (!building) throw new Error('Seeded building LK01.31 is missing.');
+
+    const room = await prisma.room.findFirst({
+      where: { tenantId: admin.tenantId, buildingId: building.id, code: 'PN 31-01', deletedAt: null },
+      select: { id: true, name: true },
+    });
+    expect(room).not.toBeNull();
+    if (!room) throw new Error('Seeded room PN 31-01 in LK01.31 is missing.');
+
     createdIds.buildingId = building.id;
-    expect(await prisma.building.findFirst({ where: { id: building.id, tenantId: admin.tenantId } })).not.toBeNull();
-    
-    const floor = await factory.createFloor(testPrefix, building.id);
-    createdIds.floorId = floor.id;
-    
-    const room = await factory.createRoom(testPrefix, building.id, floor.id);
     createdIds.roomId = room.id;
     
     const customer = await factory.createCustomer(testPrefix);

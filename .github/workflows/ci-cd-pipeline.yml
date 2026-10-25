@@ -265,8 +265,15 @@ jobs:
           output: security/codeql.sarif
       - name: Run npm audit
         run: |
-          npm audit --omit=dev --json > security/npm-audit-raw.json || true
+          set +e
+          npm audit --omit=dev --audit-level=high --json > security/npm-audit-raw.json
+          audit_status=$?
+          set -e
           cp security/npm-audit-raw.json security/npm-audit.json
+          if [ "$audit_status" -ne 0 ]; then
+            echo "npm audit failed with exit code $audit_status"
+            exit "$audit_status"
+          fi
       - name: Install license-checker
         run: npm install -g license-checker
       - name: Run License Scan

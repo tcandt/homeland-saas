@@ -49,10 +49,13 @@ async function main() {
   const jobs = result.jobs.map(({ name, status, conclusion }) => ({ name, status, conclusion }));
   const gate = { sha, runId: run.id, url: run.html_url, status: run.status, conclusion: run.conclusion, jobs };
   console.log(JSON.stringify(gate));
-  if (run.status !== 'completed') return;
+  a.equal(run.status, 'completed', 'workflow is not completed');
   a.equal(run.conclusion, 'success');
   for (const name of REQUIRED_JOBS) {
-    a.equal(jobs.find(job => job.name === name)?.conclusion, 'success', name);
+    const matching = jobs.filter(job => job.name === name);
+    a.equal(matching.length, 1, `${name} job missing or duplicated`);
+    a.equal(matching[0].status, 'completed', `${name} job is not completed`);
+    a.equal(matching[0].conclusion, 'success', `${name} job did not succeed`);
   }
   fs.writeFileSync(path.join(__dirname, 'ci-gate.json'), JSON.stringify({ ...gate, capturedAt: new Date().toISOString() }, null, 2) + '\n', { flag: 'wx' });
 }

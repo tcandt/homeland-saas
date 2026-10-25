@@ -5,7 +5,7 @@ const api = JSON.parse(docker(['inspect', 'homeland_checkout_87aa2457_api']))[0]
 const env = Object.fromEntries(api.Config.Env.map(line => {
   const index = line.indexOf('='); return [line.slice(0, index), line.slice(index + 1)];
 }));
-a.equal(env.APP_VERSION, '3.2.14');
+a.equal(env.APP_VERSION, '3.2.15');
 a.equal(env.COMMUNICATION_IMMEDIATE_DELIVERY, 'true');
 for (const key of ['RUN_DB_MIGRATIONS', 'SYSTEM_BACKUP_ENABLED', 'SYSTEM_UPDATE_ALLOW_SWITCH']) a.equal(env[key], 'false');
 for (const key of ['DISABLE_SCHEDULED_JOBS', 'DISABLE_DEPOSIT_OUTBOX']) a.equal(env[key], 'true');

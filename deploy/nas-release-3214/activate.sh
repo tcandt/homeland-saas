@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 umask 077
-r=/volume1/docker/homeland/release-3214-20261024
+r=/volume1/docker/homeland/release-3215-20261025
 d=/usr/local/bin/docker
 node=/var/packages/Node.js_v22/target/usr/local/bin/node
 cd "$r"
@@ -79,4 +79,4 @@ for name in homeland_checkout_87aa2457_api homeland_checkout_87aa2457_web homela
   test "$("$d" inspect "$name" --format '{{.RestartCount}}')" = 0
 done
 accepted=true
-echo RELEASE_3_2_14_ACTIVE_DATABASE_PRESERVED
+echo RELEASE_3_2_15_ACTIVE_DATABASE_PRESERVED

@@ -12,8 +12,8 @@ async function main() {
     const payload = await response.json();
     const build = payload.data || payload;
     a.equal(build.commit, fs.readFileSync('/release/source.sha', 'utf8').trim());
-    a.equal(build.buildId, 'nas-3.2.14');
-    a.equal(build.version, '3.2.14');
+    a.equal(build.buildId, 'nas-3.2.15');
+    a.equal(build.version, '3.2.15');
     const page = await fetch(`${origin}/login`, { signal: AbortSignal.timeout(30000) });
     a.equal(page.status, 200);
     // The auth provider returns a loading shell until client hydration.

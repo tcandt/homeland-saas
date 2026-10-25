@@ -10,11 +10,11 @@ async function main() {
       const errors = [];
       page.on('pageerror', error => errors.push(error.message));
       await page.goto(`${base}/login`, { waitUntil: 'networkidle', timeout: 120000 });
-      await expect(page.getByText('v3.2.14', { exact: true })).toBeVisible();
+      await expect(page.getByText('v3.2.15', { exact: true })).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       expect(errors).toEqual([]);
       await page.screenshot({ path: `deploy/nas-release-3214/audit/login-${width}.png`, fullPage: true });
-      console.log(JSON.stringify({ width, version: '3.2.14', pageErrors: 0, overflow: false }));
+      console.log(JSON.stringify({ width, version: '3.2.15', pageErrors: 0, overflow: false }));
       await page.close();
     }
   } finally { await browser.close(); }

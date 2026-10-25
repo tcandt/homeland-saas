@@ -1,6 +1,6 @@
 {
   "name": "homeland-saas",
-  "version": "3.2.17",
+  "version": "3.2.18",
   "private": true,
   "packageManager": "npm@11.12.1",
   "workspaces": [
